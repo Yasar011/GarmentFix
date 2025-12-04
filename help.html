@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GarmentFix - Help Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0"
+      }
+    }
+    </script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { HelpCircle, ArrowLeft, Globe, ChevronDown, ChevronUp, BookOpen, Wrench, UserCheck, ShieldAlert } from 'lucide-react';
+
+        const content = {
+            en: {
+                title: "GarmentFix Help Center",
+                subtitle: "Your guide to minimizing downtime and maximizing efficiency.",
+                back: "Back to App",
+                langBtn: "हिंदी में पढ़ें",
+                categories: [
+                    {
+                        id: "general",
+                        title: "General & Login",
+                        icon: BookOpen,
+                        faqs: [
+                            { q: "What is GarmentFix?", a: "GarmentFix is a digital system used to report machine breakdowns instantly, track technician work, and manage spare parts in the factory." },
+                            { q: "I cannot log in. What should I do?", a: "Ensure you are using the correct username and password. If you forgot them, ask your Admin to reset your account. Default Admin login is 'admin' / '123'." },
+                            { q: "Does the app work offline?", a: "No, you need an active internet or Wi-Fi connection to report issues and sync data with the server." }
+                        ]
+                    },
+                    {
+                        id: "operator",
+                        title: "For Operators (Reporting Issues)",
+                        icon: ShieldAlert,
+                        faqs: [
+                            { q: "How do I report a machine breakdown?", a: "On the Login screen, click the big 'Scan QR Code' button. You do not need to log in. Scan the machine's code, enter your ID, and click Submit." },
+                            { q: "What is Priority Level?", a: "'Low' is for minor issues (e.g., thread break). 'Critical' is for major stoppages (e.g., motor fire, smoke). Mark correctly to help technicians prioritize." },
+                            { q: "I entered the wrong machine ID. Can I edit it?", a: "Once submitted, you cannot edit it. Please report the issue again with the correct ID or inform a supervisor." }
+                        ]
+                    },
+                    {
+                        id: "tech",
+                        title: "For Technicians",
+                        icon: Wrench,
+                        faqs: [
+                            { q: "How do I start a repair job?", a: "Log in, go to 'My Tasks'. Find your assigned job and click 'Scan QR to Start'. This starts the timer and marks you as 'Active'." },
+                            { q: "What if I need a spare part?", a: "While the job is active, you will see a 'Parts Used' section. Click the parts you used. If a part is not listed, click 'Request Special Part' to notify the store." },
+                            { q: "How do I claim an unassigned job?", a: "Go to your dashboard. Under 'Open Job Pool', you will see pending jobs that no one has taken. Click 'Claim Job' to assign it to yourself." },
+                            { q: "I forgot to change my status to Offline.", a: "Always toggle your status to 'Offline' in the sidebar before leaving for the day, otherwise Admins might assign you tasks while you are away." }
+                        ]
+                    },
+                    {
+                        id: "admin",
+                        title: "For Admins & Managers",
+                        icon: UserCheck,
+                        faqs: [
+                            { q: "How do I add a new machine?", a: "Go to the 'Factory Manager' tab. Select the Line, then enter the Machine ID and Type, then click 'Add Machine'." },
+                            { q: "How do I check stock levels?", a: "Go to the 'Inventory' tab. It shows all parts. Items with low stock will be highlighted in red." },
+                            { q: "How do I generate a monthly report?", a: "Go to 'Analytics'. Select 'Monthly' from the dropdown, choose the month, and click 'Print / Save PDF'." },
+                            { q: "A technician is absent but has assigned tasks.", a: "In 'Live Monitor', you can re-assign pending tasks to another available technician using the 'Assign' button." }
+                        ]
+                    }
+                ]
+            },
+            hi: {
+                title: "गारमेंटफिक्स सहायता केंद्र",
+                subtitle: "डाउनटाइम कम करने और दक्षता बढ़ाने के लिए आपकी गाइड।",
+                back: "ऐप पर वापस जाएं",
+                langBtn: "Read in English",
+                categories: [
+                    {
+                        id: "general",
+                        title: "सामान्य और लॉगिन",
+                        icon: BookOpen,
+                        faqs: [
+                            { q: "गारमेंटफिक्स क्या है?", a: "गारमेंटफिक्स एक डिजिटल सिस्टम है जिसका उपयोग मशीन की खराबी की तुरंत रिपोर्ट करने, तकनीशियन के काम को ट्रैक करने और फैक्ट्री में स्पेयर पार्ट्स के प्रबंधन के लिए किया जाता है।" },
+                            { q: "मैं लॉग इन नहीं कर पा रहा हूँ। मुझे क्या करना चाहिए?", a: "सुनिश्चित करें कि आप सही यूज़रनेम और पासवर्ड का उपयोग कर रहे हैं। यदि आप भूल गए हैं, तो अपने एडमिन से संपर्क करें। डिफ़ॉल्ट एडमिन लॉगिन 'admin' / '123' है।" },
+                            { q: "क्या ऐप बिना इंटरनेट के काम करता है?", a: "नहीं, रिपोर्ट भेजने और डेटा सिंक करने के लिए आपको इंटरनेट या वाई-फाई की आवश्यकता है।" }
+                        ]
+                    },
+                    {
+                        id: "operator",
+                        title: "ऑपरेटरों के लिए (समस्या रिपोर्टिंग)",
+                        icon: ShieldAlert,
+                        faqs: [
+                            { q: "मैं मशीन खराब होने की रिपोर्ट कैसे करूं?", a: "लॉगिन स्क्रीन पर, 'QR कोड स्कैन करें' बटन दबाएं। आपको लॉग इन करने की आवश्यकता नहीं है। मशीन का कोड स्कैन करें, अपनी आईडी डालें और सबमिट करें।" },
+                            { q: "प्रायोरिटी लेवल (प्राथमिकता) क्या है?", a: "'Low' छोटी समस्याओं के लिए है। 'Critical' बड़ी समस्याओं (जैसे मोटर जलना) के लिए है। सही विकल्प चुनें ताकि तकनीशियन जल्दी मदद कर सकें।" },
+                            { q: "मैंने गलत मशीन आईडी डाल दी। क्या मैं इसे सुधार सकता हूँ?", a: "एक बार सबमिट करने के बाद आप इसे बदल नहीं सकते। कृपया सही आईडी के साथ फिर से रिपोर्ट करें या सुपरवाइजर को बताएं।" }
+                        ]
+                    },
+                    {
+                        id: "tech",
+                        title: "तकनीशियनों के लिए",
+                        icon: Wrench,
+                        faqs: [
+                            { q: "मैं मरम्मत का काम कैसे शुरू करूं?", a: "लॉग इन करें, 'My Tasks' पर जाएं। अपना काम खोजें और 'Scan QR to Start' पर क्लिक करें। इससे टाइमर शुरू हो जाएगा।" },
+                            { q: "अगर मुझे स्पेयर पार्ट की जरूरत हो तो?", a: "काम करते समय, 'Parts Used' सेक्शन में उन पार्ट्स पर क्लिक करें जो आपने बदले हैं। अगर पार्ट लिस्ट में नहीं है, तो 'Request Special Part' पर क्लिक करें।" },
+                            { q: "मैं अनअसाइन जॉब (खुला काम) कैसे लूँ?", a: "अपने डैशबोर्ड पर 'Open Job Pool' देखें। वहां वे काम दिखेंगे जो किसी को नहीं मिले हैं। 'Claim Job' पर क्लिक करके उसे अपने नाम करें।" },
+                            { q: "मैं ऑफलाइन होना भूल गया।", a: "जाने से पहले साइडबार में अपना स्टेटस 'Offline' करें, वरना एडमिन आपको काम भेज सकते हैं जब आप उपलब्ध नहीं होंगे।" }
+                        ]
+                    },
+                    {
+                        id: "admin",
+                        title: "एडमिन और मैनेजर्स के लिए",
+                        icon: UserCheck,
+                        faqs: [
+                            { q: "मैं नई मशीन कैसे जोड़ूं?", a: "'Factory Manager' टैब पर जाएं। लाइन चुनें, मशीन आईडी और टाइप डालें, फिर 'Add Machine' पर क्लिक करें।" },
+                            { q: "स्टॉक कैसे चेक करें?", a: "'Inventory' टैब पर जाएं। जिन सामानों का स्टॉक कम है, वे लाल रंग में दिखाई देंगे।" },
+                            { q: "मासिक रिपोर्ट कैसे निकालें?", a: "'Analytics' पर जाएं। ड्रॉपडाउन से 'Monthly' चुनें, महीना चुनें और 'Print / Save PDF' पर क्लिक करें।" },
+                            { q: "तकनीशियन अनुपस्थित है लेकिन उसके पास काम है।", a: "'Live Monitor' में, आप पेंडिंग कार्यों को किसी अन्य उपलब्ध तकनीशियन को 'Assign' बटन का उपयोग करके सौंप सकते हैं।" }
+                        ]
+                    }
+                ]
+            }
+        };
+
+        const HelpPage = () => {
+            const [lang, setLang] = useState('en');
+            const [openSection, setOpenSection] = useState(null);
+            
+            const t = content[lang];
+
+            const toggleSection = (idx) => {
+                setOpenSection(openSection === idx ? null : idx);
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-50 font-sans">
+                    {/* Header */}
+                    <div className="bg-slate-900 text-white p-6 shadow-lg">
+                        <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-blue-600 p-2 rounded-lg">
+                                    <HelpCircle className="w-8 h-8" />
+                                </div>
+                                <div>
+                                    <h1 className="text-2xl font-bold">{t.title}</h1>
+                                    <p className="text-blue-200 text-sm">{t.subtitle}</p>
+                                </div>
+                            </div>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => setLang(lang === 'en' ? 'hi' : 'en')}
+                                    className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+                                >
+                                    <Globe className="w-4 h-4" />
+                                    {t.langBtn}
+                                </button>
+                                <a 
+                                    href="index.html" 
+                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-colors"
+                                >
+                                    <ArrowLeft className="w-4 h-4" />
+                                    {t.back}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="max-w-3xl mx-auto p-6 space-y-8">
+                        {t.categories.map((cat, catIdx) => (
+                            <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center gap-3">
+                                    <cat.icon className="w-6 h-6 text-blue-600" />
+                                    <h2 className="text-xl font-bold text-slate-800">{cat.title}</h2>
+                                </div>
+                                <div className="divide-y divide-slate-100">
+                                    {cat.faqs.map((faq, i) => {
+                                        const uniqueId = `${catIdx}-${i}`;
+                                        const isOpen = openSection === uniqueId;
+                                        return (
+                                            <div key={i}>
+                                                <button 
+                                                    onClick={() => toggleSection(uniqueId)}
+                                                    className="w-full flex justify-between items-center p-4 text-left hover:bg-slate-50 transition-colors"
+                                                >
+                                                    <span className="font-medium text-slate-700 pr-4">{faq.q}</span>
+                                                    {isOpen ? <ChevronUp className="w-5 h-5 text-blue-500 shrink-0"/> : <ChevronDown className="w-5 h-5 text-slate-400 shrink-0"/>}
+                                                </button>
+                                                {isOpen && (
+                                                    <div className="p-4 pt-0 text-slate-600 text-sm leading-relaxed bg-slate-50/50">
+                                                        {faq.a}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="text-center p-8 text-slate-400 text-sm">
+                        &copy; 2024 GarmentFix System. Need more help? Contact Admin.
+                    </div>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<HelpPage />);
+    </script>
+</body>
+</html>
