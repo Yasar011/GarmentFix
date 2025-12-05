@@ -7,6 +7,9 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- ADDED: QR Code Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 
     <script type="importmap">
     {
@@ -31,7 +34,7 @@
           LayoutDashboard, PlusCircle, Factory, Printer, QrCode, 
           Building, Trash2, Loader2, LogOut, Wrench, AlertTriangle, 
           CheckCircle, Settings, Layers, Zap, ChevronDown, ChevronRight, 
-          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3
+          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3, ScanLine, X, Search
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
         import { getAuth, signInAnonymously } from "firebase/auth";
@@ -111,15 +114,42 @@
             )
         }
 
+        // --- NEW: QR SCANNER COMPONENT ---
+        const QRScanner = ({ onScan, onClose, title }) => {
+            useEffect(() => {
+                const onScanSuccess = (decodedText) => {
+                    html5QrcodeScanner.clear().then(() => {
+                        onScan(decodedText);
+                    }).catch(err => console.error("Failed to clear scanner", err));
+                };
+
+                const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
+                html5QrcodeScanner.render(onScanSuccess, (error) => {});
+
+                return () => { try { html5QrcodeScanner.clear(); } catch(e) {} };
+            }, [onScan]);
+
+            return (
+                <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col items-center justify-center p-4">
+                    <div className="bg-white rounded-xl w-full max-w-md overflow-hidden relative">
+                        <div className="p-3 bg-slate-900 text-white flex justify-between items-center">
+                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title || "Scan QR Code"}</h3>
+                            <button onClick={onClose}><X className="w-5 h-5"/></button>
+                        </div>
+                        <div className="p-4 bg-black"><div id="reader" className="w-full"></div></div>
+                        <div className="p-4 text-center text-sm text-slate-500">Point camera at machine QR code</div>
+                    </div>
+                </div>
+            );
+        };
+
         // --- DATA HOOK ---
         const useFactoryData = () => {
             const [data, setData] = useState({ buildings: [], floors: [], lines: [], machines: [], users: [] });
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
-                // Anonymous Auth for Database Access
                 signInAnonymously(auth).catch(console.error);
-
                 const endpoints = ['buildings', 'floors', 'lines', 'machines', 'users'];
                 const unsubscribers = endpoints.map(endpoint => {
                     return onValue(ref(db, endpoint), (snapshot) => {
@@ -184,12 +214,15 @@
         // --- MAIN MANAGER COMPONENT ---
         const FactoryManagerApp = () => {
             const { buildings, floors, lines, machines, users, floorsMap, linesMap, machinesMap, loading } = useFactoryData();
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
             const [expandedBuildings, setExpandedBuildings] = useState({});
+            const [highlightedMachine, setHighlightedMachine] = useState(null);
             
             // ADMIN MODE State
             const [adminMode, setAdminMode] = useState(false);
             const [showAuthModal, setShowAuthModal] = useState(false);
             const [authError, setAuthError] = useState("");
+            const [showScanner, setShowScanner] = useState(false);
 
             // Form States
             const [newBuilding, setNewBuilding] = useState("");
@@ -256,11 +289,65 @@
                 }
             };
 
+            // SCAN TO FIND HANDLER
+            const handleScanFind = (data) => {
+                // Find machine by ID or Name
+                const machine = machines.find(m => m.id === data || m.name === data);
+                
+                if (machine) {
+                    // Find hierarchy
+                    const line = lines.find(l => l.id === machine.lineId);
+                    const floor = floors.find(f => f.id === line?.floorId);
+                    const building = buildings.find(b => b.id === floor?.buildingId);
+                    
+                    if (building) {
+                        // Auto-Expand the building
+                        setExpandedBuildings(prev => ({ ...prev, [building.id]: true }));
+                        setHighlightedMachine(machine.id);
+                        setShowScanner(false);
+                        
+                        // Scroll to element after delay
+                        setTimeout(() => {
+                            const element = document.getElementById(`machine-${machine.id}`);
+                            if(element) element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }, 500);
+
+                        // Clear highlight after 5 seconds
+                        setTimeout(() => setHighlightedMachine(null), 5000);
+                    }
+                } else {
+                    alert("Machine not found in directory.");
+                    setShowScanner(false);
+                }
+            };
+
+            // --- LOGIN SCREEN ---
+            const [initialCreds, setInitialCreds] = useState({u: '', p: ''});
+            if (!isAuthenticated) {
+                return (
+                    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+                        <Card className="w-full max-w-md p-8">
+                            <div className="text-center mb-8">
+                                <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Factory className="w-8 h-8 text-indigo-600" /></div>
+                                <h1 className="text-2xl font-bold text-slate-800">Factory Manager</h1>
+                                <p className="text-slate-500">Admin Configuration Tool</p>
+                            </div>
+                            <form onSubmit={(e) => { e.preventDefault(); if(checkCredentials(initialCreds.u, initialCreds.p)) setIsAuthenticated(true); else alert("Invalid credentials."); }} className="space-y-4">
+                                <input className="w-full p-3 border rounded-lg" placeholder="Username" value={initialCreds.u} onChange={e => setInitialCreds({...initialCreds, u: e.target.value})} />
+                                <input className="w-full p-3 border rounded-lg" type="password" placeholder="Password" value={initialCreds.p} onChange={e => setInitialCreds({...initialCreds, p: e.target.value})} />
+                                <Button className="w-full">Access Tool</Button>
+                            </form>
+                        </Card>
+                    </div>
+                );
+            }
+
             if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-indigo-600" /></div>;
 
             return (
                 <div className="min-h-screen flex flex-col md:flex-row">
                     <AuthModal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setAuthError(""); }} onConfirm={handleAuthSubmit} error={authError} />
+                    {showScanner && <QRScanner onScan={handleScanFind} onClose={() => setShowScanner(false)} title="Scan to Find Machine" />}
 
                     {/* --- SIDEBAR FORMS (HIDDEN UNLESS UNLOCKED) --- */}
                     {adminMode && (
@@ -337,6 +424,14 @@
                                     <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><LayoutDashboard className="text-indigo-600"/> Factory Directory</h2>
                                     
                                     <div className="flex items-center gap-3">
+                                        {/* SCANNER BUTTON */}
+                                        <button 
+                                            onClick={() => setShowScanner(true)} 
+                                            className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-50 shadow-sm"
+                                        >
+                                            <ScanLine className="w-4 h-4" /> Scan Machine
+                                        </button>
+
                                         {/* ADMIN UNLOCK BUTTON */}
                                         {!adminMode ? (
                                             <button 
@@ -353,6 +448,10 @@
                                                 <Unlock className="w-4 h-4" /> Lock Console
                                             </button>
                                         )}
+
+                                        <button onClick={() => setIsAuthenticated(false)} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-300">
+                                            <LogOut className="w-4 h-4"/> Logout
+                                        </button>
                                     </div>
                                 </div>
 
@@ -441,7 +540,11 @@
                                                                         </div>
                                                                         <div className="space-y-1 max-h-48 overflow-y-auto">
                                                                             {(machinesMap[line.id] || []).map(machine => (
-                                                                                <div key={machine.id} className="flex justify-between items-center p-2 bg-white rounded border border-slate-100 text-xs shadow-sm hover:border-indigo-200 transition-colors">
+                                                                                <div 
+                                                                                    key={machine.id} 
+                                                                                    id={`machine-${machine.id}`}
+                                                                                    className={`flex justify-between items-center p-2 rounded border text-xs shadow-sm transition-all duration-500 ${highlightedMachine === machine.id ? 'bg-yellow-100 border-yellow-400 ring-2 ring-yellow-300' : 'bg-white border-slate-100 hover:border-indigo-200'}`}
+                                                                                >
                                                                                     <div>
                                                                                         <div className="flex items-center gap-2 truncate">
                                                                                             <div className={`w-2 h-2 rounded-full flex-shrink-0 ${machine.status === 'Running' ? 'bg-green-500' : machine.status === 'Pending' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500'}`} title={machine.status}></div>
