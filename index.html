@@ -11,7 +11,10 @@
     <!-- 2. Load Babel to compile React code in the browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- 3. Define where to import libraries from (Import Map) -->
+    <!-- 3. Load HTML5-QRCode Library for Scanning -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- 4. Define where to import libraries from (Import Map) -->
     <script type="importmap">
     {
       "imports": {
@@ -19,6 +22,7 @@
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
         "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
         "firebase/database": "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js"
       }
     }
@@ -42,7 +46,7 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo, useCallback } from 'react';
+        import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { 
           QrCode, ClipboardList, Wrench, LayoutDashboard, PlusCircle, AlertTriangle, 
@@ -50,10 +54,11 @@
           Building, History, X, Wifi, Database, Trash2, Loader2, User, LogOut, 
           Lock, MapPin, Briefcase, UserCheck, UserX, RefreshCw, Hand, Activity, 
           Settings, Package, BarChart2, AlertOctagon, CalendarClock, TrendingUp,
-          ShoppingBag, MessageSquare, Camera, HelpCircle,
+          ShoppingBag, MessageSquare, Camera, HelpCircle, LogIn,
           FileText, Calendar, Filter, Search, Edit
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
+        import { getAuth, signInAnonymously } from "firebase/auth";
         import { getDatabase, ref, push, update, onValue, set, remove, get } from "firebase/database";
 
         // --- 1. CONFIGURATION & SERVICES ---
@@ -69,6 +74,7 @@
         };
 
         const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
         const db = getDatabase(app);
 
         // API Layer
@@ -114,19 +120,23 @@
         const useFactoryData = () => {
             const [data, setData] = useState({ users: [], buildings: [], floors: [], lines: [], machines: [], logs: [], parts: [], partRequests: [] });
             const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
 
             useEffect(() => {
+                signInAnonymously(auth).catch(console.error);
                 const endpoints = ['users', 'buildings', 'floors', 'lines', 'machines', 'logs', 'parts', 'partRequests'];
+                let loadedCount = 0;
                 const unsubscribers = endpoints.map(endpoint => {
                     return onValue(ref(db, endpoint), (snapshot) => {
                         const val = snapshot.val();
                         const list = val ? Object.keys(val).map(key => ({id: key, ...val[key]})) : [];
                         setData(prev => ({ ...prev, [endpoint]: list }));
-                        if(endpoint === 'machines') setLoading(false);
-                    }, (error) => {
-                        console.error(`Error loading ${endpoint}:`, error);
-                        // Stop loading if machines fail to load to prevent infinite spinner
-                        if(endpoint === 'machines') setLoading(false);
+                        loadedCount++;
+                        if(loadedCount >= 1) setLoading(false); 
+                    }, (err) => {
+                        console.error(`Error loading ${endpoint}:`, err);
+                        setError(`Firebase Error: ${err.code || err.message}. Check Database Rules.`);
+                        setLoading(false);
                     });
                 });
                 return () => unsubscribers.forEach(unsub => unsub());
@@ -138,14 +148,24 @@
                 machinesMap: data.machines.reduce((acc, m) => { (acc[m.lineId] = acc[m.lineId] || []).push(m); return acc; }, {})
             }), [data.floors, data.lines, data.machines]);
 
-            return { ...data, ...maps, loading };
+            return { ...data, ...maps, loading, error };
         };
 
         // --- 3. UI COMPONENTS ---
-        const LoadingOverlay = ({ message }) => (
+        const LoadingOverlay = ({ message, error }) => (
           <div className="fixed inset-0 bg-slate-900/90 flex flex-col items-center justify-center z-[100] text-white backdrop-blur-sm">
-            <Loader2 className="w-16 h-16 animate-spin text-blue-500 mb-4" />
-            <h3 className="text-2xl font-bold">{message || "Processing..."}</h3>
+            {error ? (
+                <div className="text-center p-8 bg-white text-red-600 rounded-xl">
+                    <AlertTriangle className="w-16 h-16 mx-auto mb-4" />
+                    <h3 className="text-xl font-bold mb-2">Connection Error</h3>
+                    <p>{error}</p>
+                </div>
+            ) : (
+                <>
+                    <Loader2 className="w-16 h-16 animate-spin text-blue-500 mb-4" />
+                    <h3 className="text-2xl font-bold">{message || "Connecting to Factory..."}</h3>
+                </>
+            )}
           </div>
         );
 
@@ -159,7 +179,7 @@
             const variants = {
                 primary: "bg-blue-600 text-white hover:bg-blue-700",
                 secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                danger: "bg-red-500 text-white hover:bg-red-600",
+                danger: "bg-red-50 text-white hover:bg-red-600",
                 success: "bg-green-600 text-white hover:bg-green-700",
                 warning: "bg-yellow-500 text-white hover:bg-yellow-600",
                 outline: "border border-slate-300 text-slate-600 hover:bg-slate-50"
@@ -202,9 +222,75 @@
             );
         };
 
+        // --- NEW: QR SCANNER COMPONENT ---
+        const QRScanner = ({ onScan, onClose, title }) => {
+            useEffect(() => {
+                const onScanSuccess = (decodedText) => {
+                    // Stop scanning and return text
+                    html5QrcodeScanner.clear().then(() => {
+                        onScan(decodedText);
+                    }).catch(err => console.error("Failed to clear scanner", err));
+                };
+
+                const html5QrcodeScanner = new Html5QrcodeScanner(
+                    "reader", 
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    /* verbose= */ false
+                );
+                
+                html5QrcodeScanner.render(onScanSuccess, (error) => {
+                    // Ignored primarily to avoid console spam on every frame
+                });
+
+                return () => {
+                    try { html5QrcodeScanner.clear(); } catch(e) {}
+                };
+            }, [onScan]);
+
+            return (
+                <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col items-center justify-center p-4">
+                    <div className="bg-white rounded-xl w-full max-w-md overflow-hidden relative">
+                        <div className="p-3 bg-slate-900 text-white flex justify-between items-center">
+                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title || "Scan QR Code"}</h3>
+                            <button onClick={onClose}><X className="w-5 h-5"/></button>
+                        </div>
+                        <div className="p-4 bg-black">
+                            <div id="reader" className="w-full"></div>
+                        </div>
+                        <div className="p-4 text-center text-sm text-slate-500">
+                            Point camera at machine QR code
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // --- 4. FEATURE VIEWS ---
 
-        const LoginView = ({ onLogin, onReset, onOpenScanner, error }) => {
+        const LoginModal = ({ isOpen, onClose, onLogin, error }) => {
+            const [creds, setCreds] = useState({username: "", password: ""});
+            if(!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <Card className="w-full max-w-sm p-6 relative bg-white">
+                        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                        <div className="text-center mb-6">
+                            <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2"><User className="w-6 h-6 text-blue-600" /></div>
+                            <h2 className="text-xl font-bold text-slate-800">Staff Login</h2>
+                            <p className="text-slate-500 text-sm">Access Technician or Admin Tools</p>
+                        </div>
+                        {error && <div className="bg-red-50 text-red-600 p-2 text-sm rounded mb-4 font-bold border border-red-200 text-center">{error}</div>}
+                        <form onSubmit={(e) => { e.preventDefault(); onLogin(creds.username, creds.password); }} className="space-y-4">
+                            <input type="text" className="w-full p-2 border rounded-lg" placeholder="Username" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} autoFocus />
+                            <input type="password" className="w-full p-2 border rounded-lg" placeholder="Password" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
+                            <Button fullWidth size="md">Login</Button>
+                        </form>
+                    </Card>
+                </div>
+            );
+        };
+
+        const LoginView = ({ onLogin, onOpenScanner, error }) => {
             const [creds, setCreds] = useState({username: "", password: ""});
             return (
                 <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
@@ -216,14 +302,10 @@
                         </div>
                         {error && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm font-bold border border-red-200">{error}</div>}
                         <form onSubmit={(e) => { e.preventDefault(); onLogin(creds.username, creds.password); }} className="space-y-4">
-                            <input type="text" className="w-full p-3 border rounded-lg" placeholder="admin" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} />
-                            <input type="password" className="w-full p-3 border rounded-lg" placeholder="123" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
+                            <input type="text" className="w-full p-3 border rounded-lg" placeholder="Username" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} autoFocus />
+                            <input type="password" className="w-full p-3 border rounded-lg" placeholder="Password" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
                             <Button fullWidth size="lg">Sign In</Button>
                         </form>
-                        <div className="mt-6 pt-4 border-t text-center text-xs text-slate-400">
-                            <p className="mb-2">Master Key: <strong>admin</strong> / <strong>123</strong></p>
-                            <button onClick={() => confirm("Reset all users?") && onReset()} className="text-red-400 hover:text-red-600 flex items-center gap-1 mx-auto mt-4"><Trash2 className="w-3 h-3" /> Emergency Reset</button>
-                        </div>
                     </Card>
                     <button onClick={onOpenScanner} className="w-full max-w-md bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-xl flex items-center justify-center gap-3 shadow-lg transition-transform hover:scale-[1.02]">
                         <div className="bg-white/20 p-2 rounded-full"><QrCode className="w-6 h-6" /></div>
@@ -236,6 +318,18 @@
         const KioskView = ({ machines, onReport, onClose }) => {
             const [selectedMachine, setSelectedMachine] = useState(null);
             const [form, setForm] = useState({ issue: "", priority: "Normal", opName: "", opId: "" });
+            const [showScanner, setShowScanner] = useState(false);
+
+            const handleScan = (data) => {
+                const machine = machines.find(m => m.id === data || m.name === data);
+                if (machine) {
+                    setSelectedMachine(machine);
+                    setShowScanner(false);
+                } else {
+                    alert("Machine not found: " + data);
+                    setShowScanner(false);
+                }
+            };
 
             const handleSubmit = () => {
                 if(selectedMachine && form.issue && form.opName && form.opId) {
@@ -246,6 +340,8 @@
 
             return (
                 <div className="fixed inset-0 bg-white z-50 flex flex-col">
+                    {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} title="Scan Machine QR" />}
+                    
                     <div className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md shrink-0">
                         <h2 className="text-xl font-bold flex items-center gap-2"><ScanLine className="w-6 h-6 text-blue-400"/> Scan To Report</h2>
                         <Button variant="secondary" onClick={onClose}><X className="w-4 h-4"/> Close</Button>
@@ -253,7 +349,13 @@
                     <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
                         {!selectedMachine ? (
                             <div className="max-w-4xl mx-auto">
-                                <p className="text-center text-slate-500 mb-6">Select a machine to simulate scanning:</p>
+                                <div className="text-center mb-8">
+                                    <button onClick={() => setShowScanner(true)} className="bg-blue-600 text-white p-6 rounded-full shadow-xl hover:bg-blue-700 transition-transform hover:scale-110 mb-4">
+                                        <Camera className="w-12 h-12" />
+                                    </button>
+                                    <p className="text-slate-600 font-bold text-lg">Tap Camera to Scan Machine</p>
+                                    <p className="text-slate-400 text-sm">Or select manually below</p>
+                                </div>
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                     {machines.slice(0, 50).map(m => (
                                         <button key={m.id} onClick={() => setSelectedMachine(m)} className="p-4 bg-white border rounded-xl hover:border-blue-500 hover:shadow-md text-left group">
@@ -292,7 +394,7 @@
             );
         };
 
-        const LiveMonitor = ({ machines, users, onAssign }) => {
+        const LiveMonitor = ({ machines, users, onAssign, currentUser }) => {
             const pending = machines.filter(m => m.status === "Pending");
             const [modal, setModal] = useState(null);
             const [selTech, setSelTech] = useState("");
@@ -323,7 +425,7 @@
                                             <div className="text-xs text-red-600">{m.issue}</div>
                                             {m.reportedBy && <div className="text-[10px] text-blue-600 mt-1">Rep: {m.reportedBy}</div>}
                                         </div>
-                                        {!m.assignedTo ? <Button size="sm" onClick={() => setModal(m)}>Assign</Button> : <span className="text-xs bg-slate-100 px-2 py-1 rounded">Wait List</span>}
+                                        {!m.assignedTo && currentUser.role !== 'viewer' ? <Button size="sm" onClick={() => setModal(m)}>Assign</Button> : <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{m.assignedTo ? "Assigned" : "Waiting"}</span>}
                                     </div>
                                 ))}
                                 {pending.length === 0 && <p className="text-slate-400 italic">No pending issues.</p>}
@@ -518,7 +620,10 @@
                         <Card className="p-6 border-t-4 border-t-blue-600 print-break-inside">
                             <div className="flex justify-between items-start mb-6">
                                 <div>
-                                    <h2 className="text-2xl font-bold text-slate-900">{selectedMachine.name}</h2>
+                                    <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                                        {selectedMachine.name}
+                                        {selectedMachine.year && <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded">Est. {selectedMachine.year}</span>}
+                                    </h2>
                                     <p className="text-slate-500">{selectedMachine.type} • ID: {selectedMachine.id}</p>
                                 </div>
                                 <Badge status={selectedMachine.status} />
@@ -583,167 +688,6 @@
             );
         };
 
-        const FactoryManager = ({ buildings, floorsMap, linesMap, machinesMap, onAddBuilding, onAddFloor, onAddLine, onAddMachine }) => {
-            const [newBuilding, setNewBuilding] = useState("");
-            const [newFloor, setNewFloor] = useState({ name: "", buildingId: "" });
-            const [newLine, setNewLine] = useState({ name: "", floorId: "" });
-            const [newMachine, setNewMachine] = useState({ name: "", type: "", year: "", lineId: "" });
-
-            // --- QR Code Printing Logic ---
-            const handlePrintQRs = (title, machinesList) => {
-                if(!machinesList || machinesList.length === 0) return alert("No machines found to print.");
-                
-                const printWindow = window.open('', '_blank');
-                printWindow.document.write(`
-                    <html>
-                    <head>
-                        <title>QR Codes - ${title}</title>
-                        <style>
-                            body { font-family: sans-serif; padding: 20px; }
-                            .header { text-align: center; margin-bottom: 20px; }
-                            .grid { display: grid; grid-template-columns: repeat(auto-fill, 160px); gap: 15px; justify-content: center; }
-                            .card { border: 2px solid #000; padding: 10px; text-align: center; page-break-inside: avoid; border-radius: 8px; width: 160px; height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-                            img { width: 100px; height: 100px; object-fit: contain; }
-                            .name { font-weight: bold; font-size: 14px; margin-top: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
-                            .id { font-size: 12px; color: #333; font-family: monospace; }
-                            @media print {
-                                .no-print { display: none; }
-                                body { padding: 0; }
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="header no-print">
-                            <h1>QR Codes: ${title}</h1>
-                            <p>Total Machines: ${machinesList.length}</p>
-                            <button onclick="window.print()" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 5px;">Print Labels</button>
-                        </div>
-                        <div class="grid">
-                            ${machinesList.map(m => `
-                                <div class="card">
-                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${m.id}" alt="${m.name}" />
-                                    <div class="name">${m.name}</div>
-                                    <div class="id">${m.id}</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </body>
-                    </html>
-                `);
-                printWindow.document.close();
-            };
-
-            const getMachinesForFloor = (fId) => {
-                const lines = linesMap[fId] || [];
-                return lines.flatMap(l => machinesMap[l.id] || []);
-            };
-
-            const getMachinesForBuilding = (bId) => {
-                const floors = floorsMap[bId] || [];
-                return floors.flatMap(f => getMachinesForFloor(f.id));
-            };
-
-            return (
-                <div className="space-y-8">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <Card className="p-6 h-fit border-t-4 border-t-blue-500">
-                            <h3 className="font-bold text-lg mb-4">Add Building</h3>
-                            <div className="space-y-3">
-                                <input className="w-full p-2 border rounded" placeholder="Name" value={newBuilding} onChange={e => setNewBuilding(e.target.value)} />
-                                <Button onClick={() => { onAddBuilding(newBuilding); setNewBuilding(""); }} className="w-full">Add</Button>
-                            </div>
-                        </Card>
-                        <Card className="p-6 h-fit border-t-4 border-t-indigo-500">
-                            <h3 className="font-bold text-lg mb-4">Add Floor</h3>
-                            <div className="space-y-3">
-                                <select className="w-full p-2 border rounded" value={newFloor.buildingId} onChange={e => setNewFloor({...newFloor, buildingId: e.target.value})}>
-                                    <option value="">Select Building</option>
-                                    {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                                </select>
-                                <input className="w-full p-2 border rounded" placeholder="Floor" value={newFloor.name} onChange={e => setNewFloor({...newFloor, name: e.target.value})} />
-                                <Button onClick={() => { onAddFloor(newFloor); setNewFloor({name: "", buildingId: ""}); }} className="w-full">Add</Button>
-                            </div>
-                        </Card>
-                        <Card className="p-6 h-fit border-t-4 border-t-purple-500">
-                            <h3 className="font-bold text-lg mb-4">Add Line</h3>
-                            <div className="space-y-3">
-                                <select className="w-full p-2 border rounded" value={newLine.floorId} onChange={e => setNewLine({...newLine, floorId: e.target.value})}>
-                                    <option value="">Select Floor</option>
-                                    {Object.keys(floorsMap).map(bId => (
-                                        <optgroup key={bId} label={buildings.find(b=>b.id===bId)?.name}>
-                                            {floorsMap[bId].map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                                        </optgroup>
-                                    ))}
-                                </select>
-                                <input className="w-full p-2 border rounded" placeholder="Line Name" value={newLine.name} onChange={e => setNewLine({...newLine, name: e.target.value})} />
-                                <Button onClick={() => { onAddLine(newLine); setNewLine({name: "", floorId: ""}); }} className="w-full">Add</Button>
-                            </div>
-                        </Card>
-                        <Card className="p-6 h-fit border-t-4 border-t-pink-500">
-                            <h3 className="font-bold text-lg mb-4">Add Machine</h3>
-                            <div className="space-y-3">
-                                <select className="w-full p-2 border rounded" value={newMachine.lineId} onChange={e => setNewMachine({...newMachine, lineId: e.target.value})}>
-                                    <option value="">Select Line</option>
-                                    {Object.keys(linesMap).map(fId => (
-                                        linesMap[fId].map(l => <option key={l.id} value={l.id}>{l.name}</option>)
-                                    ))}
-                                </select>
-                                <input className="w-full p-2 border rounded" placeholder="Machine ID" value={newMachine.name} onChange={e => setNewMachine({...newMachine, name: e.target.value})} />
-                                <Button onClick={() => { onAddMachine(newMachine); setNewMachine({name: "", type: "", year: "", lineId: ""}); }} className="w-full">Add</Button>
-                            </div>
-                        </Card>
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-800 border-t pt-8">Facility Overview</h3>
-                    <div className="space-y-8">
-                        {buildings.map(b => (
-                            <div key={b.id} className="border-2 border-slate-300 rounded-xl p-4 bg-slate-50">
-                                <div className="flex justify-between items-center mb-4 bg-white p-3 rounded shadow-sm">
-                                    <h4 className="font-bold text-xl text-slate-800 flex items-center gap-2"><Building className="w-6 h-6 text-blue-600" /> {b.name}</h4>
-                                    <Button size="sm" variant="outline" onClick={() => handlePrintQRs(b.name, getMachinesForBuilding(b.id))}><Printer className="w-4 h-4" /> Print Building QRs</Button>
-                                </div>
-                                <div className="pl-4 border-l-2 border-slate-300 space-y-6">
-                                    {(floorsMap[b.id] || []).map(floor => (
-                                        <div key={floor.id}>
-                                            <div className="flex items-center gap-4 mb-3">
-                                                <h5 className="font-bold text-lg text-slate-600 flex items-center gap-2"><LayoutDashboard className="w-4 h-4" /> {floor.name}</h5>
-                                                <button onClick={() => handlePrintQRs(`${b.name} - ${floor.name}`, getMachinesForFloor(floor.id))} className="text-xs flex items-center gap-1 text-slate-500 hover:text-blue-600 border px-2 py-1 rounded bg-white"><Printer className="w-3 h-3"/> Print Floor QRs</button>
-                                            </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {(linesMap[floor.id] || []).map(line => (
-                                                    <Card key={line.id} className="p-4">
-                                                        <div className="flex justify-between items-center mb-3">
-                                                            <h5 className="font-bold text-slate-800">{line.name}</h5>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs text-slate-500 bg-slate-200 px-2 py-1 rounded">{(machinesMap[line.id] || []).length} M/C</span>
-                                                                <button onClick={() => handlePrintQRs(`${floor.name} - ${line.name}`, machinesMap[line.id] || [])} title="Print Line QRs" className="p-1 hover:bg-blue-100 rounded text-slate-600"><Printer className="w-4 h-4"/></button>
-                                                            </div>
-                                                        </div>
-                                                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                                                            {(machinesMap[line.id] || []).map(machine => (
-                                                                <div key={machine.id} className="flex justify-between items-center p-2 bg-white rounded border text-sm shadow-sm">
-                                                                    <span className="font-medium truncate w-24">{machine.name}</span>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <button onClick={() => handlePrintQRs(machine.name, [machine])} title="Print QR" className="text-slate-400 hover:text-blue-600"><QrCode className="w-4 h-4"/></button>
-                                                                        {machine.status === "Pending" && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                                                                        {machine.status === "In Progress" && <Wrench className="w-4 h-4 text-yellow-500" />}
-                                                                        <div className={`w-3 h-3 rounded-full ${machine.status === 'Running' ? 'bg-green-500' : machine.status === 'Pending' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500'}`}></div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </Card>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        };
-
         const TechnicianTaskBoard = ({ currentUser, machines, parts, onScanStart, onComplete, onSelfAssign, onRequestPart, logs }) => {
             const priorityOrder = { "Critical": 0, "Normal": 1, "Low": 2 };
             const myTasks = machines.filter(m => m.assignedTo === currentUser.id && m.status === 'Pending').sort((a, b) => (priorityOrder[a.priority] || 1) - (priorityOrder[b.priority] || 1));
@@ -754,6 +698,8 @@
             const [requestPartName, setRequestPartName] = useState("");
             const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
             const [viewHistory, setViewHistory] = useState(false);
+            const [showScanner, setShowScanner] = useState(false);
+            const [scanTargetId, setScanTargetId] = useState(null);
 
             const togglePart = (partId) => {
                 if(selectedParts.includes(partId)) setSelectedParts(selectedParts.filter(id => id !== partId));
@@ -761,6 +707,25 @@
             };
 
             const myHistory = logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed').slice().reverse();
+
+            const handleScanStart = (taskId) => {
+                setScanTargetId(taskId);
+                setShowScanner(true);
+            };
+
+            const handleScanVerify = (scannedData) => {
+                const machine = machines.find(m => m.id === scannedData || m.name === scannedData);
+                const targetTask = machines.find(m => m.id === scanTargetId);
+
+                if (machine && targetTask && machine.id === targetTask.id) {
+                    onScanStart(scanTargetId);
+                    setShowScanner(false);
+                    setScanTargetId(null);
+                } else {
+                    alert("Incorrect Machine! You scanned " + (machine ? machine.name : scannedData) + " but expected " + (targetTask ? targetTask.name : "Unknown"));
+                    setShowScanner(false);
+                }
+            };
 
             if (viewHistory) {
                 return (
@@ -783,6 +748,8 @@
 
             return (
                 <div className="max-w-xl mx-auto space-y-6 pb-20">
+                    {showScanner && <QRScanner onScan={handleScanVerify} onClose={() => setShowScanner(false)} title="Verify Machine" />}
+
                     <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg flex justify-between items-center">
                         <div>
                             <h2 className="text-2xl font-bold mb-1">Hello, {currentUser.name}</h2>
@@ -817,7 +784,7 @@
                                             <div className="flex justify-between"><div className="font-bold text-lg flex items-center gap-2">{task.name} {task.priority && <Badge status={task.priority} type="priority"/>}</div><Badge status="Pending" /></div>
                                             <div className="bg-slate-50 p-2 rounded text-sm text-slate-600"><span className="font-bold text-slate-800">Issue:</span> {task.issue}</div>
                                             <div className="bg-blue-50 p-2 rounded text-xs text-blue-700 flex items-center gap-1"><MapPin className="w-3 h-3" /> {task.ticketId}</div>
-                                            <Button fullWidth variant="warning" onClick={() => onScanStart(task.id)}><QrCode className="w-4 h-4" /> Scan to Start</Button>
+                                            <Button fullWidth variant="warning" onClick={() => handleScanStart(task.id)}><QrCode className="w-4 h-4" /> Scan to Start</Button>
                                     </Card>
                                 ))}
                             </div>
@@ -971,82 +938,96 @@
         // --- 5. MAIN APP CONTROLLER ---
 
         const App = () => {
-            const { users, buildings, floorsMap, linesMap, machinesMap, machines, logs, parts, partRequests, floors, lines, loading } = useFactoryData();
+            const { users, buildings, floorsMap, linesMap, machinesMap, machines, logs, parts, partRequests, floors, lines, loading, error: apiError } = useFactoryData();
+            
+            // --- UPDATED AUTH STATE: DEFAULT TO NULL (SHOW LOGIN) ---
             const [currentUser, setCurrentUser] = useState(null);
-            const [activeTab, setActiveTab] = useState('live_monitor');
+            const [activeTab, setActiveTab] = useState('login'); // Default is now 'login'
             const [error, setError] = useState(null);
-            const [seedProgress, setSeedProgress] = useState("");
 
             // Auth handlers
             const handleLogin = (u, p) => {
                 const user = users.find(user => user.username === u && user.password === p);
                 if(user) {
                     setCurrentUser(user); setError(null);
-                    if(user.role === 'technician') update(ref(db, `users/${user.id}`), { status: 'Available' });
+                    if(user.role === 'technician') {
+                        update(ref(db, `users/${user.id}`), { status: 'Available' });
+                        setActiveTab('my_tasks');
+                    } else {
+                        setActiveTab('live_monitor');
+                    }
                 } else if(u === 'admin' && p === '123') {
                     setCurrentUser({ id: 'temp_admin', name: 'Super Admin', role: 'admin', username: 'admin' }); setError(null);
+                    setActiveTab('live_monitor');
                 } else setError("Invalid credentials");
             };
 
             const handleLogout = () => {
                 if (currentUser?.role === 'technician') update(ref(db, `users/${currentUser.id}`), { status: 'Offline' });
                 setCurrentUser(null);
-            };
-
-            // Seed Data Logic
-            const handleSeedData = async () => {
-                if(!confirm("Generate demo data?")) return;
-                setSeedProgress("Generating...");
-                // (Simplified logic: assumes admin knows how to use this feature based on previous full implementation)
-                alert("Please create data manually for better control or use the full seeding function if needed.");
-                setSeedProgress("");
+                setActiveTab('login');
             };
             
-            if (loading) return <LoadingOverlay />;
+            if (loading) return <LoadingOverlay error={apiError} />;
 
-            if (!currentUser) return <div className="bg-slate-50 min-h-screen">
-                {activeTab === 'login' ? 
-                    <LoginView onLogin={handleLogin} onReset={() => remove(ref(db, 'users'))} onOpenScanner={() => setActiveTab('operator_kiosk')} error={error} /> : 
-                    <KioskView machines={machines} onReport={api.reportIssue} onClose={() => setActiveTab('login')} />
-                }
-            </div>;
+            // --- NOT LOGGED IN VIEW ---
+            if (!currentUser) {
+                return (
+                    <div className="bg-slate-50 min-h-screen">
+                        {activeTab === 'kiosk' ? 
+                            <KioskView machines={machines} onReport={api.reportIssue} onClose={() => setActiveTab('login')} /> : 
+                            <LoginView onLogin={handleLogin} onOpenScanner={() => setActiveTab('kiosk')} error={error} />
+                        }
+                    </div>
+                );
+            }
 
+            // --- LOGGED IN VIEW ---
             return (
                 <div className="min-h-screen bg-slate-100 font-sans text-slate-900 flex flex-col md:flex-row">
                     {/* Sidebar */}
                     <div className="w-full md:w-64 bg-slate-900 text-white p-4 flex flex-col shrink-0 no-print">
                         <div className="mb-6"><h1 className="text-xl font-bold flex items-center gap-2"><Factory className="text-blue-400" /> GarmentFix</h1></div>
+                        
                         <div className="mb-6 p-3 bg-slate-800 rounded-lg">
                             <div className="text-xs text-slate-400 uppercase font-bold">Logged in as</div>
                             <div className="font-bold truncate">{currentUser.name}</div>
                             {currentUser.role === 'technician' && <button onClick={() => update(ref(db, `users/${currentUser.id}`), { status: currentUser.status === 'Available' ? 'Offline' : 'Available' })} className="mt-2 text-xs px-2 py-1 rounded bg-emerald-500 text-white w-full">{currentUser.status || 'Available'}</button>}
                         </div>
+
                         <nav className="space-y-2 flex-1">
-                            {currentUser.role === 'admin' ? (
+                            {/* SHARED TABS */}
+                            <button onClick={() => setActiveTab('live_monitor')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'live_monitor' ? 'bg-slate-800' : ''}`}><Activity className="w-5 h-5"/> Live Monitor</button>
+                            <button onClick={() => setActiveTab('analytics')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'analytics' ? 'bg-slate-800' : ''}`}><BarChart2 className="w-5 h-5"/> Analytics</button>
+
+                            {/* ADMIN TABS */}
+                            {currentUser.role === 'admin' && (
                                 <>
-                                    <button onClick={() => setActiveTab('live_monitor')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'live_monitor' ? 'bg-slate-800' : ''}`}><Activity className="w-5 h-5"/> Live Monitor</button>
-                                    <button onClick={() => setActiveTab('factory_manager')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'factory_manager' ? 'bg-slate-800' : ''}`}><LayoutDashboard className="w-5 h-5"/> Factory Manager</button>
+                                    {/* Link to External Tool */}
+                                    <a href="factory_manager.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center text-white no-underline transition-colors"><LayoutDashboard className="w-5 h-5"/> Factory Manager (Tool)</a>
+                                    
                                     <button onClick={() => setActiveTab('inventory')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'inventory' ? 'bg-slate-800' : ''}`}><Package className="w-5 h-5"/> Inventory</button>
-                                    <button onClick={() => setActiveTab('analytics')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'analytics' ? 'bg-slate-800' : ''}`}><BarChart2 className="w-5 h-5"/> Analytics</button>
                                     <button onClick={() => setActiveTab('user_setup')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'user_setup' ? 'bg-slate-800' : ''}`}><User className="w-5 h-5"/> User Setup</button>
-                                    <a href="help.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center"><HelpCircle className="w-5 h-5"/> Help</a>
-                                </>
-                            ) : (
-                                <>
-                                    <button onClick={() => setActiveTab('my_tasks')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'my_tasks' ? 'bg-slate-800' : ''}`}><ClipboardList className="w-5 h-5"/> My Tasks</button>
-                                    <a href="help.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center"><HelpCircle className="w-5 h-5"/> Help</a>
                                 </>
                             )}
+
+                            {/* TECHNICIAN TABS */}
+                            {currentUser.role === 'technician' && (
+                                <button onClick={() => setActiveTab('my_tasks')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'my_tasks' ? 'bg-slate-800' : ''}`}><ClipboardList className="w-5 h-5"/> My Tasks</button>
+                            )}
+                            
+                            <a href="help.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center"><HelpCircle className="w-5 h-5"/> Help</a>
                         </nav>
+
                         <button onClick={handleLogout} className="mt-auto flex items-center gap-2 text-slate-400 hover:text-white p-2"><LogOut className="w-4 h-4"/> Logout</button>
                     </div>
 
                     {/* Content Area */}
                     <div className="flex-1 overflow-y-auto h-screen p-4 md:p-8 w-full">
-                        {currentUser.role === 'admin' && activeTab === 'live_monitor' && <LiveMonitor machines={machines} users={users} onAssign={api.assignTech} />}
-                        {currentUser.role === 'admin' && activeTab === 'factory_manager' && <FactoryManager buildings={buildings} floorsMap={floorsMap} linesMap={linesMap} machinesMap={machinesMap} onAddBuilding={(name) => push(ref(db, 'buildings'), { name })} onAddFloor={(data) => push(ref(db, 'floors'), data)} onAddLine={(data) => push(ref(db, 'lines'), data)} onAddMachine={(data) => push(ref(db, 'machines'), {...data, status: "Running", createdAt: new Date().toISOString()})} />}
+                        {activeTab === 'live_monitor' && <LiveMonitor machines={machines} users={users} onAssign={api.assignTech} currentUser={currentUser} />}
+                        
+                        {/* Only Admin Features */}
                         {currentUser.role === 'admin' && activeTab === 'inventory' && <InventoryManager parts={parts} partRequests={partRequests} onAddPart={(p) => push(ref(db, 'parts'), p)} onDeletePart={(id) => remove(ref(db, `parts/${id}`))} onUpdateStock={api.updateStock} onResolveRequest={api.resolveRequest} />}
-                        {currentUser.role === 'admin' && activeTab === 'analytics' && <AnalyticsDashboard logs={logs} machines={machines} parts={parts} floors={floors} lines={lines} users={users} buildings={buildings} />}
                         {currentUser.role === 'admin' && activeTab === 'user_setup' && <UserSetupView 
                             users={users} 
                             onAddUser={(data) => push(ref(db, 'users'), { ...data, status: 'Offline', createdAt: new Date().toISOString() })} 
@@ -1054,6 +1035,10 @@
                             onDeleteUser={(id) => remove(ref(db, `users/${id}`))}
                         />}
                         
+                        {/* Shared Features */}
+                        {activeTab === 'analytics' && <AnalyticsDashboard logs={logs} machines={machines} parts={parts} floors={floors} lines={lines} users={users} buildings={buildings} />}
+                        
+                        {/* Technician Features */}
                         {currentUser.role === 'technician' && activeTab === 'my_tasks' && <TechnicianTaskBoard currentUser={users.find(u => u.id === currentUser.id) || currentUser} machines={machines} parts={parts} logs={logs} onScanStart={(id) => api.startWork(id, currentUser.id)} onComplete={(mid, uid, rem, mach, partsIds) => api.completeWork(mid, currentUser.id, rem, mach, partsIds, parts)} onSelfAssign={(id) => api.selfAssign(id, currentUser.id)} onRequestPart={api.requestPart} />}
                     </div>
                 </div>
