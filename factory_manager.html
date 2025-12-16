@@ -28,13 +28,13 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo } from 'react';
+        import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { 
           LayoutDashboard, PlusCircle, Factory, Printer, QrCode, 
           Building, Trash2, Loader2, LogOut, Wrench, AlertTriangle, 
           CheckCircle, Settings, Layers, Zap, ChevronDown, ChevronRight, 
-          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3, ScanLine, X, Search, History, Archive, RefreshCw, RotateCcw, FileSpreadsheet, DollarSign, Tag
+          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3, ScanLine, X, Search, History, Archive, RefreshCw, RotateCcw, FileSpreadsheet, DollarSign, Tag, Upload, TrendingDown, Copy, Move
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
         import { getAuth, signInAnonymously } from "firebase/auth";
@@ -55,6 +55,32 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getDatabase(app);
+
+        // --- CONSTANTS ---
+        const MACHINE_TYPES = [
+            "Single Needle Lockstitch (SNLS)",
+            "Double Needle Lockstitch (DNLS)",
+            "Overlock (3/4/5 Thread)",
+            "Flatlock / Coverstitch",
+            "Chain Stitch",
+            "Buttonhole Machine",
+            "Button Attach Machine",
+            "Bar Tack Machine",
+            "Feed Off The Arm (FOA)",
+            "Zigzag Machine",
+            "Multi-Needle / Kansai",
+            "Blind Stitch",
+            "Computerized Embroidery",
+            "Pattern Sewer / Template",
+            "Auto Cutter",
+            "Spreader",
+            "Fusing Machine",
+            "Ironing / Pressing",
+            "Snap Button Machine",
+            "Thread Trimmer",
+            "Needle Detector",
+            "Other"
+        ];
 
         // --- COMPONENTS ---
         const Card = ({ children, className = "" }) => (
@@ -77,11 +103,12 @@
             );
         };
 
-        const StatCard = ({ label, value, icon: Icon, color }) => (
+        const StatCard = ({ label, value, subtext, icon: Icon, color }) => (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
                 <div>
                     <p className="text-slate-500 text-xs font-bold uppercase">{label}</p>
                     <h3 className="text-2xl font-bold text-slate-800">{value}</h3>
+                    {subtext && <p className="text-[10px] text-slate-400 mt-1">{subtext}</p>}
                 </div>
                 <div className={`p-3 rounded-full bg-${color}-50`}>
                     <Icon className={`w-6 h-6 text-${color}-500`} />
@@ -115,13 +142,86 @@
             )
         }
 
+        const EditMachineModal = ({ machine, linesMap, floors, buildings, onClose, onSave }) => {
+            const [formData, setFormData] = useState({ ...machine });
+
+            if (!machine) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <Card className="w-full max-w-lg p-6 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+                         <div className="flex justify-between items-center mb-6">
+                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Edit3 className="w-5 h-5 text-indigo-600"/> Edit Machine / Move</h3>
+                            <button onClick={onClose}><X className="w-5 h-5 text-slate-400"/></button>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Machine Name / ID</label>
+                                <input className="w-full p-2 border rounded" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Type</label>
+                                    <select className="w-full p-2 border rounded bg-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+                                         {MACHINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Line (Location)</label>
+                                    <select className="w-full p-2 border rounded bg-white" value={formData.lineId} onChange={e => setFormData({...formData, lineId: e.target.value})}>
+                                        {Object.keys(linesMap).map(fId => (
+                                            <optgroup key={fId} label={floors.find(f => f.id === fId)?.name || 'Unknown Floor'}>
+                                                {linesMap[fId].map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                            </optgroup>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Model</label>
+                                    <input className="w-full p-2 border rounded" value={formData.model || ""} onChange={e => setFormData({...formData, model: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Serial No.</label>
+                                    <input className="w-full p-2 border rounded" value={formData.serial || ""} onChange={e => setFormData({...formData, serial: e.target.value})} />
+                                </div>
+                            </div>
+                             <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Year</label>
+                                    <input type="number" className="w-full p-2 border rounded" value={formData.year || ""} onChange={e => setFormData({...formData, year: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Price ($)</label>
+                                    <input type="number" className="w-full p-2 border rounded" value={formData.price || ""} onChange={e => setFormData({...formData, price: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">PM Interval</label>
+                                    <input type="number" className="w-full p-2 border rounded" value={formData.interval || "30"} onChange={e => setFormData({...formData, interval: e.target.value})} />
+                                </div>
+                            </div>
+                            
+                            <div className="flex gap-2 pt-4">
+                                <Button className="flex-1" onClick={() => onSave(formData.id, formData)}>Save Changes</Button>
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+            );
+        }
+
         const MachineDetailsModal = ({ machine, logs, onClose }) => {
             if (!machine) return null;
 
-            // Calculate PM Status
+            // Calculate PM Status based on custom interval
+            const intervalDays = parseInt(machine.interval) || 30;
             const lastPM = machine.lastMaintenance ? new Date(machine.lastMaintenance) : null;
             const daysSincePM = lastPM ? Math.floor((new Date() - lastPM) / (1000 * 60 * 60 * 24)) : 999;
-            const isPmValid = daysSincePM <= 30;
+            const isPmValid = daysSincePM <= intervalDays;
             const pmStatus = isPmValid ? "Valid" : "Expired / Due";
             
             // Filter logs
@@ -139,7 +239,7 @@
                             
                             <div className="text-center">
                                 <h2 className="text-2xl font-bold text-slate-900">{machine.name}</h2>
-                                <p className="text-slate-500 text-sm font-mono mt-1">ID: {machine.id}</p>
+                                <p className="text-slate-500 text-sm font-mono mt-1">ID: {machine.id} • {machine.type || "Universal"}</p>
                             </div>
 
                             {/* Info Grid */}
@@ -169,7 +269,7 @@
                                     <div className={`font-bold text-lg ${machine.status === 'Running' ? 'text-green-600' : 'text-red-600'}`}>{machine.status}</div>
                                 </div>
                                 <div className={`p-4 rounded-xl border ${isPmValid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                                    <div className={`text-xs font-bold uppercase mb-1 ${isPmValid ? 'text-green-600' : 'text-red-600'}`}>PM Status</div>
+                                    <div className={`text-xs font-bold uppercase mb-1 ${isPmValid ? 'text-green-600' : 'text-red-600'}`}>PM Status ({intervalDays}d)</div>
                                     <div className={`font-bold text-lg ${isPmValid ? 'text-green-800' : 'text-red-800'}`}>{pmStatus}</div>
                                     <div className="text-[11px] opacity-75 mt-1">{lastPM ? `Last: ${lastPM.toLocaleDateString()}` : "Never serviced"}</div>
                                 </div>
@@ -319,12 +419,27 @@
             const [showScanner, setShowScanner] = useState(false);
             const [scannedMachineDetails, setScannedMachineDetails] = useState(null);
             const [searchTerm, setSearchTerm] = useState("");
+            const [editingMachine, setEditingMachine] = useState(null); // For Edit Modal
+
+            const fileInputRef = useRef(null);
 
             // Form States
             const [newBuilding, setNewBuilding] = useState("");
             const [newFloor, setNewFloor] = useState({ name: "", buildingId: "" });
             const [newLine, setNewLine] = useState({ name: "", floorId: "" });
-            const [newMachine, setNewMachine] = useState({ name: "", year: "", lineId: "", model: "", serial: "", price: "" });
+            const [newMachine, setNewMachine] = useState({ name: "", year: "", lineId: "", model: "", serial: "", price: "", type: "Single Needle Lockstitch (SNLS)", interval: 30 });
+
+            // Stats Calculations
+            const totalAssetValue = machines.reduce((acc, m) => acc + (parseFloat(m.price) || 0), 0);
+            const depreciatedValue = machines.reduce((acc, m) => {
+                const year = parseInt(m.year);
+                if (!year) return acc + (parseFloat(m.price) || 0);
+                const age = new Date().getFullYear() - year;
+                const price = parseFloat(m.price) || 0;
+                // 10% depreciation per year
+                const val = price * Math.pow(0.9, age); 
+                return acc + val;
+            }, 0);
 
             // Initialize expanded state
             useEffect(() => {
@@ -347,7 +462,7 @@
             const onAddMachine = () => { 
                 if(newMachine.name && newMachine.lineId) {
                     push(ref(db, 'machines'), {...newMachine, status: "Running", createdAt: new Date().toISOString()}); 
-                    setNewMachine({name: "", year: "", lineId: "", model: "", serial: "", price: "" }); 
+                    setNewMachine({name: "", year: "", lineId: "", model: "", serial: "", price: "", type: "Single Needle Lockstitch (SNLS)", interval: 30 }); 
                 }
             };
 
@@ -369,6 +484,34 @@
                     setAuthError("");
                 } else {
                     setAuthError("Invalid credentials or not an Admin.");
+                }
+            };
+
+            // EDIT MACHINE HANDLER
+            const handleUpdateMachine = (id, updatedData) => {
+                update(ref(db, `machines/${id}`), updatedData)
+                    .then(() => {
+                        setEditingMachine(null);
+                        // If moved, we might need to find where it went, but React state updates automatically.
+                    })
+                    .catch(err => alert("Update failed: " + err.message));
+            };
+
+            // CLONE MACHINE HANDLER
+            const handleCloneMachine = (e, machine) => {
+                e.stopPropagation();
+                if(!adminMode) return alert("Unlock first.");
+                const countStr = prompt(`How many copies of "${machine.name}" do you want to create?`, "1");
+                const count = parseInt(countStr);
+                if(count > 0 && count <= 50) {
+                    // Create multiple copies
+                    for(let i=1; i<=count; i++) {
+                         const copy = { ...machine };
+                         delete copy.id; // remove ID so push creates new one
+                         copy.name = `${machine.name} (Copy ${i})`;
+                         copy.createdAt = new Date().toISOString();
+                         push(ref(db, 'machines'), copy);
+                    }
                 }
             };
 
@@ -426,7 +569,7 @@
             // CSV EXPORT HANDLER
             const handleExportCSV = () => {
                 let csvContent = "data:text/csv;charset=utf-8,";
-                csvContent += "Type,Plant,Floor,Line,Machine ID,Name,Model,Serial,Year,Price,Status,Last Maintenance\n";
+                csvContent += "Type,Plant,Floor,Line,Machine ID,Name,Model,Serial,Year,Price,Interval,Status,Last Maintenance\n";
 
                 buildings.forEach(b => {
                     const bFloors = floorsMap[b.id] || [];
@@ -446,6 +589,7 @@
                                     m.serial || "-",
                                     m.year || "-",
                                     m.price || "0",
+                                    m.interval || "30",
                                     m.status,
                                     m.lastMaintenance ? new Date(m.lastMaintenance).toLocaleDateString() : "Never"
                                 ].map(item => `"${item}"`).join(",");
@@ -463,6 +607,80 @@
                 link.click();
                 document.body.removeChild(link);
             };
+
+            // CSV IMPORT HANDLER
+            const handleImportCSV = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const text = e.target.result;
+                    const rows = text.split('\n').slice(1); // Skip header
+
+                    // Create maps for quick lookup to avoid creating duplicates (by name)
+                    // Note: In a real app, IDs are safer, but for simple import we match by name
+                    const bMap = {}; buildings.forEach(b => bMap[b.name] = b.id);
+                    const fMap = {}; floors.forEach(f => fMap[`${f.buildingId}_${f.name}`] = f.id);
+                    const lMap = {}; lines.forEach(l => lMap[`${l.floorId}_${l.name}`] = l.id);
+
+                    let count = 0;
+
+                    for (let row of rows) {
+                        if (!row.trim()) continue;
+                        // Handle CSV parsing (simple split by comma, ignoring quotes for simplicity here)
+                        const cols = row.split(',').map(c => c.replace(/"/g, '').trim());
+                        
+                        // Expected: Building,Floor,Line,Name,Type,Model,Serial,Year,Price,Interval
+                        const [bName, fName, lName, mName, mType, mModel, mSerial, mYear, mPrice, mInterval] = cols;
+
+                        if (!bName || !fName || !lName || !mName) continue;
+
+                        // 1. Get/Create Building
+                        let bId = bMap[bName];
+                        if (!bId) {
+                            const refB = await push(ref(db, 'buildings'), { name: bName });
+                            bId = refB.key;
+                            bMap[bName] = bId;
+                        }
+
+                        // 2. Get/Create Floor
+                        let fId = fMap[`${bId}_${fName}`];
+                        if (!fId) {
+                            const refF = await push(ref(db, 'floors'), { name: fName, buildingId: bId });
+                            fId = refF.key;
+                            fMap[`${bId}_${fName}`] = fId;
+                        }
+
+                        // 3. Get/Create Line
+                        let lId = lMap[`${fId}_${lName}`];
+                        if (!lId) {
+                            const refL = await push(ref(db, 'lines'), { name: lName, floorId: fId });
+                            lId = refL.key;
+                            lMap[`${fId}_${lName}`] = lId;
+                        }
+
+                        // 4. Create Machine
+                        await push(ref(db, 'machines'), {
+                            name: mName,
+                            lineId: lId,
+                            type: mType || "Single Needle Lockstitch (SNLS)",
+                            model: mModel || "",
+                            serial: mSerial || "",
+                            year: mYear || "",
+                            price: mPrice || "0",
+                            interval: mInterval || "30",
+                            status: "Running",
+                            createdAt: new Date().toISOString()
+                        });
+                        count++;
+                    }
+                    alert(`Successfully imported ${count} machines!`);
+                    fileInputRef.current.value = ""; // Reset
+                };
+                reader.readAsText(file);
+            };
+
 
             // FIND HANDLER (Used by both Scan and Search Bar)
             const findAndScrollToMachine = (query) => {
@@ -491,10 +709,10 @@
 
                         // Clear highlight after 5 seconds
                         setTimeout(() => setHighlightedMachine(null), 5000);
-                        return machine; // CHANGED: Return object
+                        return machine; 
                     }
                 }
-                return null; // CHANGED: Return null
+                return null; 
             };
 
             const handleSearchSubmit = (e) => {
@@ -502,7 +720,7 @@
                 if(searchTerm) {
                     const machine = findAndScrollToMachine(searchTerm);
                     if(machine) {
-                        setScannedMachineDetails(machine); // ADDED: Show details
+                        setScannedMachineDetails(machine); 
                     } else {
                         alert("Machine not found.");
                     }
@@ -548,6 +766,7 @@
                 <div className="min-h-screen flex flex-col md:flex-row">
                     <AuthModal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setAuthError(""); }} onConfirm={handleAuthSubmit} error={authError} />
                     <MachineDetailsModal machine={scannedMachineDetails} logs={logs} onClose={() => setScannedMachineDetails(null)} />
+                    <EditMachineModal machine={editingMachine} linesMap={linesMap} floors={floors} buildings={buildings} onClose={() => setEditingMachine(null)} onSave={handleUpdateMachine} />
                     {showScanner && <QRScanner onScan={handleScanFind} onClose={() => setShowScanner(false)} title="Scan to Find Machine" />}
 
                     {/* --- SIDEBAR FORMS (HIDDEN UNLESS UNLOCKED) --- */}
@@ -606,7 +825,12 @@
                                         ))}
                                     </select>
                                     <div className="space-y-2">
-                                        <input className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Machine Name / ID" value={newMachine.name} onChange={e => setNewMachine({...newMachine, name: e.target.value})} />
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Machine Name / ID" value={newMachine.name} onChange={e => setNewMachine({...newMachine, name: e.target.value})} />
+                                            <select className="w-full p-2 text-sm border rounded bg-slate-50" value={newMachine.type} onChange={e => setNewMachine({...newMachine, type: e.target.value})}>
+                                                {MACHINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                        </div>
                                         <div className="grid grid-cols-2 gap-2">
                                             <input className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Model No." value={newMachine.model} onChange={e => setNewMachine({...newMachine, model: e.target.value})} />
                                             <input className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Serial No." value={newMachine.serial} onChange={e => setNewMachine({...newMachine, serial: e.target.value})} />
@@ -614,6 +838,10 @@
                                         <div className="grid grid-cols-2 gap-2">
                                             <input type="number" className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Install Year" value={newMachine.year} onChange={e => setNewMachine({...newMachine, year: e.target.value})} />
                                             <input type="number" className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Price ($)" value={newMachine.price} onChange={e => setNewMachine({...newMachine, price: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-slate-400">PM Service Interval (Days)</label>
+                                            <input type="number" className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Default: 30" value={newMachine.interval} onChange={e => setNewMachine({...newMachine, interval: e.target.value})} />
                                         </div>
                                     </div>
                                     <Button onClick={onAddMachine} className="w-full py-1 text-sm">Create Machine</Button>
@@ -653,14 +881,24 @@
                                             <ScanLine className="w-4 h-4" />
                                         </button>
                                         
-                                        {/* EXPORT BUTTON */}
-                                        <button 
-                                            onClick={handleExportCSV} 
-                                            className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-emerald-700 shadow-sm"
-                                            title="Export to CSV"
-                                        >
-                                            <FileSpreadsheet className="w-4 h-4" /> Export
-                                        </button>
+                                        {/* CSV ACTIONS */}
+                                        <div className="flex bg-white rounded-lg border border-slate-300 overflow-hidden shadow-sm">
+                                            <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleImportCSV} />
+                                            <button 
+                                                onClick={() => fileInputRef.current.click()} 
+                                                className="px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 border-r border-slate-200 flex items-center gap-2"
+                                                title="Import from CSV"
+                                            >
+                                                <Upload className="w-4 h-4"/> Import
+                                            </button>
+                                            <button 
+                                                onClick={handleExportCSV} 
+                                                className="px-3 py-2 text-sm font-bold text-emerald-600 hover:bg-emerald-50 flex items-center gap-2"
+                                                title="Export to CSV"
+                                            >
+                                                <FileSpreadsheet className="w-4 h-4" /> Export
+                                            </button>
+                                        </div>
 
                                         {/* ADMIN UNLOCK BUTTON */}
                                         {!adminMode ? (
@@ -685,12 +923,13 @@
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                                     <StatCard label="Plants" value={buildings.length} icon={Building} color="indigo" />
                                     <StatCard label="Floors" value={floors.length} icon={Layers} color="blue" />
                                     <StatCard label="Lines" value={lines.length} icon={Zap} color="purple" />
                                     <StatCard label="Machines" value={machines.length} icon={Factory} color="slate" />
                                     <StatCard label="Breakdowns" value={brokenCount} icon={AlertTriangle} color="red" />
+                                    <StatCard label="Financial Health" value={`$${depreciatedValue.toLocaleString()}`} subtext={`Orig: $${totalAssetValue.toLocaleString()}`} icon={DollarSign} color="emerald" />
                                 </div>
                             </div>
 
@@ -789,13 +1028,33 @@
                                                                                     <div>
                                                                                         <div className="flex items-center gap-2 truncate">
                                                                                             <div className={`w-2 h-2 rounded-full flex-shrink-0 ${machine.status === 'Running' ? 'bg-green-500' : machine.status === 'Pending' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500'}`} title={machine.status}></div>
-                                                                                            <span className="font-medium truncate text-slate-700">{machine.name}</span>
+                                                                                            <div className="flex flex-col">
+                                                                                                <span className="font-medium truncate text-slate-700">{machine.name}</span>
+                                                                                                {machine.model && <span className="text-[9px] text-slate-400">{machine.model}</span>}
+                                                                                            </div>
                                                                                         </div>
-                                                                                        {machine.year && <div className="text-[10px] text-slate-400 ml-4">Est. {machine.year}</div>}
                                                                                     </div>
                                                                                     <div className="flex items-center gap-1">
                                                                                         <button onClick={() => handlePrintQRs(machine.name, [machine])} title="Print QR" className="text-slate-300 hover:text-indigo-600"><QrCode className="w-3 h-3"/></button>
-                                                                                        {adminMode && <button onClick={(e) => handleArchiveMachine(e, machine)} className="text-red-300 hover:text-red-600" title="Delete/Archive Machine"><Trash2 className="w-3 h-3"/></button>}
+                                                                                        {adminMode && (
+                                                                                            <>
+                                                                                                 <button 
+                                                                                                    onClick={(e) => { e.stopPropagation(); setEditingMachine(machine); }} 
+                                                                                                    className="text-slate-400 hover:text-indigo-600"
+                                                                                                    title="Edit Machine"
+                                                                                                 >
+                                                                                                    <Edit3 className="w-3 h-3"/>
+                                                                                                 </button>
+                                                                                                 <button 
+                                                                                                    onClick={(e) => handleCloneMachine(e, machine)} 
+                                                                                                    className="text-slate-400 hover:text-blue-600"
+                                                                                                    title="Clone Machine"
+                                                                                                 >
+                                                                                                    <Copy className="w-3 h-3"/>
+                                                                                                 </button>
+                                                                                                 <button onClick={(e) => handleArchiveMachine(e, machine)} className="text-red-300 hover:text-red-600" title="Delete/Archive Machine"><Trash2 className="w-3 h-3"/></button>
+                                                                                            </>
+                                                                                        )}
                                                                                     </div>
                                                                                 </div>
                                                                             ))}
