@@ -141,6 +141,22 @@
             // Sound Alert Tracking
             const [lastTaskCount, setLastTaskCount] = useState(0);
 
+            // Safely check assignment ignoring spaces/case
+            const isMyTask = (assignedVal) => {
+                if (!assignedVal || !currentUser) return false;
+                const val = String(assignedVal).trim().toLowerCase();
+                return val === String(currentUser.id).toLowerCase() || 
+                       val === String(currentUser.name).trim().toLowerCase() || 
+                       val === String(currentUser.username).trim().toLowerCase();
+            };
+
+            // Safely check if unassigned or AI failed to assign
+            const isUnassignedTask = (assignedVal) => {
+                if (!assignedVal) return true;
+                const val = String(assignedVal).trim().toLowerCase();
+                return val === "" || val === "null" || val.includes("none") || val.includes("no ") || val.includes("unable") || val.includes("unassigned");
+            };
+
             // Fetch Initial Data (Users, Machines, Logs)
             useEffect(() => {
                 onValue(ref(db, 'users'), (snap) => setUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
@@ -148,32 +164,38 @@
                 onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
             }, []);
 
-            // Fetch Department-Specific Tickets
+            // --- UPDATED: Fetch Department-Specific Tickets DIRECTLY from Machines ---
             useEffect(() => {
                 if (currentUser && currentUser.department) {
-                    const deptPath = currentUser.department.toLowerCase();
-                    const ticketRef = ref(db, `department_tickets/${deptPath}`);
+                    // Convert machines object to array and map properties for backwards compatibility
+                    const machineList = Object.entries(machines).map(([id, val]) => ({ 
+                        id, 
+                        ...val, 
+                        machineId: val.name || id, 
+                        issueDescription: val.issue 
+                    }));
                     
-                    const unsubscribe = onValue(ticketRef, (snap) => {
-                        const data = snap.val();
-                        const list = data ? Object.entries(data).map(([id, v]) => ({ id, ...v })) : [];
-                        setTickets(list);
-                        
-                        // Check if active task is in progress
-                        const active = list.find(t => t.status === 'In Progress' && t.assignedTo === currentUser.id);
-                        setActiveTask(active || null);
-                    });
-                    return () => unsubscribe();
+                    // Filter for this user's department and actionable statuses
+                    const deptTickets = machineList.filter(m => 
+                        m.department?.toLowerCase() === currentUser.department.toLowerCase() && 
+                        ['Pending', 'In Progress', 'Escalated'].includes(m.status)
+                    );
+                    
+                    setTickets(deptTickets);
+                    
+                    // Check if active task is in progress
+                    const active = deptTickets.find(t => t.status === 'In Progress' && isMyTask(t.assignedTo));
+                    setActiveTask(active || null);
                 }
-            }, [currentUser]);
+            }, [machines, currentUser]);
 
             // SOUND ALERT LOGIC
             useEffect(() => {
                 if (!currentUser) return;
                 
-                const myTasks = tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'Pending');
-                const unassignedTasks = tickets.filter(t => !t.assignedTo && t.status === 'Pending');
-                const currentCount = myTasks.length + unassignedTasks.length;
+                const myTasksCount = tickets.filter(t => isMyTask(t.assignedTo) && t.status === 'Pending').length;
+                const unassignedCount = tickets.filter(t => isUnassignedTask(t.assignedTo) && t.status === 'Pending').length;
+                const currentCount = myTasksCount + unassignedCount;
 
                 // If task count increases, play chime
                 if (currentCount > lastTaskCount && lastTaskCount !== 0) {
@@ -204,8 +226,8 @@
             
             // TASK CATEGORIES
             const priorityOrder = { "Critical": 0, "Normal": 1, "Low": 2 };
-            const myTasks = tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
-            const unassignedTasks = tickets.filter(t => !t.assignedTo && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
+            const myTasks = tickets.filter(t => isMyTask(t.assignedTo) && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
+            const unassignedTasks = tickets.filter(t => isUnassignedTask(t.assignedTo) && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
             const escalatedTasks = tickets.filter(t => t.status === 'Escalated');
 
             const handleLogin = (e) => {
@@ -221,10 +243,10 @@
                 }
             };
 
-            // --- ACTIONS ---
+            // --- UPDATED ACTIONS FOR DIRECT MACHINE DB ---
             const handleClaimTask = (ticketId) => {
-                update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${ticketId}`), {
-                    assignedTo: currentUser.id,
+                update(ref(db, `machines/${ticketId}`), {
+                    assignedTo: currentUser.id, // Assigning explicitly by ID
                     assignedAt: new Date().toISOString()
                 });
             };
@@ -235,12 +257,12 @@
             };
 
             const handleScanStart = (decodedText) => {
-                if (decodedText === scanTargetTask.machineId || machines[decodedText]?.name === scanTargetTask.machineId) {
-                    update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${scanTargetTask.id}`), {
+                // Ensure QR matches ID or Machine Name
+                if (decodedText === scanTargetTask.id || decodedText === scanTargetTask.machineId) {
+                    update(ref(db, `machines/${scanTargetTask.id}`), {
                         status: 'In Progress',
                         startedAt: new Date().toISOString()
                     });
-                    update(ref(db, `machines/${scanTargetTask.machineId}`), { status: 'In Progress' });
                     setShowScanner(false);
                     setScanTargetTask(null);
                 } else {
@@ -253,16 +275,16 @@
                 if(!signOffData.operatorId) return alert("Operator ID is required to close the job.");
                 
                 const now = new Date();
-                const startedAt = new Date(activeTask.startedAt);
-                const assignedAt = activeTask.assignedAt ? new Date(activeTask.assignedAt) : new Date(activeTask.timestamp);
-                const reportedAt = new Date(activeTask.timestamp);
+                const startedAt = new Date(activeTask.startedAt || new Date());
+                const assignedAt = activeTask.assignedAt ? new Date(activeTask.assignedAt) : new Date(activeTask.reportedAt || new Date());
+                const reportedAt = new Date(activeTask.reportedAt || new Date());
 
                 const responseMs = startedAt - assignedAt;
                 const repairMs = now - startedAt;
                 const downtimeMs = now - reportedAt;
 
                 push(ref(db, 'logs'), {
-                    machineId: activeTask.machineId,
+                    machineId: activeTask.id, // Storing ID for Analytics mapping
                     action: 'Fixed',
                     department: currentUser.department,
                     userId: currentUser.id,
@@ -274,42 +296,39 @@
                     metrics: { responseMs, repairMs, downtimeMs }
                 });
 
-                remove(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${activeTask.id}`));
-                update(ref(db, `machines/${activeTask.machineId}`), { status: 'Running', assignedTo: null, issue: null });
+                // Clear the issue from the machine and set to running
+                update(ref(db, `machines/${activeTask.id}`), { 
+                    status: 'Running', 
+                    assignedTo: null, 
+                    issue: null,
+                    department: null,
+                    priority: null,
+                    aiDiagnostic: null
+                });
 
                 setShowSignOff(false);
                 setSignOffData({ operatorId: "", remarks: "" });
             };
 
             const handleEscalate = () => {
-                update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${activeTask.id}`), {
+                update(ref(db, `machines/${activeTask.id}`), {
                     status: 'Escalated',
                     assignedTo: null,
                     escalatedBy: currentUser.name,
                     escalationNote: signOffData.remarks || "Requires senior assistance."
                 });
-                update(ref(db, `machines/${activeTask.machineId}`), { status: 'Pending' });
                 setShowEscalate(false);
                 setSignOffData({ operatorId: "", remarks: "" });
             };
 
             const handleReroute = () => {
-                // Move from current dept to new dept
-                const newDeptPath = rerouteDept.toLowerCase();
-                const oldDeptPath = currentUser.department.toLowerCase();
-                
-                const updatedTicket = {
-                    ...rerouteTicket,
+                update(ref(db, `machines/${rerouteTicket.id}`), {
                     department: rerouteDept,
                     status: 'Pending',
                     assignedTo: null,
                     escalatedBy: null,
                     escalationNote: null
-                };
-                
-                set(ref(db, `department_tickets/${newDeptPath}/${rerouteTicket.id}`), updatedTicket)
-                    .then(() => remove(ref(db, `department_tickets/${oldDeptPath}/${rerouteTicket.id}`)));
-                
+                });
                 setShowReroute(false);
                 setRerouteTicket(null);
             };
@@ -317,7 +336,7 @@
             // REPLACE MACHINE LOGIC
             const handleReplaceScan = (decodedText) => {
                 if (replaceFlow.step === 1) {
-                    if (decodedText === activeTask.machineId || machines[decodedText]?.name === activeTask.machineId) {
+                    if (decodedText === activeTask.id || decodedText === activeTask.machineId) {
                         setReplaceFlow({ active: true, step: 2 });
                     } else {
                         alert("Please scan the correct BROKEN machine first.");
@@ -325,14 +344,13 @@
                 } else if (replaceFlow.step === 2) {
                     const spare = Object.values(machines).find(m => m.id === decodedText || m.name === decodedText);
                     if (!spare) return alert("Spare machine not found in database!");
-                    if (spare.id === activeTask.machineId) return alert("You scanned the broken machine again! Scan the SPARE machine.");
+                    if (spare.id === activeTask.id) return alert("You scanned the broken machine again! Scan the SPARE machine.");
 
-                    const deptPath = currentUser.department.toLowerCase();
-                    const oldMachine = machines[activeTask.machineId] || activeTask;
+                    const oldMachine = machines[activeTask.id] || activeTask;
 
                     // Log the swap
                     push(ref(db, 'logs'), {
-                        machineId: activeTask.machineId,
+                        machineId: activeTask.id,
                         action: 'Replaced',
                         details: `Swapped out. Replaced by ${spare.name}`,
                         userId: currentUser.id,
@@ -341,17 +359,19 @@
                     });
 
                     // Update Old Machine (Offline)
-                    update(ref(db, `machines/${activeTask.machineId}`), {
-                        status: 'Offline', assignedTo: null, issue: 'Requires Workshop Repair (Swapped out)', priority: 'Normal'
+                    update(ref(db, `machines/${activeTask.id}`), {
+                        status: 'Offline', 
+                        assignedTo: null, 
+                        issue: 'Requires Workshop Repair (Swapped out)', 
+                        priority: 'Normal',
+                        department: null
                     });
 
                     // Update Spare Machine (Running)
                     update(ref(db, `machines/${spare.id}`), {
-                        status: 'Running', lineId: oldMachine.lineId || null
+                        status: 'Running', 
+                        lineId: oldMachine.lineId || null
                     });
-
-                    // Clear ticket
-                    remove(ref(db, `department_tickets/${deptPath}/${activeTask.id}`));
 
                     setActiveTask(null);
                     setReplaceFlow({ active: false, step: 1 });
@@ -463,7 +483,7 @@
                                     <div className="bg-emerald-50 p-4 border-b border-emerald-100 flex justify-between items-start">
                                         <div>
                                             <h2 className="text-2xl font-bold text-emerald-900">{activeTask.machineId}</h2>
-                                            <div className="text-sm font-mono text-emerald-700 bg-emerald-100 inline-block px-2 py-1 rounded mt-1">{activeTask.ticketId}</div>
+                                            <div className="text-sm font-mono text-emerald-700 bg-emerald-100 inline-block px-2 py-1 rounded mt-1">{activeTask.ticketId || '#TKT-LIVE'}</div>
                                         </div>
                                         <div className="bg-emerald-200 text-emerald-800 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 animate-pulse shadow-sm border border-emerald-300">
                                             <Clock className="w-4 h-4"/> IN PROGRESS
