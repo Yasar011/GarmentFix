@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AMMS - Mechanical Hub</title>
+    <title>GarmentFix - Worker Portal</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 
     <script type="importmap">
     {
@@ -20,73 +21,41 @@
       }
     }
     </script>
-    <style>
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        
-        .sticky-col {
-            position: sticky;
-            left: 0;
-            background-color: #f8fafc;
-            z-index: 10;
-            border-right: 2px solid #e2e8f0;
-        }
-
-        @media print {
-            .print\:hidden { display: none !important; }
-            .print\:block { display: block !important; }
-            body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .print\:bg-white { background: white !important; }
-            .print\:border-none { border: none !important; }
-            .print\:shadow-none { box-shadow: none !important; }
-            .print\:p-0 { padding: 0 !important; }
-        }
-    </style>
 </head>
 <body class="bg-slate-100 text-slate-800">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo } from 'react';
+        import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { 
-            Users, Wrench, AlertTriangle, History, Zap, CheckCircle, 
-            Clock, PlusCircle, Trash2, Factory, LogOut, Activity, BarChart2,
-            Lock, LogIn, User, Edit, ScanLine, Camera, CheckSquare, X, ClipboardList, Timer,
-            Calendar, Search, Package, MessageSquare, ShieldAlert, Check, FileText, Printer
+            ClipboardList, Wrench, Clock, CheckSquare, ScanLine, X, 
+            LogOut, User, Lock, Activity, TrendingUp, AlertTriangle, PlayCircle,
+            AlertOctagon, ArrowRight, CheckCircle, History, RefreshCw
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
-        import { getDatabase, ref, onValue, push, update, remove } from "firebase/database";
+        import { getDatabase, ref, onValue, update, remove, push } from "firebase/database";
 
+        // --- FIREBASE CONFIG ---
         const firebaseConfig = { databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com" };
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        const MACHINE_TYPES = ['Flatlock', 'Zigzag', 'Flatseam', 'Single needle', 'Overlock', 'Bartack'];
-
-        const KPIBox = ({ title, value, unit, color }) => (
-            <div className={`bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between`}>
-                <div className="text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-2">{title}</div>
-                <div className="flex items-baseline gap-1">
-                    <div className={`text-4xl font-bold text-${color}-600`}>{value}</div>
-                    <span className="text-sm font-medium text-slate-400">{unit}</span>
-                </div>
-            </div>
+        // --- UI COMPONENTS ---
+        const Card = ({ children, className = "" }) => (
+            <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>
         );
 
-        const Button = ({ onClick, children, variant = "primary", className = "", disabled = false, size = "md", fullWidth = false }) => {
+        const Button = ({ onClick, children, variant = "primary", className = "", fullWidth = false }) => {
             const variants = {
-                primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm",
+                primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-sm",
                 secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200",
                 danger: "bg-red-50 text-red-600 hover:bg-red-100",
-                success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
-                outline: "border border-slate-300 text-slate-700 hover:bg-slate-50"
+                warning: "bg-orange-500 text-white hover:bg-orange-600",
+                success: "bg-emerald-600 text-white hover:bg-emerald-700"
             };
-            const sizes = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-3 text-base" };
             return (
-                <button onClick={onClick} disabled={disabled} className={`rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${variants[variant]} ${sizes[size]} ${fullWidth ? 'w-full' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
+                <button onClick={onClick} className={`px-4 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`}>
                     {children}
                 </button>
             );
@@ -94,40 +63,43 @@
 
         const Badge = ({ status }) => {
             const styles = {
-                "Pending": "bg-red-100 text-red-800 border-red-200 animate-pulse",
-                "In Progress": "bg-yellow-100 text-yellow-800 border-yellow-200",
-                "Available": "bg-emerald-100 text-emerald-800 border-emerald-200",
-                "Offline": "bg-slate-100 text-slate-500 border-slate-200",
-                "Critical": "bg-red-600 text-white font-bold shadow-sm"
+                "Critical": "bg-red-600 text-white animate-pulse",
+                "Normal": "bg-slate-100 text-slate-600 border",
+                "Low": "bg-blue-50 text-blue-600 border"
             };
-            return <span className={`px-2 py-1 rounded text-[10px] font-bold border uppercase tracking-wide ${styles[status] || 'bg-slate-100 text-slate-800'}`}>{status}</span>;
+            return <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${styles[status] || styles.Normal}`}>{status}</span>;
         };
 
-        const Card = ({ children, className = "" }) => (
-            <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>
-                {children}
-            </div>
-        );
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <Card className="w-full max-w-md p-0 overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+                            <h3 className="font-bold">{title}</h3>
+                            <button onClick={onClose}><X className="w-5 h-5"/></button>
+                        </div>
+                        <div className="p-6">{children}</div>
+                    </Card>
+                </div>
+            );
+        };
 
-        const QRScanner = ({ onScan, onClose, title }) => {
+        // --- QR SCANNER COMPONENT ---
+        const QRScanner = ({ onScan, onClose, title = "Scan QR Code" }) => {
             useEffect(() => {
-                const onScanSuccess = (decodedText) => {
-                    html5QrcodeScanner.clear().then(() => {
-                        onScan(decodedText);
-                    }).catch(err => console.error("Failed to clear scanner", err));
-                };
-
-                const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                html5QrcodeScanner.render(onScanSuccess, (error) => {});
-
-                return () => { try { html5QrcodeScanner.clear(); } catch(e) {} };
+                const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
+                scanner.render((decodedText) => {
+                    scanner.clear().then(() => onScan(decodedText));
+                }, () => {});
+                return () => { try { scanner.clear(); } catch(e) {} };
             }, [onScan]);
 
             return (
                 <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col items-center justify-center p-4">
                     <div className="bg-white rounded-xl w-full max-w-md overflow-hidden relative">
                         <div className="p-3 bg-slate-900 text-white flex justify-between items-center">
-                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title || "Scan QR Code"}</h3>
+                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title}</h3>
                             <button onClick={onClose}><X className="w-5 h-5"/></button>
                         </div>
                         <div className="p-4 bg-black"><div id="reader" className="w-full"></div></div>
@@ -137,75 +109,88 @@
             );
         };
 
-        const Modal = ({ isOpen, onClose, title, children }) => {
-            if (!isOpen) return null;
-            return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
-                        <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
-                            <h3 className="font-bold text-lg">{title}</h3>
-                            <button onClick={onClose}><X className="w-5 h-5 text-slate-500" /></button>
-                        </div>
-                        <div className="p-4 overflow-y-auto">{children}</div>
-                    </div>
-                </div>
-            );
-        };
-
-        const MaintenanceDashboard = () => {
+        // --- MAIN APP ---
+        const WorkerApp = () => {
             const [currentUser, setCurrentUser] = useState(null);
-            const [loginError, setLoginError] = useState("");
-            const [creds, setCreds] = useState({ username: "", password: "" });
-
-            const [activeTab, setActiveTab] = useState('tickets'); 
-            const [allUsers, setAllUsers] = useState([]);
+            const [users, setUsers] = useState([]);
+            const [machines, setMachines] = useState({});
+            const [tickets, setTickets] = useState([]);
             const [logs, setLogs] = useState([]);
-            const [machines, setMachines] = useState({}); 
             
+            // Login State
+            const [creds, setCreds] = useState({ username: "", password: "" });
+            const [loginError, setLoginError] = useState("");
+
+            // Task State
+            const [activeTask, setActiveTask] = useState(null);
             const [showScanner, setShowScanner] = useState(false);
-            const [scanTargetTicket, setScanTargetTicket] = useState(null);
-            const [signOffTicket, setSignOffTicket] = useState(null);
-            const [signOffData, setSignOffData] = useState({ operatorId: "", remarks: "" });
+            const [scanTargetTask, setScanTargetTask] = useState(null);
 
-            const [editingWorkerId, setEditingWorkerId] = useState(null);
-            const [newWorker, setNewWorker] = useState({ 
-                name: "", username: "", password: "", department: "Mechanical", role: "technician", 
-                status: "Offline", mechanicType: "Jr Mechanic", section: "Section A", assignedLines: "", idNumber: "", shift: "Shift 1",
-                skills: { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
-            });
+            // Modals & Actions
+            const [showSignOff, setShowSignOff] = useState(false);
+            const [signOffData, setSignOffData] = useState({ remarks: "", operatorId: "" });
+            
+            const [showEscalate, setShowEscalate] = useState(false);
+            const [showReroute, setShowReroute] = useState(false);
+            const [rerouteTicket, setRerouteTicket] = useState(null);
+            const [rerouteDept, setRerouteDept] = useState("Quality");
 
-            const [partRequests, setPartRequests] = useState([]);
-            const [shiftNotes, setShiftNotes] = useState([]);
-            const [healthSearch, setHealthSearch] = useState("");
-            const [selectedHealthMachine, setSelectedHealthMachine] = useState(null);
-            const [newShiftNote, setNewShiftNote] = useState("");
+            // REPLACE FLOW STATE (Mechanical Only)
+            const [replaceFlow, setReplaceFlow] = useState({ active: false, step: 1 });
 
-            // REPORTING STATE
-            const [reportType, setReportType] = useState('daily');
-            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
-            const [reportMachine, setReportMachine] = useState("");
-            const [reportShift, setReportShift] = useState("all");
+            // Sound Alert Tracking
+            const [lastTaskCount, setLastTaskCount] = useState(0);
 
-            const mechanicalWorkers = allUsers.filter(u => u.department === 'Mechanical' || u.role === 'admin');
-
+            // Fetch Initial Data (Users, Machines, Logs)
             useEffect(() => {
-                onValue(ref(db, 'users'), (snap) => setAllUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
-                onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
+                onValue(ref(db, 'users'), (snap) => setUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
                 onValue(ref(db, 'machines'), (snap) => setMachines(snap.val() || {}));
-                onValue(ref(db, 'partRequests'), (snap) => setPartRequests(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
-                onValue(ref(db, 'shiftNotes'), (snap) => setShiftNotes(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
             }, []);
 
-            // Since n8n writes `department: "Mechanical"` directly to the machines, we filter them here
-            const tickets = useMemo(() => {
-                return Object.values(machines).filter(m => 
-                    (m.department === 'Mechanical' || m.isPM) && 
-                    (m.status === 'Pending' || m.status === 'In Progress')
-                );
-            }, [machines]);
+            // Fetch Department-Specific Tickets
+            useEffect(() => {
+                if (currentUser && currentUser.department) {
+                    const deptPath = currentUser.department.toLowerCase();
+                    const ticketRef = ref(db, `department_tickets/${deptPath}`);
+                    
+                    const unsubscribe = onValue(ticketRef, (snap) => {
+                        const data = snap.val();
+                        const list = data ? Object.entries(data).map(([id, v]) => ({ id, ...v })) : [];
+                        setTickets(list);
+                        
+                        // Check if active task is in progress
+                        const active = list.find(t => t.status === 'In Progress' && t.assignedTo === currentUser.id);
+                        setActiveTask(active || null);
+                    });
+                    return () => unsubscribe();
+                }
+            }, [currentUser]);
 
-            const getMachineName = (id) => machines[id]?.name || id;
+            // SOUND ALERT LOGIC
+            useEffect(() => {
+                if (!currentUser) return;
+                
+                const myTasks = tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'Pending');
+                const unassignedTasks = tickets.filter(t => !t.assignedTo && t.status === 'Pending');
+                const currentCount = myTasks.length + unassignedTasks.length;
+
+                // If task count increases, play chime
+                if (currentCount > lastTaskCount && lastTaskCount !== 0) {
+                    try {
+                        Tone.start();
+                        const synth = new Tone.Synth().toDestination();
+                        const now = Tone.now();
+                        synth.triggerAttackRelease("C5", "8n", now);
+                        synth.triggerAttackRelease("E5", "8n", now + 0.2);
+                        synth.triggerAttackRelease("G5", "4n", now + 0.4);
+                    } catch (e) {
+                        console.log("Audio play blocked by browser policy");
+                    }
+                }
+                setLastTaskCount(currentCount);
+            }, [tickets, currentUser, lastTaskCount]);
+
 
             const formatDuration = (ms) => {
                 if(!ms || ms < 0) return "0m";
@@ -215,111 +200,71 @@
                 return `${minutes}m`;
             };
 
-            const calculateAverage = (skillsObj) => {
-                if (!skillsObj) return 0;
-                let total = 0;
-                MACHINE_TYPES.forEach(type => { total += (parseInt(skillsObj[type]) || 0); });
-                return Math.round(total / MACHINE_TYPES.length) || 0;
-            };
+            const isSenior = currentUser?.mechanicType === 'Sr Mechanic' || currentUser?.mechanicType === 'Mechanical Admin' || currentUser?.role === 'admin';
+            
+            // TASK CATEGORIES
+            const priorityOrder = { "Critical": 0, "Normal": 1, "Low": 2 };
+            const myTasks = tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
+            const unassignedTasks = tickets.filter(t => !t.assignedTo && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
+            const escalatedTasks = tickets.filter(t => t.status === 'Escalated');
 
             const handleLogin = (e) => {
                 e.preventDefault();
-                const user = allUsers.find(u => u.username === creds.username && u.password === creds.password);
+                const user = users.find(u => u.username === creds.username && u.password === creds.password);
                 if (user) {
-                    if (user.department === 'Mechanical' || user.role === 'admin') {
-                        setCurrentUser(user);
-                        setLoginError("");
-                        if(user.role !== 'admin') setActiveTab('my_tasks'); 
-                    } else {
-                        setLoginError("Access Denied: This hub is restricted to Mechanical Department staff only.");
-                    }
-                } else if (creds.username === 'admin' && creds.password === '123') {
-                    setCurrentUser({ id: 'admin', name: 'System Admin', role: 'admin', department: 'Mechanical' });
+                    setCurrentUser(user);
+                    setLoginError("");
+                    // Activate Tone.js on user interaction
+                    Tone.start();
                 } else {
-                    setLoginError("Invalid username or password.");
+                    setLoginError("Invalid credentials.");
                 }
             };
 
-            const handleDeleteWorker = (id) => {
-                if(window.confirm("Remove this mechanic from the database?")) {
-                    remove(ref(db, `users/${id}`));
-                }
-            };
-
-            const handleSkillChange = (machine, value) => {
-                let val = parseInt(value) || 0;
-                if(val > 100) val = 100;
-                if(val < 0) val = 0;
-                setNewWorker({ ...newWorker, skills: { ...newWorker.skills, [machine]: val } });
-            };
-
-            const handleSaveWorker = () => {
-                if(newWorker.name && newWorker.username && newWorker.password) {
-                    if (editingWorkerId) {
-                        update(ref(db, `users/${editingWorkerId}`), newWorker);
-                        setEditingWorkerId(null);
-                    } else {
-                        push(ref(db, 'users'), newWorker);
-                    }
-                    setNewWorker({ 
-                        name: "", username: "", password: "", department: "Mechanical", role: "technician", 
-                        status: "Offline", mechanicType: "Jr Mechanic", section: "Section A", assignedLines: "", idNumber: "", shift: "Shift 1",
-                        skills: { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
-                    });
-                } else {
-                    alert("Please fill name, username, and password");
-                }
-            };
-
-            const handleEditWorker = (worker) => {
-                setNewWorker({
-                    name: worker.name || "", username: worker.username || "", password: worker.password || "",
-                    department: worker.department || "Mechanical", role: worker.role || "technician", status: worker.status || "Offline",
-                    mechanicType: worker.mechanicType || "Jr Mechanic", section: worker.section || "Section A", assignedLines: worker.assignedLines || "",
-                    idNumber: worker.idNumber || "", shift: worker.shift || "Shift 1",
-                    skills: worker.skills || { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
-                });
-                setEditingWorkerId(worker.id);
-                document.getElementById('worker-form-section')?.scrollIntoView({ behavior: 'smooth' });
-            };
-
-            const handleAssignToMe = (ticket) => {
-                // Now writes directly to the machine entity
-                update(ref(db, `machines/${ticket.id}`), {
+            // --- ACTIONS ---
+            const handleClaimTask = (ticketId) => {
+                update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${ticketId}`), {
                     assignedTo: currentUser.id,
                     assignedAt: new Date().toISOString()
                 });
             };
 
-            const handleScanVerify = (decodedText) => {
-                if (decodedText === scanTargetTicket.id || machines[decodedText]?.name === scanTargetTicket.name) {
-                    update(ref(db, `machines/${scanTargetTicket.id}`), {
+            const triggerScanner = (ticket) => {
+                setScanTargetTask(ticket);
+                setShowScanner(true);
+            };
+
+            const handleScanStart = (decodedText) => {
+                if (decodedText === scanTargetTask.machineId || machines[decodedText]?.name === scanTargetTask.machineId) {
+                    update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${scanTargetTask.id}`), {
                         status: 'In Progress',
                         startedAt: new Date().toISOString()
                     });
+                    update(ref(db, `machines/${scanTargetTask.machineId}`), { status: 'In Progress' });
                     setShowScanner(false);
-                    setScanTargetTicket(null);
+                    setScanTargetTask(null);
                 } else {
-                    alert(`Wrong Machine! You scanned ${decodedText}, but expected ${scanTargetTicket.id}`);
+                    alert(`Wrong Machine! You scanned ${decodedText}, but expected ${scanTargetTask.machineId}`);
                     setShowScanner(false);
                 }
             };
 
-            const handleSignOffSubmit = () => {
-                if(!signOffData.operatorId) return alert("Operator ID is required for sign-off.");
+            const handleSignOff = () => {
+                if(!signOffData.operatorId) return alert("Operator ID is required to close the job.");
                 
                 const now = new Date();
-                const startedAt = new Date(signOffTicket.startedAt);
-                const assignedAt = signOffTicket.assignedAt ? new Date(signOffTicket.assignedAt) : new Date(signOffTicket.reportedAt);
-                const reportedAt = new Date(signOffTicket.reportedAt);
+                const startedAt = new Date(activeTask.startedAt);
+                const assignedAt = activeTask.assignedAt ? new Date(activeTask.assignedAt) : new Date(activeTask.timestamp);
+                const reportedAt = new Date(activeTask.timestamp);
 
                 const responseMs = startedAt - assignedAt;
                 const repairMs = now - startedAt;
                 const downtimeMs = now - reportedAt;
 
                 push(ref(db, 'logs'), {
-                    machineId: signOffTicket.id,
+                    machineId: activeTask.machineId,
                     action: 'Fixed',
+                    department: currentUser.department,
                     userId: currentUser.id,
                     userName: currentUser.name,
                     operatorSignOff: signOffData.operatorId,
@@ -329,875 +274,335 @@
                     metrics: { responseMs, repairMs, downtimeMs }
                 });
 
-                // Clear ticket data and reset machine status
-                update(ref(db, `machines/${signOffTicket.id}`), {
-                    status: 'Running', 
-                    assignedTo: null, 
-                    issue: null,
-                    priority: null,
-                    department: null,
-                    ticketId: null,
-                    aiDiagnostic: null,
-                    isPM: null,
-                    reportedAt: null,
-                    startedAt: null,
-                    assignedAt: null
-                });
+                remove(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${activeTask.id}`));
+                update(ref(db, `machines/${activeTask.machineId}`), { status: 'Running', assignedTo: null, issue: null });
 
-                setSignOffTicket(null);
+                setShowSignOff(false);
                 setSignOffData({ operatorId: "", remarks: "" });
             };
 
-            const filteredReportLogs = useMemo(() => {
-                return logs.filter(log => {
-                    if (log.action !== 'Fixed' && log.action !== 'PM Completed') return false; 
+            const handleEscalate = () => {
+                update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${activeTask.id}`), {
+                    status: 'Escalated',
+                    assignedTo: null,
+                    escalatedBy: currentUser.name,
+                    escalationNote: signOffData.remarks || "Requires senior assistance."
+                });
+                update(ref(db, `machines/${activeTask.machineId}`), { status: 'Pending' });
+                setShowEscalate(false);
+                setSignOffData({ operatorId: "", remarks: "" });
+            };
 
-                    const logDateObj = new Date(log.timestamp);
-                    const logDate = logDateObj.toISOString().split('T')[0];
-                    const logHour = logDateObj.getHours();
-
-                    let dateMatch = true;
-                    if (reportType === 'daily') dateMatch = logDate === startDate;
-                    if (reportType === 'weekly') {
-                        const s = new Date(startDate);
-                        const e = new Date(startDate);
-                        e.setDate(e.getDate() + 7);
-                        dateMatch = logDateObj >= s && logDateObj <= e;
-                    }
-                    if (reportType === 'monthly') dateMatch = logDate.slice(0, 7) === startDate.slice(0, 7);
-                    if (reportType === 'custom') dateMatch = logDate >= startDate && logDate <= endDate;
-
-                    let shiftMatch = true;
-                    if (reportShift === 'shift1') shiftMatch = logHour >= 6 && logHour < 14;
-                    if (reportShift === 'shift2') shiftMatch = logHour >= 14 && logHour < 22;
-
-                    let machineMatch = true;
-                    if (reportMachine) {
-                        const mName = getMachineName(log.machineId);
-                        machineMatch = mName.toLowerCase().includes(reportMachine.toLowerCase()) || log.machineId.toLowerCase().includes(reportMachine.toLowerCase());
-                    }
-
-                    return dateMatch && shiftMatch && machineMatch;
-                }).reverse();
-            }, [logs, reportType, startDate, endDate, reportMachine, reportShift, machines]);
-
-            const reportStats = useMemo(() => {
-                const total = filteredReportLogs.length;
-                const totalResponseMs = filteredReportLogs.reduce((acc, l) => acc + (l.metrics?.responseMs || 0), 0);
-                const totalRepairMs = filteredReportLogs.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
-                const totalDowntimeMs = filteredReportLogs.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
-
-                return {
-                    total,
-                    avgResponse: total ? formatDuration(totalResponseMs / total) : "0m",
-                    avgRepair: total ? formatDuration(totalRepairMs / total) : "0m",
-                    totalDowntime: formatDuration(totalDowntimeMs)
-                };
-            }, [filteredReportLogs]);
-
-            const stats = useMemo(() => {
-                const fixes = logs.filter(l => l.action === 'Fixed');
-                const totalFixes = fixes.length;
-                const totalDowntime = fixes.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
-                const totalRepair = fixes.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
+            const handleReroute = () => {
+                // Move from current dept to new dept
+                const newDeptPath = rerouteDept.toLowerCase();
+                const oldDeptPath = currentUser.department.toLowerCase();
                 
-                return {
-                    mtbf: totalFixes ? (totalDowntime / totalFixes / 3600000).toFixed(1) : "8392.4",
-                    mttrRepair: totalFixes ? (totalRepair / totalFixes / 60000).toFixed(0) : "0",
-                    mttrRecovery: totalFixes ? (totalDowntime / totalFixes / 60000).toFixed(0) : "0",
-                    repairs: totalFixes
+                const updatedTicket = {
+                    ...rerouteTicket,
+                    department: rerouteDept,
+                    status: 'Pending',
+                    assignedTo: null,
+                    escalatedBy: null,
+                    escalationNote: null
                 };
-            }, [logs]);
+                
+                set(ref(db, `department_tickets/${newDeptPath}/${rerouteTicket.id}`), updatedTicket)
+                    .then(() => remove(ref(db, `department_tickets/${oldDeptPath}/${rerouteTicket.id}`)));
+                
+                setShowReroute(false);
+                setRerouteTicket(null);
+            };
 
+            // REPLACE MACHINE LOGIC
+            const handleReplaceScan = (decodedText) => {
+                if (replaceFlow.step === 1) {
+                    if (decodedText === activeTask.machineId || machines[decodedText]?.name === activeTask.machineId) {
+                        setReplaceFlow({ active: true, step: 2 });
+                    } else {
+                        alert("Please scan the correct BROKEN machine first.");
+                    }
+                } else if (replaceFlow.step === 2) {
+                    const spare = Object.values(machines).find(m => m.id === decodedText || m.name === decodedText);
+                    if (!spare) return alert("Spare machine not found in database!");
+                    if (spare.id === activeTask.machineId) return alert("You scanned the broken machine again! Scan the SPARE machine.");
+
+                    const deptPath = currentUser.department.toLowerCase();
+                    const oldMachine = machines[activeTask.machineId] || activeTask;
+
+                    // Log the swap
+                    push(ref(db, 'logs'), {
+                        machineId: activeTask.machineId,
+                        action: 'Replaced',
+                        details: `Swapped out. Replaced by ${spare.name}`,
+                        userId: currentUser.id,
+                        userName: currentUser.name,
+                        timestamp: new Date().toISOString()
+                    });
+
+                    // Update Old Machine (Offline)
+                    update(ref(db, `machines/${activeTask.machineId}`), {
+                        status: 'Offline', assignedTo: null, issue: 'Requires Workshop Repair (Swapped out)', priority: 'Normal'
+                    });
+
+                    // Update Spare Machine (Running)
+                    update(ref(db, `machines/${spare.id}`), {
+                        status: 'Running', lineId: oldMachine.lineId || null
+                    });
+
+                    // Clear ticket
+                    remove(ref(db, `department_tickets/${deptPath}/${activeTask.id}`));
+
+                    setActiveTask(null);
+                    setReplaceFlow({ active: false, step: 1 });
+                    alert("Machine successfully replaced! Line is back running.");
+                }
+            };
+
+            // --- RENDER ---
             if (!currentUser) {
                 return (
                     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
-                        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 border-t-8 border-indigo-600 relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 opacity-10"><Wrench className="w-32 h-32" /></div>
-                            <div className="text-center mb-8 relative z-10">
-                                <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <Lock className="w-8 h-8 text-indigo-600" />
-                                </div>
-                                <h1 className="text-2xl font-bold text-slate-800">Mechanical Hub</h1>
-                                <p className="text-slate-500 font-medium">Authorized Personnel Only</p>
+                        <Card className="w-full max-w-sm p-8 bg-white border-t-8 border-blue-500 shadow-2xl">
+                            <div className="text-center mb-6">
+                                <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><User className="w-8 h-8 text-blue-600" /></div>
+                                <h1 className="text-2xl font-bold text-slate-800">Worker Portal</h1>
+                                <p className="text-slate-500 text-sm">Please log in to view your tasks.</p>
                             </div>
-                            
-                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded mb-6 text-sm font-bold border border-red-200 text-center">{loginError}</div>}
-                            
-                            <form onSubmit={handleLogin} className="space-y-4 relative z-10">
+                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm font-bold border border-red-200 text-center">{loginError}</div>}
+                            <form onSubmit={handleLogin} className="space-y-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Username / ID</label>
-                                    <input type="text" className="w-full p-3 border border-slate-300 rounded-lg bg-slate-50" placeholder="e.g. prasad.274" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} />
+                                    <input className="w-full p-3 border border-slate-300 bg-slate-50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Password</label>
-                                    <input type="password" className="w-full p-3 border border-slate-300 rounded-lg bg-slate-50" placeholder="••••••••" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
+                                    <input type="password" className="w-full p-3 border border-slate-300 bg-slate-50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
                                 </div>
-                                <Button fullWidth size="lg" className="mt-4"><LogIn className="w-5 h-5"/> Secure Login</Button>
+                                <Button fullWidth className="mt-2 text-lg py-3"><Lock className="w-5 h-5"/> Secure Login</Button>
                             </form>
-                        </div>
+                        </Card>
                     </div>
                 );
             }
 
             return (
-                <div className="flex h-screen bg-slate-50 font-sans">
-                    <div className="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10 shrink-0 print:hidden">
-                        <div className="p-6 flex items-center gap-3 border-b border-slate-800">
-                            <Wrench className="w-8 h-8 text-indigo-400" />
-                            <span className="text-xl font-bold tracking-tight">Mechanical Hub</span>
-                        </div>
-                        
-                        <div className="p-6 bg-slate-800/50 mb-4 border-b border-slate-800 flex items-center gap-3">
-                            <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center font-bold text-lg text-white">
-                                {currentUser.name.charAt(0)}
+                <div className="min-h-screen bg-slate-100 flex flex-col pb-20 md:pb-0 font-sans">
+                    
+                    {/* SCANNERS AND MODALS */}
+                    {showScanner && <QRScanner onScan={handleScanStart} onClose={() => setShowScanner(false)} title="Scan Machine to Start Repair" />}
+                    
+                    {replaceFlow.active && (
+                        <QRScanner 
+                            onScan={handleReplaceScan} 
+                            onClose={() => setReplaceFlow({ active: false, step: 1 })} 
+                            title={replaceFlow.step === 1 ? "1. Scan BROKEN Machine" : "2. Scan SPARE Machine"} 
+                        />
+                    )}
+                    
+                    <Modal isOpen={showSignOff} onClose={() => setShowSignOff(false)} title="Complete Job & Sign-off">
+                        <div className="space-y-4">
+                            <div className="bg-emerald-50 text-emerald-800 p-3 rounded-lg border border-emerald-200 text-sm font-medium">
+                                Confirm repairs for <span className="font-bold">{activeTask?.machineId}</span>.
                             </div>
                             <div>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">{currentUser.mechanicType || currentUser.role}</p>
-                                <p className="font-bold text-sm tracking-wide truncate">{currentUser.name}</p>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Repair Notes (What did you do?)</label>
+                                <textarea className="w-full p-3 border rounded-lg h-24" placeholder="e.g. Changed looper, adjusted timing..." value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operator Verification ID</label>
+                                <input className="w-full p-3 border rounded-lg bg-yellow-50 focus:ring-yellow-400" placeholder="e.g. OP-1234" value={signOffData.operatorId} onChange={e => setSignOffData({...signOffData, operatorId: e.target.value})} />
+                                <p className="text-[10px] text-slate-400 mt-1">Operator must enter ID to verify machine is running smoothly.</p>
+                            </div>
+                            <Button fullWidth variant="success" onClick={handleSignOff}><CheckCircle className="w-5 h-5"/> Verify & Close Ticket</Button>
+                        </div>
+                    </Modal>
+
+                    <Modal isOpen={showEscalate} onClose={() => setShowEscalate(false)} title="Escalate Ticket">
+                        <div className="space-y-4">
+                            <p className="text-sm text-slate-600">If you cannot fix this issue, or it belongs to another department, escalate it to a Senior.</p>
+                            <textarea className="w-full p-3 border rounded-lg h-24" placeholder="Reason for escalation..." value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
+                            <Button fullWidth variant="danger" onClick={handleEscalate}><AlertOctagon className="w-5 h-5"/> Confirm Escalation</Button>
+                        </div>
+                    </Modal>
+
+                    <Modal isOpen={showReroute} onClose={() => setShowReroute(false)} title="Re-route Ticket (Senior Only)">
+                        <div className="space-y-4">
+                            <p className="text-sm text-slate-600">Re-route <strong>{rerouteTicket?.machineId}</strong> to the correct department queue.</p>
+                            <select className="w-full p-3 border rounded-lg" value={rerouteDept} onChange={e => setRerouteDept(e.target.value)}>
+                                <option value="Mechanical">Mechanical Dept</option>
+                                <option value="Quality">Quality / Measurement Dept</option>
+                                <option value="Technical">Technical / Method Dept</option>
+                                <option value="IE">Industrial Engineering (IE)</option>
+                                <option value="Material">Raw Materials (RM) / Stores</option>
+                            </select>
+                            <Button fullWidth onClick={handleReroute}><ArrowRight className="w-5 h-5"/> Send to {rerouteDept}</Button>
+                        </div>
+                    </Modal>
+
+                    {/* HEADER */}
+                    <header className="bg-slate-900 text-white p-4 sticky top-0 z-20 flex justify-between items-center shadow-md">
+                        <div>
+                            <h1 className="text-xl font-bold flex items-center gap-2"><ClipboardList className="text-blue-400"/> Worker Portal</h1>
+                            <div className="text-xs text-slate-400 font-medium tracking-wide flex items-center gap-2 mt-1">
+                                <span>{currentUser.name}</span>
+                                <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] uppercase font-bold">{currentUser.department}</span>
                             </div>
                         </div>
+                        <button onClick={() => setCurrentUser(null)} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"><LogOut className="w-5 h-5"/></button>
+                    </header>
 
-                        <nav className="flex-1 px-4 space-y-2 overflow-y-auto pb-4">
-                            {currentUser.role !== 'admin' && (
-                                <button onClick={() => setActiveTab('my_tasks')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'my_tasks' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                    <ClipboardList className="w-5 h-5" /> My Tasks
-                                </button>
-                            )}
-                            {currentUser.role === 'admin' && (
-                                <button onClick={() => setActiveTab('tickets')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'tickets' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                    <AlertTriangle className="w-5 h-5" /> All Pending Tickets
-                                </button>
-                            )}
-                            <button onClick={() => setActiveTab('analytics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'analytics' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                <BarChart2 className="w-5 h-5" /> Reliability Analytics
-                            </button>
-                            <button onClick={() => setActiveTab('mechanic_downtime')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'mechanic_downtime' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                <Timer className="w-5 h-5" /> Mechanic Downtime
-                            </button>
-                            <button onClick={() => setActiveTab('reports')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'reports' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                <FileText className="w-5 h-5" /> Reporting & Export
-                            </button>
-                            <button onClick={() => setActiveTab('pm_schedule')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'pm_schedule' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                <Calendar className="w-5 h-5" /> PM Scheduler
-                            </button>
-                            <button onClick={() => setActiveTab('parts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'parts' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                <Package className="w-5 h-5" /> Part Approvals 
-                                {partRequests.filter(r => r.status==='Pending').length > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{partRequests.filter(r => r.status==='Pending').length}</span>}
-                            </button>
-                            <button onClick={() => setActiveTab('handover')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'handover' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                <MessageSquare className="w-5 h-5" /> Shift Handover
-                            </button>
-                            <button onClick={() => setActiveTab('workers')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'workers' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                <Users className="w-5 h-5" /> Skill Matrix (Staff)
-                            </button>
-                        </nav>
-
-                        <div className="p-4 border-t border-slate-800 shrink-0">
-                            <button onClick={() => setCurrentUser(null)} className="flex items-center gap-3 text-slate-400 hover:text-white transition-colors w-full px-4 py-2 text-sm font-medium">
-                                <LogOut className="w-4 h-4" /> Logout
-                            </button>
-                        </div>
-                    </div>
-
-                    {}
-                    <div className="flex-1 overflow-y-auto relative bg-slate-50 flex flex-col print:bg-white print:overflow-visible">
-                        <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shadow-sm shrink-0 print:hidden">
-                            <h2 className="font-bold text-slate-800 capitalize tracking-wide">{activeTab.replace('_', ' ')} Dashboard</h2>
-                            <form onSubmit={(e) => {
-                                e.preventDefault();
-                                const found = Object.values(machines).find(m => m.id === healthSearch || m.name?.toLowerCase() === healthSearch.toLowerCase());
-                                if (found) setSelectedHealthMachine(found);
-                                else alert("Machine not found.");
-                            }} className="relative">
-                                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
-                                <input 
-                                    className="pl-9 pr-4 py-2 border border-slate-300 rounded-full text-sm w-72 bg-slate-50 focus:bg-white transition-all focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" 
-                                    placeholder="Search Machine Health Card (ID/Name)..." 
-                                    value={healthSearch} 
-                                    onChange={e=>setHealthSearch(e.target.value)} 
-                                />
-                            </form>
-                        </div>
-
-                        <div className="p-8 flex-1 print:p-0">
-
-                        {showScanner && <QRScanner onScan={handleScanVerify} onClose={() => setShowScanner(false)} title="Scan Machine to Start Repair" />}
+                    {/* MAIN VIEW */}
+                    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-8">
                         
-                        <Modal isOpen={!!selectedHealthMachine} onClose={() => setSelectedHealthMachine(null)} title="Machine Health Card">
-                            <div className="space-y-4">
-                                <div className="text-center mb-4">
-                                    <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-inner"><Factory className="w-8 h-8"/></div>
-                                    <h3 className="font-bold text-xl">{selectedHealthMachine?.name}</h3>
-                                    <p className="text-slate-500 font-mono text-sm bg-slate-100 inline-block px-2 py-1 rounded mt-1">ID: {selectedHealthMachine?.id}</p>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm text-center">
-                                        <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Total Breakdowns</div>
-                                        <div className="font-bold text-3xl text-indigo-600">{logs.filter(l => l.machineId === selectedHealthMachine?.id).length}</div>
+                        {/* ACTIVE TASK (TIMER RUNNING) */}
+                        {activeTask && (
+                            <div className="animate-in slide-in-from-top-4 duration-300">
+                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><PlayCircle className="w-4 h-4 text-emerald-500"/> Currently Working On</h3>
+                                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border-2 border-emerald-500">
+                                    <div className="bg-emerald-50 p-4 border-b border-emerald-100 flex justify-between items-start">
+                                        <div>
+                                            <h2 className="text-2xl font-bold text-emerald-900">{activeTask.machineId}</h2>
+                                            <div className="text-sm font-mono text-emerald-700 bg-emerald-100 inline-block px-2 py-1 rounded mt-1">{activeTask.ticketId}</div>
+                                        </div>
+                                        <div className="bg-emerald-200 text-emerald-800 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 animate-pulse shadow-sm border border-emerald-300">
+                                            <Clock className="w-4 h-4"/> IN PROGRESS
+                                        </div>
                                     </div>
-                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm text-center flex flex-col justify-center">
-                                        <div className="text-[10px] text-slate-500 font-bold uppercase mb-2">Live Status</div>
-                                        <div><Badge status={selectedHealthMachine?.status} /></div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-sm text-slate-700 mb-2 border-b pb-1">Repair History</h4>
-                                    <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                                        {logs.filter(l => l.machineId === selectedHealthMachine?.id).slice().reverse().map((log, i) => (
-                                            <div key={i} className="text-xs bg-white p-3 border border-slate-200 rounded-lg shadow-sm">
-                                                <div className="flex justify-between mb-1">
-                                                    <span className="text-slate-500 font-mono">{new Date(log.timestamp).toLocaleDateString()}</span>
-                                                    <span className="font-bold text-indigo-700">{log.action}</span>
+                                    <div className="p-6">
+                                        <div className="mb-6">
+                                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Reported Issue</h4>
+                                            <p className="text-lg text-slate-800 font-medium bg-slate-50 p-4 rounded-xl border border-slate-200">{activeTask.issueDescription}</p>
+                                            
+                                            {activeTask.aiDiagnostic && (
+                                                <div className="mt-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
+                                                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Activity className="w-3 h-3"/> AI Diagnostic Suggestion</h4>
+                                                    <p className="text-sm text-indigo-900 font-medium italic">"{activeTask.aiDiagnostic}"</p>
                                                 </div>
-                                                <p className="text-slate-600 font-medium bg-slate-50 p-2 rounded mt-1">{log.details || "No technician remarks left."}</p>
-                                            </div>
-                                        ))}
-                                        {logs.filter(l => l.machineId === selectedHealthMachine?.id).length === 0 && <p className="text-slate-400 italic text-center py-4">No repair logs found.</p>}
-                                    </div>
-                                </div>
-                            </div>
-                        </Modal>
-
-                        <Modal isOpen={!!signOffTicket} onClose={() => setSignOffTicket(null)} title="Operator Sign-Off">
-                            <div className="space-y-4">
-                                <div className="bg-indigo-50 p-3 rounded text-sm text-indigo-800 border border-indigo-100">
-                                    Machine: <span className="font-bold">{signOffTicket?.name}</span> is repaired.
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Repair Remarks</label>
-                                    <textarea className="w-full p-2 border rounded-lg text-sm" placeholder="What was fixed?" value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
-                                </div>
-                                <div className="border-t pt-4">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operator Verification ID</label>
-                                    <input className="w-full p-2 border rounded-lg text-sm bg-yellow-50 focus:ring-yellow-400" placeholder="Operator ID (Required)" value={signOffData.operatorId} onChange={e => setSignOffData({...signOffData, operatorId: e.target.value})} />
-                                    <p className="text-[10px] text-slate-400 mt-1">Operator must enter ID to confirm the machine is running.</p>
-                                </div>
-                                <Button fullWidth variant="success" onClick={handleSignOffSubmit}>Complete & Close Ticket</Button>
-                            </div>
-                        </Modal>
-
-                        {/* REPORTS TAB */}
-                        {activeTab === 'reports' && (
-                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
-                                <div className="flex justify-between items-center mb-6 print:hidden">
-                                    <div>
-                                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="text-indigo-600"/> Generate Reports</h2>
-                                        <p className="text-slate-500 text-sm mt-1">Export detailed logs for audits and meetings.</p>
-                                    </div>
-                                    <Button size="lg" onClick={() => window.print()}><Printer className="w-5 h-5"/> Download PDF / Print</Button>
-                                </div>
-
-                                <Card className="p-6 mb-8 print:hidden">
-                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Time Period</label>
-                                            <select className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={reportType} onChange={e => setReportType(e.target.value)}>
-                                                <option value="daily">Daily</option>
-                                                <option value="weekly">Weekly (7 Days)</option>
-                                                <option value="monthly">Monthly</option>
-                                                <option value="custom">Custom Date Range</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Start Date</label>
-                                            <input type={reportType === 'monthly' ? 'month' : 'date'} className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                                        </div>
-                                        {reportType === 'custom' && (
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">End Date</label>
-                                                <input type="date" className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={endDate} onChange={e => setEndDate(e.target.value)} />
-                                            </div>
-                                        )}
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Shift Filter</label>
-                                            <select className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={reportShift} onChange={e => setReportShift(e.target.value)}>
-                                                <option value="all">All Shifts</option>
-                                                <option value="shift1">Shift 1 (6 AM - 2 PM)</option>
-                                                <option value="shift2">Shift 2 (2 PM - 10 PM)</option>
-                                            </select>
-                                        </div>
-                                        <div className="md:col-span-2">
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Machine Name / ID</label>
-                                            <input className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Leave blank for all machines..." value={reportMachine} onChange={e => setReportMachine(e.target.value)} />
-                                        </div>
-                                    </div>
-                                </Card>
-
-                                <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm print:shadow-none print:border-none print:p-0">
-                                    <div className="hidden print:block mb-8 text-center border-b-2 border-slate-800 pb-4">
-                                        <h1 className="text-3xl font-bold text-slate-900 uppercase tracking-wider mb-2">Maintenance & Repair Log</h1>
-                                        <div className="text-slate-600 flex justify-center gap-6 font-medium">
-                                            <span><strong>Period:</strong> {reportType.toUpperCase()} ({startDate} {reportType === 'custom' ? `to ${endDate}` : ''})</span>
-                                            <span><strong>Shift:</strong> {reportShift === 'all' ? 'All Shifts' : reportShift === 'shift1' ? 'Shift 1 (06:00-14:00)' : 'Shift 2 (14:00-22:00)'}</span>
-                                            {reportMachine && <span><strong>Target Machine:</strong> {reportMachine}</span>}
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-4 gap-4 mb-8">
-                                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-center print:bg-white print:border-slate-400">
-                                            <div className="text-xs text-slate-500 uppercase font-bold tracking-wide">Total Jobs</div>
-                                            <div className="text-2xl font-bold text-slate-800">{reportStats.total}</div>
-                                        </div>
-                                        <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 text-center print:bg-white print:border-slate-400">
-                                            <div className="text-xs text-orange-600 uppercase font-bold tracking-wide">Avg Response</div>
-                                            <div className="text-2xl font-bold text-orange-700">{reportStats.avgResponse}</div>
-                                        </div>
-                                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 text-center print:bg-white print:border-slate-400">
-                                            <div className="text-xs text-blue-600 uppercase font-bold tracking-wide">Avg Repair (Wrench)</div>
-                                            <div className="text-2xl font-bold text-blue-700">{reportStats.avgRepair}</div>
-                                        </div>
-                                        <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-center print:bg-white print:border-slate-400">
-                                            <div className="text-xs text-red-600 uppercase font-bold tracking-wide">Total Downtime</div>
-                                            <div className="text-2xl font-bold text-red-700">{reportStats.totalDowntime}</div>
-                                        </div>
-                                    </div>
-
-                                    <table className="w-full text-left text-sm border-collapse">
-                                        <thead className="bg-slate-100 border-y-2 border-slate-300 print:bg-white">
-                                            <tr>
-                                                <th className="p-3 font-bold text-slate-700">Date/Time</th>
-                                                <th className="p-3 font-bold text-slate-700">Machine</th>
-                                                <th className="p-3 font-bold text-slate-700">Mechanic</th>
-                                                <th className="p-3 font-bold text-slate-700 text-center">Resp. Time</th>
-                                                <th className="p-3 font-bold text-slate-700 text-center">Rep. Time</th>
-                                                <th className="p-3 font-bold text-slate-700">Action/Notes</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-200">
-                                            {filteredReportLogs.map((log, i) => {
-                                                const logHour = new Date(log.timestamp).getHours();
-                                                const shiftTag = (logHour >= 6 && logHour < 14) ? "Shift 1" : (logHour >= 14 && logHour < 22) ? "Shift 2" : "Night";
-                                                
-                                                return (
-                                                    <tr key={i} className="hover:bg-slate-50 transition-colors print:border-b print:border-slate-300">
-                                                        <td className="p-3">
-                                                            <div className="font-medium text-slate-800">{new Date(log.timestamp).toLocaleDateString()}</div>
-                                                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">{new Date(log.timestamp).toLocaleTimeString()} ({shiftTag})</div>
-                                                        </td>
-                                                        <td className="p-3 font-bold text-indigo-700">{getMachineName(log.machineId)}</td>
-                                                        <td className="p-3 text-slate-700">{log.userName || log.userId}</td>
-                                                        <td className="p-3 text-center text-orange-600 font-mono">{formatDuration(log.metrics?.responseMs)}</td>
-                                                        <td className="p-3 text-center text-blue-600 font-mono">{log.repairTime || "-"}</td>
-                                                        <td className="p-3 text-slate-600">
-                                                            <span className="font-bold text-slate-800">{log.action}:</span> {log.details || "-"}
-                                                        </td>
-                                                    </tr>
-                                                )
-                                            })}
-                                            {filteredReportLogs.length === 0 && (
-                                                <tr><td colSpan="6" className="p-8 text-center text-slate-400 italic">No repair logs match the selected filters.</td></tr>
                                             )}
-                                        </tbody>
-                                    </table>
+                                        </div>
+                                        
+                                        <div className="border-t pt-6">
+                                            <Button fullWidth size="lg" variant="success" onClick={() => setShowSignOff(true)}>
+                                                <CheckSquare className="w-5 h-5"/> Complete Job & Sign-off
+                                            </Button>
+                                            
+                                            <Button fullWidth size="lg" className="mt-3 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700" onClick={() => setShowEscalate(true)}>
+                                                <AlertOctagon className="w-5 h-5"/> Escalate to Senior
+                                            </Button>
+
+                                            {/* ONLY Mechanical Department can Swap Machines */}
+                                            {currentUser?.department?.toLowerCase() === 'mechanical' && (
+                                                <Button fullWidth size="lg" className="mt-3 bg-slate-800 text-white hover:bg-slate-700 shadow-md" onClick={() => setReplaceFlow({ active: true, step: 1 })}>
+                                                    <RefreshCw className="w-5 h-5"/> Replace / Swap Machine
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* MY TASKS TAB (Mechanic View) */}
-                        {activeTab === 'my_tasks' && (
-                            <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Wrench className="text-indigo-600"/> My Workbench</h2>
-                                
-                                {tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'In Progress').map(t => (
-                                    <div key={t.id} className="bg-white p-6 rounded-xl border-t-4 border-t-yellow-400 shadow-lg mb-6">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div>
-                                                <h3 className="font-bold text-xl text-slate-800">{t.name}</h3>
-                                                <p className="text-sm text-slate-500 font-mono">{t.ticketId}</p>
-                                            </div>
-                                            <div className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded text-xs font-bold flex items-center gap-2 animate-pulse">
-                                                <Clock className="w-4 h-4"/> TIMER RUNNING
-                                            </div>
+                        {/* ASSIGNED TO ME (Pending Start) */}
+                        {!activeTask && (
+                            <div>
+                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><User className="w-4 h-4 text-blue-500"/> Assigned To You</h3>
+                                <div className="space-y-4">
+                                    {myTasks.length === 0 ? (
+                                        <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400">
+                                            <CheckCircle className="w-8 h-8 mx-auto mb-2 opacity-50"/>
+                                            <p className="font-medium">No assigned tasks. Grab one from the open pool below.</p>
                                         </div>
-                                        <p className="text-slate-700 bg-slate-50 p-3 rounded border border-slate-200 mb-4">{t.issue}</p>
-                                        <Button fullWidth variant="success" onClick={() => setSignOffTicket(t)}><CheckSquare className="w-5 h-5"/> Finish & Request Sign-Off</Button>
+                                    ) : myTasks.map(task => (
+                                        <Card key={task.id} className="p-5 border-l-4 border-l-blue-500 flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:shadow-md transition-all">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-3 mb-1">
+                                                    <h3 className="font-bold text-lg text-slate-800">{task.machineId}</h3>
+                                                    {task.priority && <Badge status={task.priority} />}
+                                                </div>
+                                                <p className="text-sm text-slate-600 mb-2">{task.issueDescription}</p>
+                                                {task.aiDiagnostic && <p className="text-xs text-indigo-600 font-medium italic border-l-2 border-indigo-300 pl-2">AI: {task.aiDiagnostic}</p>}
+                                            </div>
+                                            <Button onClick={() => triggerScanner(task)} className="bg-slate-900 text-white w-full md:w-auto shadow-md">
+                                                <ScanLine className="w-4 h-4"/> Scan to Start
+                                            </Button>
+                                        </Card>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ESCALATED TICKETS (For Seniors Only) */}
+                        {isSenior && escalatedTasks.length > 0 && (
+                            <div>
+                                <h3 className="font-bold text-red-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><AlertTriangle className="w-4 h-4"/> Escalated by Juniors</h3>
+                                <div className="space-y-3">
+                                    {escalatedTasks.map(task => (
+                                        <Card key={task.id} className="p-4 bg-red-50 border border-red-200 shadow-sm flex flex-col md:flex-row justify-between gap-4">
+                                            <div>
+                                                <div className="font-bold text-red-900 text-lg mb-1">{task.machineId}</div>
+                                                <div className="text-sm text-red-800 font-medium">{task.issueDescription}</div>
+                                                <div className="mt-2 text-xs bg-white p-2 rounded border border-red-100 text-red-600">
+                                                    <span className="font-bold uppercase tracking-wide">Escalated by {task.escalatedBy}:</span> {task.escalationNote}
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col gap-2 shrink-0">
+                                                <Button size="sm" variant="success" onClick={() => handleClaimTask(task.id)}>Take Over Task</Button>
+                                                <Button size="sm" variant="secondary" onClick={() => { setRerouteTicket(task); setShowReroute(true); }}>Re-route to other Dept</Button>
+                                            </div>
+                                        </Card>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* OPEN POOL (Unassigned Tasks) */}
+                        {!activeTask && (
+                            <div>
+                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><Activity className="w-4 h-4 text-slate-400"/> Open {currentUser.department} Tickets</h3>
+                                <div className="space-y-3">
+                                    {unassignedTasks.length === 0 ? (
+                                        <div className="p-6 text-center text-slate-400 italic">Queue is empty.</div>
+                                    ) : unassignedTasks.map(task => (
+                                        <Card key={task.id} className="p-4 flex justify-between items-center gap-4 hover:border-slate-300 transition-colors">
+                                            <div>
+                                                <div className="font-bold text-slate-800 mb-1">{task.machineId} <Badge status={task.priority}/></div>
+                                                <div className="text-sm text-slate-600">{task.issueDescription}</div>
+                                            </div>
+                                            <Button variant="outline" onClick={() => handleClaimTask(task.id)} className="shrink-0 font-bold hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
+                                                Claim Task
+                                            </Button>
+                                        </Card>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* MY RECENT HISTORY */}
+                        <div className="pt-8 border-t border-slate-200">
+                            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 uppercase tracking-wide text-sm"><History className="w-4 h-4 text-slate-400"/> My Recent Fixes</h3>
+                            <div className="space-y-3">
+                                {logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed').slice().reverse().slice(0, 5).map((log, i) => (
+                                    <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 text-sm flex justify-between items-center opacity-80 hover:opacity-100 transition-opacity shadow-sm">
+                                        <div>
+                                            <span className="font-bold text-slate-700 mr-2">{log.machineId}</span>
+                                            <span className="text-xs text-slate-400">{new Date(log.timestamp).toLocaleString()}</span>
+                                        </div>
+                                        <div className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                                            Repair: {log.repairTime || "N/A"}
+                                        </div>
                                     </div>
                                 ))}
-
-                                <h3 className="font-bold text-lg text-slate-700 mb-3 mt-8">Assigned To Me (Pending Start)</h3>
-                                <div className="space-y-4">
-                                    {tickets.filter(t => t.assignedTo === currentUser.id && t.status !== 'In Progress').map(t => (
-                                        <div key={t.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
-                                            <div>
-                                                <div className="font-bold text-lg text-slate-800">{t.name}</div>
-                                                <div className="text-sm text-red-600 font-medium mt-1">{t.issue}</div>
-                                                <div className="text-xs text-slate-400 mt-2">Assigned: {new Date(t.assignedAt).toLocaleTimeString()}</div>
-                                            </div>
-                                            <Button onClick={() => { setScanTargetTicket(t); setShowScanner(true); }} className="bg-slate-800 text-white">
-                                                <ScanLine className="w-4 h-4"/> Scan Machine to Start
-                                            </Button>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <h3 className="font-bold text-lg text-slate-700 mb-3 mt-8">Unassigned Floor Issues</h3>
-                                <div className="space-y-3">
-                                    {tickets.filter(t => !t.assignedTo).map(t => (
-                                        <div key={t.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
-                                            <div>
-                                                <div className="font-bold text-slate-800">{t.name} <Badge status={t.priority}/></div>
-                                                <div className="text-sm text-slate-600 mt-1">{t.issue}</div>
-                                            </div>
-                                            <Button variant="outline" size="sm" onClick={() => handleAssignToMe(t)}>Claim Job</Button>
-                                        </div>
-                                    ))}
-                                </div>
                             </div>
-                        )}
-
-                        {/* TICKETS TAB (Admin View) */}
-                        {activeTab === 'tickets' && (
-                            <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
-                                <div className="flex justify-between items-end mb-8">
-                                    <div>
-                                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Wrench className="text-indigo-600"/> Mechanical Queue</h2>
-                                        <p className="text-slate-500 text-sm mt-1">Live AI-routed breakdown tickets.</p>
-                                    </div>
-                                    <div className="bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm font-bold text-indigo-700 flex items-center gap-2">
-                                        Total Pending: <span className="bg-indigo-100 px-2 py-0.5 rounded text-indigo-900">{tickets.length}</span>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-4">
-                                    {tickets.length === 0 && (
-                                        <div className="text-center py-20 bg-white border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 flex flex-col items-center">
-                                            <CheckCircle className="w-12 h-12 mb-3 text-slate-300" />
-                                            <p className="font-medium">No mechanical issues reported.</p>
-                                        </div>
-                                    )}
-                                    {tickets.map(t => (
-                                        <div key={t.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center group hover:border-indigo-300 transition-colors">
-                                            <div>
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <span className="font-bold text-lg text-slate-800">{t.name}</span>
-                                                    {t.priority && <Badge status={t.priority} />}
-                                                </div>
-                                                <div className="text-sm font-medium text-red-600 bg-red-50 inline-block px-3 py-1 rounded-md border border-red-100">{t.issue}</div>
-                                                {t.aiDiagnostic && <div className="mt-2 text-sm text-indigo-700 font-medium italic border-l-2 border-indigo-400 pl-2">AI Diagnostic: {t.aiDiagnostic}</div>}
-                                                <div className="text-xs text-slate-400 mt-3 flex items-center gap-2">
-                                                    <Clock className="w-3 h-3"/> Reported: {new Date(t.reportedAt).toLocaleString()}
-                                                </div>
-                                            </div>
-                                            <div className="text-right">
-                                                {t.assignedTo ? (
-                                                    <div className="text-xs bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded">Assigned: {allUsers.find(u => u.id === t.assignedTo)?.name || t.assignedTo}</div>
-                                                ) : (
-                                                    <span className="text-xs bg-slate-100 text-slate-500 font-bold px-3 py-1 rounded">Unassigned</span>
-                                                )}
-                                                <div className="text-xs mt-2 text-slate-500">{t.status}</div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* ANALYTICS TAB */}
-                        {activeTab === 'analytics' && (
-                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-2xl font-bold text-slate-800 mb-8 flex items-center gap-2"><BarChart2 className="text-indigo-600"/> Reliability Analytics</h2>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                                    <KPIBox title="MTBF (Reliability)" value={stats.mtbf} unit="h" color="emerald" />
-                                    <KPIBox title="MTTA (Response)" value={stats.mttrRepair} unit="m" color="orange" />
-                                    <KPIBox title="MTTR (Repair)" value={stats.mttrRepair} unit="m" color="blue" />
-                                    <KPIBox title="MTTR (Recovery)" value={stats.mttrRecovery} unit="m" color="indigo" />
-                                </div>
-
-                                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><History className="w-5 h-5 text-slate-400"/> Recent Repair Logs</h3>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left text-sm">
-                                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
-                                                <tr>
-                                                    <th className="p-4">Date</th>
-                                                    <th className="p-4">Machine</th>
-                                                    <th className="p-4">Action</th>
-                                                    <th className="p-4">Repair Time</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {logs.slice().reverse().slice(0, 10).map((log, i) => (
-                                                    <tr key={i} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="p-4 text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</td>
-                                                        <td className="p-4 font-bold text-slate-800">{getMachineName(log.machineId)}</td>
-                                                        <td className="p-4">
-                                                            <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{log.action}</span>
-                                                            <div className="text-[10px] text-slate-400 mt-1">Tech: {log.userName || log.userId}</div>
-                                                        </td>
-                                                        <td className="p-4 text-slate-600 font-medium">
-                                                            <div>Wrench: {log.repairTime || "-"}</div>
-                                                            {log.metrics?.responseMs && <div className="text-[10px] text-orange-500">Response: {formatDuration(log.metrics.responseMs)}</div>}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                                {logs.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-slate-400 italic">No repair logs found.</td></tr>}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* MECHANIC DOWNTIME TAB */}
-                        {activeTab === 'mechanic_downtime' && (
-                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-2xl font-bold text-slate-800 mb-8 flex items-center gap-2"><Timer className="text-indigo-600"/> Mechanic Wise Downtime Details</h2>
-                                
-                                <div className="bg-white rounded-xl shadow-sm border border-slate-300 overflow-hidden mb-8">
-                                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                                        <h3 className="font-bold text-lg text-slate-800">Performance & Downtime Contribution</h3>
-                                        <span className="text-xs bg-indigo-100 text-indigo-800 font-bold px-2 py-1 rounded">Live Data Sync</span>
-                                    </div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-center text-sm border-collapse">
-                                            <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-bold tracking-wider border-b-2 border-slate-300">
-                                                <tr>
-                                                    <th className="p-3 border-r border-slate-200 text-center">Section</th>
-                                                    <th className="p-3 border-r border-slate-200 text-left">Mechanic Name</th>
-                                                    <th className="p-3 border-r border-slate-200 text-center">Line No</th>
-                                                    <th className="p-3 border-r border-slate-200">Role/Type</th>
-                                                    <th className="p-3 border-r border-slate-200">Total Jobs Completed</th>
-                                                    <th className="p-3 border-r border-slate-200 text-orange-600">Total Response Time</th>
-                                                    <th className="p-3 border-r border-slate-200 text-indigo-600">Total Repair Time (Wrench Time)</th>
-                                                    <th className="p-3 text-red-600 font-bold">Total Downtime Contribution</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-200">
-                                                {mechanicalWorkers.map(w => {
-                                                    const workerLogs = logs.filter(l => l.userId === w.id && l.action === 'Fixed');
-                                                    const totalJobs = workerLogs.length;
-                                                    
-                                                    const totalResponseMs = workerLogs.reduce((acc, l) => acc + (l.metrics?.responseMs || 0), 0);
-                                                    const totalRepairMs = workerLogs.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
-                                                    const totalDowntimeMs = workerLogs.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
-
-                                                    const toHours = (ms) => (ms / (1000 * 60 * 60)).toFixed(2);
-
-                                                    if(totalJobs === 0) return null;
-
-                                                    return (
-                                                        <tr key={w.id} className="hover:bg-slate-50 transition-colors">
-                                                            <td className="p-3 border-r border-slate-200 font-bold text-slate-600 text-center">{w.section || "-"}</td>
-                                                            <td className="p-3 border-r border-slate-200 font-bold text-slate-800 text-left">{w.name}</td>
-                                                            <td className="p-3 border-r border-slate-200 font-bold text-slate-600 text-center">{w.assignedLines || "-"}</td>
-                                                            <td className="p-3 border-r border-slate-200 text-xs text-slate-500">{w.mechanicType || w.role}</td>
-                                                            <td className="p-3 border-r border-slate-200 font-bold">{totalJobs}</td>
-                                                            <td className="p-3 border-r border-slate-200 text-orange-600 font-mono">{toHours(totalResponseMs)}h</td>
-                                                            <td className="p-3 border-r border-slate-200 text-indigo-600 font-mono">{toHours(totalRepairMs)}h</td>
-                                                            <td className="p-3 text-red-600 font-bold font-mono bg-red-50/30">{toHours(totalDowntimeMs)}h</td>
-                                                        </tr>
-                                                    )
-                                                })}
-                                                {logs.length === 0 && <tr><td colSpan="8" className="p-8 text-slate-400 italic">No historical data available to generate downtime details.</td></tr>}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* SKILL MATRIX TAB */}
-                        {activeTab === 'workers' && (
-                            <div className="max-w-[1400px] mx-auto animate-in fade-in duration-300">
-                                <div className="flex justify-between items-center mb-8">
-                                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Users className="text-indigo-600"/> Machine Wise Mechanic Skill Percentage</h2>
-                                </div>
-                                
-                                {/* SKILL MATRIX PIVOT TABLE */}
-                                <div className="bg-white rounded-xl shadow-sm border border-slate-300 overflow-hidden mb-8 relative">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-center text-sm border-collapse min-w-max">
-                                            <thead className="bg-slate-100 text-slate-800 uppercase text-[11px] font-bold tracking-wider border-b-2 border-slate-300">
-                                                <tr>
-                                                    <th className="p-3 border-r-2 border-slate-300 sticky-col font-bold">Machine type</th>
-                                                    {mechanicalWorkers.map(w => (
-                                                        <th key={w.id} className="p-3 border-r border-slate-200 writing-vertical" style={{ minWidth: '100px' }}>
-                                                            <div className="flex justify-between items-center w-full group">
-                                                                <span className="truncate" title={w.name}>{w.name}</span>
-                                                                <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button onClick={() => handleEditWorker(w)} className="text-blue-400 hover:text-blue-600 mx-1" title="Edit Mechanic"><Edit className="w-3 h-3"/></button>
-                                                                    <button onClick={() => handleDeleteWorker(w.id)} className="text-red-400 hover:text-red-600" title="Delete Mechanic"><Trash2 className="w-3 h-3"/></button>
-                                                                </div>
-                                                            </div>
-                                                        </th>
-                                                    ))}
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-200">
-                                                {MACHINE_TYPES.map(type => (
-                                                    <tr key={type} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="p-3 font-bold text-slate-700 bg-slate-50 sticky-col text-left border-r-2 border-slate-300 shadow-[1px_0_5px_rgba(0,0,0,0.05)]">{type}</td>
-                                                        {mechanicalWorkers.map(w => (
-                                                            <td key={`${w.id}-${type}`} className="p-3 border-r border-slate-200 font-medium">
-                                                                {w.skills?.[type] || 0}%
-                                                            </td>
-                                                        ))}
-                                                    </tr>
-                                                ))}
-                                                {/* AVERAGE ROW */}
-                                                <tr className="bg-slate-100 border-t-2 border-slate-300 font-bold">
-                                                    <td className="p-3 text-slate-800 sticky-col text-left border-r-2 border-slate-300">Average</td>
-                                                    {mechanicalWorkers.map(w => (
-                                                        <td key={`${w.id}-avg`} className="p-3 border-r border-slate-200 text-indigo-700">
-                                                            {calculateAverage(w.skills)}%
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {mechanicalWorkers.length === 0 && (
-                                        <div className="p-8 text-center text-slate-500 italic border-t border-slate-200">
-                                            No mechanics found. Add staff below to build the skill matrix.
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* ADD/EDIT MECHANIC FORM */}
-                                <div id="worker-form-section" className="bg-white rounded-xl shadow-sm border border-slate-300 p-6">
-                                    <h3 className="font-bold text-lg mb-6 flex items-center gap-2 border-b pb-4">
-                                        {editingWorkerId ? <Edit className="w-5 h-5 text-blue-600"/> : <PlusCircle className="w-5 h-5 text-indigo-600"/>} 
-                                        {editingWorkerId ? "Edit Mechanic Profile" : "Onboard New Mechanic"}
-                                    </h3>
-                                    
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                                        {/* Basic Info */}
-                                        <div className="space-y-4">
-                                            <h4 className="text-sm font-bold text-slate-700 uppercase">Basic Info</h4>
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Full Name</label>
-                                                    <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all" placeholder="e.g. Prasad" value={newWorker.name} onChange={e => setNewWorker({...newWorker, name: e.target.value})} />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">ID Number</label>
-                                                    <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all" placeholder="e.g. EMP-1234" value={newWorker.idNumber} onChange={e => setNewWorker({...newWorker, idNumber: e.target.value})} />
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                                <div>
-                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Type</label>
-                                                    <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" value={newWorker.mechanicType} onChange={e => setNewWorker({...newWorker, mechanicType: e.target.value})}>
-                                                        <option>Jr Mechanic</option>
-                                                        <option>Sr Mechanic</option>
-                                                        <option>Mechanical Admin</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Section</label>
-                                                    <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" value={newWorker.section} onChange={e => setNewWorker({...newWorker, section: e.target.value})}>
-                                                        <option value="Section A">Section A</option>
-                                                        <option value="Section B">Section B</option>
-                                                        <option value="Both">Both (A & B)</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Shift</label>
-                                                    <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" value={newWorker.shift} onChange={e => setNewWorker({...newWorker, shift: e.target.value})}>
-                                                        <option value="Shift 1">Shift 1 (6 AM - 2 PM)</option>
-                                                        <option value="Shift 2">Shift 2 (2 PM - 10 PM)</option>
-                                                        <option value="Both">Both / General Shift</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Assigned Line(s)</label>
-                                                <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="e.g. Line 1, 2" value={newWorker.assignedLines} onChange={e => setNewWorker({...newWorker, assignedLines: e.target.value})} />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Login ID / Username</label>
-                                                <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all" placeholder="e.g. prasad-274" value={newWorker.username} onChange={e => setNewWorker({...newWorker, username: e.target.value})} />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Password</label>
-                                                <input type="password" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all" placeholder="••••••••" value={newWorker.password} onChange={e => setNewWorker({...newWorker, password: e.target.value})} />
-                                            </div>
-                                        </div>
-
-                                        {/* Skill Percentages */}
-                                        <div className="md:col-span-2">
-                                            <h4 className="text-sm font-bold text-slate-700 uppercase mb-4 flex justify-between items-center">
-                                                Machine Skill Profile (%)
-                                                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Avg: {calculateAverage(newWorker.skills)}%</span>
-                                            </h4>
-                                            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                                                {MACHINE_TYPES.map(type => (
-                                                    <div key={type}>
-                                                        <label className="block text-xs font-bold text-slate-500 tracking-wide mb-1">{type}</label>
-                                                        <div className="relative">
-                                                            <input 
-                                                                type="number" 
-                                                                min="0" max="100"
-                                                                className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all pr-8 font-bold text-indigo-700" 
-                                                                value={newWorker.skills[type]} 
-                                                                onChange={e => handleSkillChange(type, e.target.value)} 
-                                                            />
-                                                            <span className="absolute right-3 top-2.5 text-slate-400 font-bold">%</span>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div className="mt-6 flex justify-end gap-3">
-                                                {editingWorkerId && (
-                                                    <Button size="lg" variant="secondary" onClick={() => {
-                                                        setEditingWorkerId(null);
-                                                        setNewWorker({ 
-                                                            name: "", username: "", password: "", department: "Mechanical", role: "technician", status: "Offline",
-                                                            mechanicType: "Jr Mechanic", section: "Section A", assignedLines: "", idNumber: "", shift: "Shift 1",
-                                                            skills: { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
-                                                        });
-                                                    }}>Cancel Edit</Button>
-                                                )}
-                                                <Button size="lg" onClick={handleSaveWorker} className="px-8">
-                                                    <CheckCircle className="w-5 h-5"/> 
-                                                    {editingWorkerId ? "Update Mechanic" : "Save Mechanic to Matrix"}
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* PM SCHEDULER TAB */}
-                        {activeTab === 'pm_schedule' && (
-                            <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Calendar className="text-indigo-600"/> Preventive Maintenance Scheduler</h2>
-                                <Card className="p-6">
-                                    <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl mb-6 flex items-start gap-3">
-                                        <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
-                                        <p className="text-sm">Machines are recommended for preventive service every 30 days. Clicking "Trigger PM" generates an AI-routed ticket for the mechanical team to inspect and oil the machine before a critical failure occurs.</p>
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {Object.values(machines).slice(0,20).map(m => (
-                                            <div key={m.id} className="flex justify-between items-center p-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-indigo-300 transition-colors">
-                                                <div>
-                                                    <div className="font-bold text-slate-800 text-lg">{m.name}</div>
-                                                    <div className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                                                        <Clock className="w-3 h-3"/> Last Serviced: <span className="font-bold text-slate-700">{m.lastMaintenance ? new Date(m.lastMaintenance).toLocaleDateString() : 'Never'}</span>
-                                                    </div>
-                                                </div>
-                                                <Button size="sm" variant="outline" onClick={() => {
-                                                    update(ref(db, `machines/${m.id}`), {
-                                                        issue: "Scheduled Preventive Maintenance",
-                                                        priority: "Normal",
-                                                        status: "Pending",
-                                                        department: "Mechanical",
-                                                        reportedAt: new Date().toISOString(),
-                                                        ticketId: `#PM-${Math.floor(1000 + Math.random() * 9000)}`,
-                                                        isPM: true
-                                                    });
-                                                    alert(`PM Ticket created for ${m.name}`);
-                                                }}>Trigger PM</Button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </Card>
-                            </div>
-                        )}
-
-                        {/* PARTS APPROVAL TAB */}
-                        {activeTab === 'parts' && (
-                            <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Package className="text-indigo-600"/> Spare Parts Requisition</h2>
-                                <Card className="p-6">
-                                    {partRequests.length === 0 ? (
-                                        <div className="text-center py-12 text-slate-400 border-2 border-dashed rounded-xl">
-                                            <Package className="w-12 h-12 mx-auto mb-3 opacity-50"/>
-                                            <p>No pending part requests from the floor.</p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-4">
-                                            {partRequests.filter(r => r.status === 'Pending').map(req => (
-                                                <div key={req.id} className="flex justify-between items-center p-5 bg-orange-50 border-l-4 border-l-orange-500 border border-orange-200 rounded-xl shadow-sm">
-                                                    <div>
-                                                        <div className="font-bold text-orange-900 text-xl">{req.partName}</div>
-                                                        <div className="text-sm text-orange-800 mt-1">Requested by: <span className="font-bold">{req.techName}</span></div>
-                                                        <div className="text-xs bg-white border border-orange-100 inline-block px-2 py-1 rounded text-orange-600 mt-2 font-mono">Machine: {getMachineName(req.machineId)}</div>
-                                                    </div>
-                                                    <div className="flex flex-col gap-2">
-                                                        <Button size="md" variant="success" onClick={() => update(ref(db, `partRequests/${req.id}`), { status: 'Approved' })}><Check className="w-4 h-4"/> Approve Request</Button>
-                                                        <Button size="sm" variant="danger" className="bg-white" onClick={() => remove(ref(db, `partRequests/${req.id}`))}>Reject</Button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            
-                                            {partRequests.filter(r => r.status === 'Approved').length > 0 && (
-                                                <>
-                                                    <h3 className="font-bold text-sm text-slate-400 uppercase mt-8 mb-2 border-b pb-2">Recently Approved</h3>
-                                                    <div className="space-y-2">
-                                                        {partRequests.filter(r => r.status === 'Approved').map(req => (
-                                                            <div key={req.id} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-200 rounded-lg opacity-75">
-                                                                <div>
-                                                                    <span className="font-bold text-slate-700">{req.partName}</span>
-                                                                    <span className="text-xs text-slate-500 ml-2">({req.techName})</span>
-                                                                </div>
-                                                                <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-bold uppercase tracking-wide">Approved</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-                                </Card>
-                            </div>
-                        )}
-
-                        {/* SHIFT HANDOVER TAB */}
-                        {activeTab === 'handover' && (
-                            <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><MessageSquare className="text-indigo-600"/> Shift Handover Log</h2>
-                                <Card className="p-6 mb-8 bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-100 shadow-inner">
-                                    <h3 className="font-bold text-indigo-900 mb-3">Leave a note for the incoming shift manager</h3>
-                                    <textarea 
-                                        className="w-full p-4 border border-indigo-200 rounded-xl bg-white h-28 mb-4 focus:ring-2 focus:ring-indigo-500 outline-none resize-none shadow-sm text-sm" 
-                                        placeholder="e.g., Machine 42 is waiting for a motor from stores. Leave it offline until A-Shift arrives." 
-                                        value={newShiftNote} 
-                                        onChange={e => setNewShiftNote(e.target.value)}>
-                                    </textarea>
-                                    <div className="flex justify-end">
-                                        <Button size="lg" onClick={() => {
-                                            if(!newShiftNote) return;
-                                            push(ref(db, 'shiftNotes'), {
-                                                author: currentUser.name,
-                                                note: newShiftNote,
-                                                timestamp: new Date().toISOString()
-                                            });
-                                            setNewShiftNote("");
-                                        }}><CheckCircle className="w-5 h-5"/> Post Handover Note</Button>
-                                    </div>
-                                </Card>
-                                <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
-                                    {shiftNotes.slice().reverse().map((note, idx) => (
-                                        <div key={note.id} className={`relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active`}>
-                                            <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white bg-slate-200 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
-                                                <MessageSquare className="w-4 h-4" />
-                                            </div>
-                                            <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                                <div className="flex justify-between items-center mb-2 border-b border-slate-100 pb-2">
-                                                    <span className="font-bold text-slate-800 text-sm">{note.author}</span>
-                                                    <span className="text-xs text-slate-400 font-mono bg-slate-50 px-2 py-0.5 rounded">{new Date(note.timestamp).toLocaleString()}</span>
-                                                </div>
-                                                <p className="text-slate-600 text-sm whitespace-pre-wrap">{note.note}</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {shiftNotes.length === 0 && <p className="text-center text-slate-400 italic mt-8 relative z-10 bg-slate-50 py-2 w-48 mx-auto rounded-full">No handover notes logged.</p>}
-                                </div>
-                            </div>
-                        )}
-
                         </div>
+
                     </div>
                 </div>
             );
         };
 
         const root = createRoot(document.getElementById('root'));
-        root.render(<MaintenanceDashboard />);
+        root.render(<WorkerApp />);
     </script>
 </body>
 </html>
