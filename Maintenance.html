@@ -158,7 +158,6 @@
             const [creds, setCreds] = useState({ username: "", password: "" });
 
             const [activeTab, setActiveTab] = useState('tickets'); 
-            const [tickets, setTickets] = useState([]);
             const [allUsers, setAllUsers] = useState([]);
             const [logs, setLogs] = useState([]);
             const [machines, setMachines] = useState({}); 
@@ -191,13 +190,20 @@
             const mechanicalWorkers = allUsers.filter(u => u.department === 'Mechanical' || u.role === 'admin');
 
             useEffect(() => {
-                onValue(ref(db, 'department_tickets/mechanical'), (snap) => setTickets(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
                 onValue(ref(db, 'users'), (snap) => setAllUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
                 onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
                 onValue(ref(db, 'machines'), (snap) => setMachines(snap.val() || {}));
                 onValue(ref(db, 'partRequests'), (snap) => setPartRequests(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
                 onValue(ref(db, 'shiftNotes'), (snap) => setShiftNotes(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
             }, []);
+
+            // Since n8n writes `department: "Mechanical"` directly to the machines, we filter them here
+            const tickets = useMemo(() => {
+                return Object.values(machines).filter(m => 
+                    (m.department === 'Mechanical' || m.isPM) && 
+                    (m.status === 'Pending' || m.status === 'In Progress')
+                );
+            }, [machines]);
 
             const getMachineName = (id) => machines[id]?.name || id;
 
@@ -278,23 +284,23 @@
             };
 
             const handleAssignToMe = (ticket) => {
-                update(ref(db, `department_tickets/mechanical/${ticket.id}`), {
+                // Now writes directly to the machine entity
+                update(ref(db, `machines/${ticket.id}`), {
                     assignedTo: currentUser.id,
                     assignedAt: new Date().toISOString()
                 });
             };
 
             const handleScanVerify = (decodedText) => {
-                if (decodedText === scanTargetTicket.machineId || machines[decodedText]?.name === scanTargetTicket.machineId) {
-                    update(ref(db, `department_tickets/mechanical/${scanTargetTicket.id}`), {
+                if (decodedText === scanTargetTicket.id || machines[decodedText]?.name === scanTargetTicket.name) {
+                    update(ref(db, `machines/${scanTargetTicket.id}`), {
                         status: 'In Progress',
                         startedAt: new Date().toISOString()
                     });
-                    update(ref(db, `machines/${scanTargetTicket.machineId}`), { status: 'In Progress' });
                     setShowScanner(false);
                     setScanTargetTicket(null);
                 } else {
-                    alert(`Wrong Machine! You scanned ${decodedText}, but expected ${scanTargetTicket.machineId}`);
+                    alert(`Wrong Machine! You scanned ${decodedText}, but expected ${scanTargetTicket.id}`);
                     setShowScanner(false);
                 }
             };
@@ -304,15 +310,15 @@
                 
                 const now = new Date();
                 const startedAt = new Date(signOffTicket.startedAt);
-                const assignedAt = signOffTicket.assignedAt ? new Date(signOffTicket.assignedAt) : new Date(signOffTicket.timestamp);
-                const reportedAt = new Date(signOffTicket.timestamp);
+                const assignedAt = signOffTicket.assignedAt ? new Date(signOffTicket.assignedAt) : new Date(signOffTicket.reportedAt);
+                const reportedAt = new Date(signOffTicket.reportedAt);
 
                 const responseMs = startedAt - assignedAt;
                 const repairMs = now - startedAt;
                 const downtimeMs = now - reportedAt;
 
                 push(ref(db, 'logs'), {
-                    machineId: signOffTicket.machineId,
+                    machineId: signOffTicket.id,
                     action: 'Fixed',
                     userId: currentUser.id,
                     userName: currentUser.name,
@@ -323,9 +329,19 @@
                     metrics: { responseMs, repairMs, downtimeMs }
                 });
 
-                remove(ref(db, `department_tickets/mechanical/${signOffTicket.id}`));
-                update(ref(db, `machines/${signOffTicket.machineId}`), {
-                    status: 'Running', assignedTo: null, issue: null
+                // Clear ticket data and reset machine status
+                update(ref(db, `machines/${signOffTicket.id}`), {
+                    status: 'Running', 
+                    assignedTo: null, 
+                    issue: null,
+                    priority: null,
+                    department: null,
+                    ticketId: null,
+                    aiDiagnostic: null,
+                    isPM: null,
+                    reportedAt: null,
+                    startedAt: null,
+                    assignedAt: null
                 });
 
                 setSignOffTicket(null);
@@ -484,6 +500,7 @@
                         </div>
                     </div>
 
+                    {}
                     <div className="flex-1 overflow-y-auto relative bg-slate-50 flex flex-col print:bg-white print:overflow-visible">
                         <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shadow-sm shrink-0 print:hidden">
                             <h2 className="font-bold text-slate-800 capitalize tracking-wide">{activeTab.replace('_', ' ')} Dashboard</h2>
@@ -545,7 +562,7 @@
                         <Modal isOpen={!!signOffTicket} onClose={() => setSignOffTicket(null)} title="Operator Sign-Off">
                             <div className="space-y-4">
                                 <div className="bg-indigo-50 p-3 rounded text-sm text-indigo-800 border border-indigo-100">
-                                    Machine: <span className="font-bold">{getMachineName(signOffTicket?.machineId)}</span> is repaired.
+                                    Machine: <span className="font-bold">{signOffTicket?.name}</span> is repaired.
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Repair Remarks</label>
@@ -686,14 +703,14 @@
                                     <div key={t.id} className="bg-white p-6 rounded-xl border-t-4 border-t-yellow-400 shadow-lg mb-6">
                                         <div className="flex justify-between items-start mb-4">
                                             <div>
-                                                <h3 className="font-bold text-xl text-slate-800">{getMachineName(t.machineId)}</h3>
+                                                <h3 className="font-bold text-xl text-slate-800">{t.name}</h3>
                                                 <p className="text-sm text-slate-500 font-mono">{t.ticketId}</p>
                                             </div>
                                             <div className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded text-xs font-bold flex items-center gap-2 animate-pulse">
                                                 <Clock className="w-4 h-4"/> TIMER RUNNING
                                             </div>
                                         </div>
-                                        <p className="text-slate-700 bg-slate-50 p-3 rounded border border-slate-200 mb-4">{t.issueDescription}</p>
+                                        <p className="text-slate-700 bg-slate-50 p-3 rounded border border-slate-200 mb-4">{t.issue}</p>
                                         <Button fullWidth variant="success" onClick={() => setSignOffTicket(t)}><CheckSquare className="w-5 h-5"/> Finish & Request Sign-Off</Button>
                                     </div>
                                 ))}
@@ -703,8 +720,8 @@
                                     {tickets.filter(t => t.assignedTo === currentUser.id && t.status !== 'In Progress').map(t => (
                                         <div key={t.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
                                             <div>
-                                                <div className="font-bold text-lg text-slate-800">{getMachineName(t.machineId)}</div>
-                                                <div className="text-sm text-red-600 font-medium mt-1">{t.issueDescription}</div>
+                                                <div className="font-bold text-lg text-slate-800">{t.name}</div>
+                                                <div className="text-sm text-red-600 font-medium mt-1">{t.issue}</div>
                                                 <div className="text-xs text-slate-400 mt-2">Assigned: {new Date(t.assignedAt).toLocaleTimeString()}</div>
                                             </div>
                                             <Button onClick={() => { setScanTargetTicket(t); setShowScanner(true); }} className="bg-slate-800 text-white">
@@ -719,8 +736,8 @@
                                     {tickets.filter(t => !t.assignedTo).map(t => (
                                         <div key={t.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
                                             <div>
-                                                <div className="font-bold text-slate-800">{getMachineName(t.machineId)} <Badge status={t.priority}/></div>
-                                                <div className="text-sm text-slate-600 mt-1">{t.issueDescription}</div>
+                                                <div className="font-bold text-slate-800">{t.name} <Badge status={t.priority}/></div>
+                                                <div className="text-sm text-slate-600 mt-1">{t.issue}</div>
                                             </div>
                                             <Button variant="outline" size="sm" onClick={() => handleAssignToMe(t)}>Claim Job</Button>
                                         </div>
@@ -753,13 +770,13 @@
                                         <div key={t.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center group hover:border-indigo-300 transition-colors">
                                             <div>
                                                 <div className="flex items-center gap-3 mb-2">
-                                                    <span className="font-bold text-lg text-slate-800">{getMachineName(t.machineId)}</span>
+                                                    <span className="font-bold text-lg text-slate-800">{t.name}</span>
                                                     {t.priority && <Badge status={t.priority} />}
                                                 </div>
-                                                <div className="text-sm font-medium text-red-600 bg-red-50 inline-block px-3 py-1 rounded-md border border-red-100">{t.issueDescription}</div>
+                                                <div className="text-sm font-medium text-red-600 bg-red-50 inline-block px-3 py-1 rounded-md border border-red-100">{t.issue}</div>
                                                 {t.aiDiagnostic && <div className="mt-2 text-sm text-indigo-700 font-medium italic border-l-2 border-indigo-400 pl-2">AI Diagnostic: {t.aiDiagnostic}</div>}
                                                 <div className="text-xs text-slate-400 mt-3 flex items-center gap-2">
-                                                    <Clock className="w-3 h-3"/> Reported: {new Date(t.timestamp || t.reportedAt).toLocaleString()}
+                                                    <Clock className="w-3 h-3"/> Reported: {new Date(t.reportedAt).toLocaleString()}
                                                 </div>
                                             </div>
                                             <div className="text-right">
@@ -779,7 +796,7 @@
                         {/* ANALYTICS TAB */}
                         {activeTab === 'analytics' && (
                             <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-2xl font-bold text-slate-800 mb-8 flex items-center gap-2"><BarChart2 className="text-indigo-600"/> Reliability Engineering</h2>
+                                <h2 className="text-2xl font-bold text-slate-800 mb-8 flex items-center gap-2"><BarChart2 className="text-indigo-600"/> Reliability Analytics</h2>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                                     <KPIBox title="MTBF (Reliability)" value={stats.mtbf} unit="h" color="emerald" />
@@ -1063,14 +1080,13 @@
                                                     </div>
                                                 </div>
                                                 <Button size="sm" variant="outline" onClick={() => {
-                                                    const ticketId = `#PM-${Math.floor(1000 + Math.random() * 9000)}`;
-                                                    push(ref(db, 'department_tickets/mechanical'), {
-                                                        machineId: m.id,
-                                                        issueDescription: "Scheduled Preventive Maintenance",
+                                                    update(ref(db, `machines/${m.id}`), {
+                                                        issue: "Scheduled Preventive Maintenance",
                                                         priority: "Normal",
                                                         status: "Pending",
-                                                        timestamp: new Date().toISOString(),
-                                                        ticketId: ticketId,
+                                                        department: "Mechanical",
+                                                        reportedAt: new Date().toISOString(),
+                                                        ticketId: `#PM-${Math.floor(1000 + Math.random() * 9000)}`,
                                                         isPM: true
                                                     });
                                                     alert(`PM Ticket created for ${m.name}`);
