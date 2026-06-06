@@ -3,13 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GarmentFix - Worker Portal</title>
+    <title>GarmentFix - Apparel Maintenance System</title>
     
+    <!-- 1. Load Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Load Babel to compile React code in the browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 
+    <!-- 3. Load HTML5-QRCode Library for Scanning -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- 4. Define where to import libraries from (Import Map) -->
     <script type="importmap">
     {
       "imports": {
@@ -17,89 +22,329 @@
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
         "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
         "firebase/database": "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js"
       }
     }
     </script>
+    <style>
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white; }
+            .card { border: 1px solid #ccc; box-shadow: none; }
+            .print-break-inside { break-inside: avoid; }
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
 </head>
 <body class="bg-slate-100 text-slate-800">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo, useRef } from 'react';
+        import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { 
-            ClipboardList, Wrench, Clock, CheckSquare, ScanLine, X, 
-            LogOut, User, Lock, Activity, TrendingUp, AlertTriangle, PlayCircle,
-            AlertOctagon, ArrowRight, CheckCircle, History, RefreshCw
+          QrCode, ClipboardList, Wrench, LayoutDashboard, PlusCircle, AlertTriangle, 
+          CheckCircle, Factory, Printer, ScanLine, Clock, PlayCircle, CheckSquare, 
+          Building, History, X, Wifi, Database, Trash2, Loader2, User, LogOut, 
+          Lock, MapPin, Briefcase, UserCheck, UserX, RefreshCw, Hand, Activity, 
+          Settings, Package, BarChart2, AlertOctagon, CalendarClock, TrendingUp,
+          ShoppingBag, MessageSquare, Camera, HelpCircle, LogIn,
+          FileText, Calendar, Filter, Search, Edit, Zap, BookOpen, DollarSign, ShieldCheck, Timer, Gauge, List, TrendingDown
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
-        import { getDatabase, ref, onValue, update, remove, push } from "firebase/database";
+        import { getAuth, signInAnonymously } from "firebase/auth";
+        import { getDatabase, ref, push, update, onValue, set, remove, get } from "firebase/database";
 
-        // --- FIREBASE CONFIG ---
-        const firebaseConfig = { databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com" };
+        // --- 1. CONFIGURATION & SERVICES ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyBUbE6WtnWnHQsCul_5bDDPHz78jlaHCxs",
+          authDomain: "apparel-maintenance.firebaseapp.com",
+          databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com",
+          projectId: "apparel-maintenance",
+          storageBucket: "apparel-maintenance.firebasestorage.app",
+          messagingSenderId: "716246308986",
+          appId: "1:716246308986:web:0f5f33db9c65ffba1543c3",
+          measurementId: "G-4G0694Q22Z"
+        };
+
         const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
         const db = getDatabase(app);
 
-        // --- UI COMPONENTS ---
-        const Card = ({ children, className = "" }) => (
-            <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>
+        // Helper to format duration
+        const formatDuration = (ms) => {
+            if(!ms) return "0m";
+            const minutes = Math.floor(ms / 60000);
+            const hours = Math.floor(minutes / 60);
+            if (hours > 0) return `${hours}h ${minutes % 60}m`;
+            return `${minutes}m`;
+        };
+        
+        // Helper to format hours for KPI
+        const formatKPIHours = (ms) => {
+             if(!ms) return "0h";
+             return (ms / (1000 * 60 * 60)).toFixed(1) + 'h';
+        };
+
+        // API Layer
+        const api = {
+            // UPDATED: Report Issue ONLY pushes to incoming_tickets for n8n processing. No direct machine updates.
+            reportIssue: async (machineId, issue, priority, opName, opId) => {
+                const ticketId = `#TKT-${Math.floor(1000 + Math.random() * 9000)}`;
+                const timestamp = new Date().toISOString();
+                
+                try {
+                    // Send the raw data directly to Firebase's incoming_tickets queue ONLY.
+                    // The n8n AI workflow will pick this up, diagnose it, and update the machines database itself.
+                    await set(ref(db, `incoming_tickets/${ticketId.replace('#', '')}`), {
+                        machineId: machineId,
+                        issueDescription: issue,
+                        priority: priority,
+                        reportedBy: `${opName} (${opId})`,
+                        timestamp: timestamp,
+                        ticketId: ticketId
+                    });
+                    
+                    console.log("Ticket pushed strictly to Firebase incoming queue for n8n!");
+                    alert("Ticket submitted successfully! AI is routing your issue to the correct department.");
+                } catch (error) {
+                    console.error("Firebase Upload Error:", error);
+                    alert("Error submitting ticket to database. Please check connection.");
+                }
+            },
+            startWork: (machineId, userId) => {
+                update(ref(db, `machines/${machineId}`), { status: 'In Progress', startedAt: new Date().toISOString() });
+                update(ref(db, `users/${userId}`), { status: 'Active', currentTask: machineId });
+                push(ref(db, 'logs'), { machineId, action: 'Started Work', userId, timestamp: new Date().toISOString() });
+            },
+            completeWork: (machineId, userId, remarks, machine, partsUsedIds, partsList) => {
+                const finishedAt = new Date();
+                const startedAt = machine.startedAt ? new Date(machine.startedAt) : finishedAt;
+                const reportedAt = machine.reportedAt ? new Date(machine.reportedAt) : startedAt;
+                
+                const repairDurationMs = finishedAt - startedAt;
+                const totalDowntimeMs = finishedAt - reportedAt;
+
+                // Calculate Cost
+                let totalCost = 0;
+                partsUsedIds.forEach(partId => {
+                    const part = partsList.find(p => p.id === partId);
+                    if(part) {
+                        update(ref(db, `parts/${partId}`), { stock: (part.stock || 0) - 1, totalUsed: (part.totalUsed || 0) + 1 });
+                        totalCost += parseFloat(part.price || 0);
+                    }
+                });
+
+                // --- INTELLIGENT QA TRIGGER ---
+                const issueText = (machine.issue || "").toLowerCase();
+                const remarksText = (remarks || "").toLowerCase();
+                const needsQA = issueText.includes("oil") || issueText.includes("leak") || issueText.includes("feed dog") || 
+                                remarksText.includes("oil") || remarksText.includes("leak") || remarksText.includes("feed dog");
+                
+                const newStatus = needsQA ? "QA Pending" : "Running";
+
+                update(ref(db, `machines/${machineId}`), { 
+                    status: newStatus, 
+                    assignedTo: null, 
+                    issue: needsQA ? machine.issue : null,
+                    priority: needsQA ? machine.priority : null,
+                    ticketId: needsQA ? machine.ticketId : null,
+                    lastMaintenance: finishedAt.toISOString(),
+                    isPM: null,
+                    reportedAt: null, assignedAt: null, startedAt: null
+                });
+                update(ref(db, `users/${userId}`), { status: 'Available', currentTask: null });
+                
+                const usedPartNames = partsUsedIds.map(id => partsList.find(p => p.id === id)?.name).filter(Boolean);
+                push(ref(db, 'logs'), { 
+                    machineId, 
+                    ticketId: machine?.ticketId, 
+                    action: needsQA ? 'Fixed (QA Pending)' : (machine.isPM ? 'PM Completed' : 'Fixed'), 
+                    userId, 
+                    details: remarks, 
+                    partsUsed: usedPartNames, 
+                    cost: totalCost,
+                    timestamp: finishedAt.toISOString(),
+                    repairTime: formatDuration(repairDurationMs),
+                    totalDowntime: formatDuration(totalDowntimeMs),
+                    metrics: { repairMs: repairDurationMs, downtimeMs: totalDowntimeMs }
+                });
+            },
+            // Supervisor Sign-off
+            qaSignOff: (machineId, userId) => {
+                 update(ref(db, `machines/${machineId}`), { 
+                    status: 'Running', 
+                    issue: null, 
+                    priority: null, 
+                    ticketId: null 
+                });
+                push(ref(db, 'logs'), { machineId, action: 'QA Approved', userId, timestamp: new Date().toISOString() });
+            },
+            assignPM: (machineId, techId) => {
+                const ticketId = `#PM-${Math.floor(1000 + Math.random() * 9000)}`;
+                return update(ref(db, `machines/${machineId}`), { 
+                    status: "Pending", 
+                    issue: "Preventive Maintenance", 
+                    priority: "Low", 
+                    ticketId,
+                    assignedTo: techId,
+                    assignedAt: new Date().toISOString(),
+                    isPM: true, 
+                    reportedAt: new Date().toISOString()
+                });
+            },
+            assignTech: (machineId, techId) => update(ref(db, `machines/${machineId}`), { assignedTo: techId, assignedAt: new Date().toISOString() }),
+            selfAssign: (machineId, userId) => update(ref(db, `machines/${machineId}`), { assignedTo: userId, assignedAt: new Date().toISOString() }),
+            updateStock: (id, change, currentStock) => update(ref(db, `parts/${id}`), { stock: currentStock + change }),
+            requestPart: (machineId, partName, user) => push(ref(db, 'partRequests'), {
+                techName: user.name, techId: user.id, machineId, partName, status: 'Pending', timestamp: new Date().toISOString()
+            }),
+            resolveRequest: (reqId) => remove(ref(db, `partRequests/${reqId}`)),
+            
+            // --- ADDED LOGGING FUNCTION ---
+            logAccess: (userId, userName, action) => {
+                push(ref(db, 'access_logs'), { 
+                    userId, 
+                    userName, 
+                    action, 
+                    timestamp: new Date().toISOString() 
+                });
+            }
+        };
+
+        // --- 2. CUSTOM HOOKS ---
+        const useFactoryData = () => {
+            const [data, setData] = useState({ users: [], buildings: [], floors: [], lines: [], machines: [], logs: [], parts: [], partRequests: [], access_logs: [] });
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                signInAnonymously(auth).catch(console.error);
+                const endpoints = ['users', 'buildings', 'floors', 'lines', 'machines', 'logs', 'parts', 'partRequests', 'access_logs'];
+                let loadedCount = 0;
+                const unsubscribers = endpoints.map(endpoint => {
+                    return onValue(ref(db, endpoint), (snapshot) => {
+                        const val = snapshot.val();
+                        const list = val ? Object.keys(val).map(key => ({id: key, ...val[key]})) : [];
+                        setData(prev => ({ ...prev, [endpoint]: list }));
+                        loadedCount++;
+                        if(loadedCount >= 1) setLoading(false); 
+                    }, (err) => {
+                        console.error(`Error loading ${endpoint}:`, err);
+                        setError(`Firebase Error: ${err.code || err.message}. Check Database Rules.`);
+                        setLoading(false);
+                    });
+                });
+                return () => unsubscribers.forEach(unsub => unsub());
+            }, []);
+
+            const maps = useMemo(() => ({
+                floorsMap: data.floors.reduce((acc, f) => { (acc[f.buildingId] = acc[f.buildingId] || []).push(f); return acc; }, {}),
+                linesMap: data.lines.reduce((acc, l) => { (acc[l.floorId] = acc[l.floorId] || []).push(l); return acc; }, {}),
+                machinesMap: data.machines.reduce((acc, m) => { (acc[m.lineId] = acc[m.lineId] || []).push(m); return acc; }, {})
+            }), [data.floors, data.lines, data.machines]);
+
+            return { ...data, ...maps, loading, error };
+        };
+
+        // --- 3. UI COMPONENTS ---
+        const LoadingOverlay = ({ message, error }) => (
+          <div className="fixed inset-0 bg-slate-900/90 flex flex-col items-center justify-center z-[100] text-white backdrop-blur-sm">
+            {error ? (
+                <div className="text-center p-8 bg-white text-red-600 rounded-xl">
+                    <AlertTriangle className="w-16 h-16 mx-auto mb-4" />
+                    <h3 className="text-xl font-bold mb-2">Connection Error</h3>
+                    <p>{error}</p>
+                </div>
+            ) : (
+                <>
+                    <Loader2 className="w-16 h-16 animate-spin text-blue-500 mb-4" />
+                    <h3 className="text-2xl font-bold">{message || "Connecting to Factory..."}</h3>
+                </>
+            )}
+          </div>
         );
 
-        const Button = ({ onClick, children, variant = "primary", className = "", fullWidth = false }) => {
+        const Card = ({ children, className = "" }) => (
+          <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className} card`}>
+            {children}
+          </div>
+        );
+
+        const Button = ({ onClick, children, variant = "primary", className = "", disabled = false, size = "md", fullWidth = false }) => {
             const variants = {
-                primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-sm",
+                primary: "bg-blue-600 text-white hover:bg-blue-700",
                 secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                danger: "bg-red-50 text-red-600 hover:bg-red-100",
-                warning: "bg-orange-500 text-white hover:bg-orange-600",
-                success: "bg-emerald-600 text-white hover:bg-emerald-700"
+                danger: "bg-red-50 text-white hover:bg-red-600",
+                success: "bg-green-600 text-white hover:bg-green-700",
+                warning: "bg-yellow-500 text-white hover:bg-yellow-600",
+                outline: "border border-slate-300 text-slate-600 hover:bg-slate-50"
             };
+            const sizes = { sm: "px-2 py-1 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-3 text-base" };
             return (
-                <button onClick={onClick} className={`px-4 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`}>
+                <button onClick={onClick} disabled={disabled} className={`rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${variants[variant]} ${sizes[size]} ${fullWidth ? 'w-full' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
                     {children}
                 </button>
             );
         };
 
-        const Badge = ({ status }) => {
+        const Badge = ({ status, type = "status" }) => {
             const styles = {
-                "Critical": "bg-red-600 text-white animate-pulse",
-                "Normal": "bg-slate-100 text-slate-600 border",
-                "Low": "bg-blue-50 text-blue-600 border"
+                Running: "bg-green-100 text-green-800 border-green-200",
+                Pending: "bg-red-100 text-red-800 border-red-200 animate-pulse",
+                "In Progress": "bg-yellow-100 text-yellow-800 border-yellow-200",
+                Available: "bg-emerald-100 text-emerald-800 border-emerald-200",
+                Active: "bg-orange-100 text-orange-800 border-orange-200",
+                Offline: "bg-slate-100 text-slate-500 border-slate-200",
+                Low: "bg-blue-100 text-blue-800 border-blue-200",
+                Normal: "bg-slate-100 text-slate-800 border-slate-200",
+                Critical: "bg-red-600 text-white border-red-700 animate-pulse font-bold shadow-sm",
+                "QA Pending": "bg-orange-100 text-orange-800 border-orange-200 animate-pulse font-bold",
             };
-            return <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${styles[status] || styles.Normal}`}>{status}</span>;
+            return <span className={`px-2 py-1 rounded-full text-xs font-bold border ${styles[status] || styles.Running}`}>{status}</span>;
         };
 
         const Modal = ({ isOpen, onClose, title, children }) => {
             if (!isOpen) return null;
             return (
-                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <Card className="w-full max-w-md p-0 overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-                            <h3 className="font-bold">{title}</h3>
-                            <button onClick={onClose}><X className="w-5 h-5"/></button>
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                            <h3 className="font-bold text-lg">{title}</h3>
+                            <button onClick={onClose}><X className="w-5 h-5 text-slate-500" /></button>
                         </div>
-                        <div className="p-6">{children}</div>
-                    </Card>
+                        <div className="p-4 overflow-y-auto">{children}</div>
+                    </div>
                 </div>
             );
         };
 
-        // --- QR SCANNER COMPONENT ---
-        const QRScanner = ({ onScan, onClose, title = "Scan QR Code" }) => {
+        // --- NEW: QR SCANNER COMPONENT ---
+        const QRScanner = ({ onScan, onClose, title }) => {
             useEffect(() => {
-                const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                scanner.render((decodedText) => {
-                    scanner.clear().then(() => onScan(decodedText));
-                }, () => {});
-                return () => { try { scanner.clear(); } catch(e) {} };
+                const onScanSuccess = (decodedText) => {
+                    html5QrcodeScanner.clear().then(() => {
+                        onScan(decodedText);
+                    }).catch(err => console.error("Failed to clear scanner", err));
+                };
+
+                const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
+                html5QrcodeScanner.render(onScanSuccess, (error) => {});
+
+                return () => { try { html5QrcodeScanner.clear(); } catch(e) {} };
             }, [onScan]);
 
             return (
                 <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col items-center justify-center p-4">
                     <div className="bg-white rounded-xl w-full max-w-md overflow-hidden relative">
                         <div className="p-3 bg-slate-900 text-white flex justify-between items-center">
-                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title}</h3>
+                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title || "Scan QR Code"}</h3>
                             <button onClick={onClose}><X className="w-5 h-5"/></button>
                         </div>
                         <div className="p-4 bg-black"><div id="reader" className="w-full"></div></div>
@@ -109,500 +354,1275 @@
             );
         };
 
-        // --- MAIN APP ---
-        const WorkerApp = () => {
-            const [currentUser, setCurrentUser] = useState(null);
-            const [users, setUsers] = useState([]);
-            const [machines, setMachines] = useState({});
-            const [tickets, setTickets] = useState([]);
-            const [logs, setLogs] = useState([]);
-            
-            // Login State
-            const [creds, setCreds] = useState({ username: "", password: "" });
-            const [loginError, setLoginError] = useState("");
+        // --- 4. FEATURE VIEWS ---
 
-            // Task State
-            const [activeTask, setActiveTask] = useState(null);
+        const LoginModal = ({ isOpen, onClose, onLogin, error }) => {
+            const [creds, setCreds] = useState({username: "", password: ""});
+            if(!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <Card className="w-full max-w-sm p-6 relative bg-white">
+                        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                        <div className="text-center mb-6">
+                            <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2"><User className="w-6 h-6 text-blue-600" /></div>
+                            <h2 className="text-xl font-bold text-slate-800">Staff Login</h2>
+                            <p className="text-slate-500 text-sm">Access Technician or Admin Tools</p>
+                        </div>
+                        {error && <div className="bg-red-50 text-red-600 p-2 text-sm rounded mb-4 font-bold border border-red-200 text-center">{error}</div>}
+                        <form onSubmit={(e) => { e.preventDefault(); onLogin(creds.username, creds.password); }} className="space-y-4">
+                            <input type="text" className="w-full p-2 border rounded-lg" placeholder="Username" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} autoFocus />
+                            <input type="password" className="w-full p-2 border rounded-lg" placeholder="Password" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
+                            <Button fullWidth size="md">Login</Button>
+                        </form>
+                    </Card>
+                </div>
+            );
+        };
+
+        const LoginView = ({ onLogin, onOpenScanner, error }) => {
+            const [creds, setCreds] = useState({username: "", password: ""});
+            return (
+                <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+                    <Card className="w-full max-w-md p-8 bg-white relative mb-4">
+                        <div className="text-center mb-8">
+                            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Factory className="w-8 h-8 text-blue-600" /></div>
+                            <h1 className="text-2xl font-bold text-slate-800">GarmentFix</h1>
+                            <p className="text-slate-500">Industrial Maintenance Platform</p>
+                        </div>
+                        {error && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm font-bold border border-red-200">{error}</div>}
+                        <form onSubmit={(e) => { e.preventDefault(); onLogin(creds.username, creds.password); }} className="space-y-4">
+                            <input type="text" className="w-full p-3 border rounded-lg" placeholder="Username" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} autoFocus />
+                            <input type="password" className="w-full p-3 border rounded-lg" placeholder="Password" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
+                            <Button fullWidth size="lg">Sign In</Button>
+                        </form>
+                    </Card>
+                    <button onClick={onOpenScanner} className="w-full max-w-md bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-xl flex items-center justify-center gap-3 shadow-lg transition-transform hover:scale-[1.02]">
+                        <div className="bg-white/20 p-2 rounded-full"><QrCode className="w-6 h-6" /></div>
+                        <div className="text-left"><div className="font-bold text-lg">Scan QR Code</div><div className="text-xs text-blue-200">Report Breakdown (No Login)</div></div>
+                    </button>
+                </div>
+            );
+        };
+
+        const KioskView = ({ machines, onReport, onClose }) => {
+            const [selectedMachine, setSelectedMachine] = useState(null);
+            const [form, setForm] = useState({ issue: "", priority: "Normal", opName: "", opId: "" });
             const [showScanner, setShowScanner] = useState(false);
-            const [scanTargetTask, setScanTargetTask] = useState(null);
 
-            // Modals & Actions
-            const [showSignOff, setShowSignOff] = useState(false);
-            const [signOffData, setSignOffData] = useState({ remarks: "", operatorId: "" });
-            
-            const [showEscalate, setShowEscalate] = useState(false);
-            const [showReroute, setShowReroute] = useState(false);
-            const [rerouteTicket, setRerouteTicket] = useState(null);
-            const [rerouteDept, setRerouteDept] = useState("Quality");
-
-            // REPLACE FLOW STATE (Mechanical Only)
-            const [replaceFlow, setReplaceFlow] = useState({ active: false, step: 1 });
-
-            // Sound Alert Tracking
-            const [lastTaskCount, setLastTaskCount] = useState(0);
-
-            // Fetch Initial Data (Users, Machines, Logs)
-            useEffect(() => {
-                onValue(ref(db, 'users'), (snap) => setUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
-                onValue(ref(db, 'machines'), (snap) => setMachines(snap.val() || {}));
-                onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
-            }, []);
-
-            // Fetch Department-Specific Tickets
-            useEffect(() => {
-                if (currentUser && currentUser.department) {
-                    const deptPath = currentUser.department.toLowerCase();
-                    const ticketRef = ref(db, `department_tickets/${deptPath}`);
-                    
-                    const unsubscribe = onValue(ticketRef, (snap) => {
-                        const data = snap.val();
-                        const list = data ? Object.entries(data).map(([id, v]) => ({ id, ...v })) : [];
-                        setTickets(list);
-                        
-                        // Check if active task is in progress
-                        const active = list.find(t => t.status === 'In Progress' && t.assignedTo === currentUser.id);
-                        setActiveTask(active || null);
-                    });
-                    return () => unsubscribe();
-                }
-            }, [currentUser]);
-
-            // SOUND ALERT LOGIC
-            useEffect(() => {
-                if (!currentUser) return;
-                
-                const myTasks = tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'Pending');
-                const unassignedTasks = tickets.filter(t => !t.assignedTo && t.status === 'Pending');
-                const currentCount = myTasks.length + unassignedTasks.length;
-
-                // If task count increases, play chime
-                if (currentCount > lastTaskCount && lastTaskCount !== 0) {
-                    try {
-                        Tone.start();
-                        const synth = new Tone.Synth().toDestination();
-                        const now = Tone.now();
-                        synth.triggerAttackRelease("C5", "8n", now);
-                        synth.triggerAttackRelease("E5", "8n", now + 0.2);
-                        synth.triggerAttackRelease("G5", "4n", now + 0.4);
-                    } catch (e) {
-                        console.log("Audio play blocked by browser policy");
-                    }
-                }
-                setLastTaskCount(currentCount);
-            }, [tickets, currentUser, lastTaskCount]);
-
-
-            const formatDuration = (ms) => {
-                if(!ms || ms < 0) return "0m";
-                const minutes = Math.floor(ms / 60000);
-                const hours = Math.floor(minutes / 60);
-                if (hours > 0) return `${hours}h ${minutes % 60}m`;
-                return `${minutes}m`;
-            };
-
-            const isSenior = currentUser?.mechanicType === 'Sr Mechanic' || currentUser?.mechanicType === 'Mechanical Admin' || currentUser?.role === 'admin';
-            
-            // TASK CATEGORIES
-            const priorityOrder = { "Critical": 0, "Normal": 1, "Low": 2 };
-            const myTasks = tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
-            const unassignedTasks = tickets.filter(t => !t.assignedTo && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
-            const escalatedTasks = tickets.filter(t => t.status === 'Escalated');
-
-            const handleLogin = (e) => {
-                e.preventDefault();
-                const user = users.find(u => u.username === creds.username && u.password === creds.password);
-                if (user) {
-                    setCurrentUser(user);
-                    setLoginError("");
-                    // Activate Tone.js on user interaction
-                    Tone.start();
-                } else {
-                    setLoginError("Invalid credentials.");
-                }
-            };
-
-            // --- ACTIONS ---
-            const handleClaimTask = (ticketId) => {
-                update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${ticketId}`), {
-                    assignedTo: currentUser.id,
-                    assignedAt: new Date().toISOString()
-                });
-            };
-
-            const triggerScanner = (ticket) => {
-                setScanTargetTask(ticket);
-                setShowScanner(true);
-            };
-
-            const handleScanStart = (decodedText) => {
-                if (decodedText === scanTargetTask.machineId || machines[decodedText]?.name === scanTargetTask.machineId) {
-                    update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${scanTargetTask.id}`), {
-                        status: 'In Progress',
-                        startedAt: new Date().toISOString()
-                    });
-                    update(ref(db, `machines/${scanTargetTask.machineId}`), { status: 'In Progress' });
+            const handleScan = (data) => {
+                const machine = machines.find(m => m.id === data || m.name === data);
+                if (machine) {
+                    setSelectedMachine(machine);
                     setShowScanner(false);
-                    setScanTargetTask(null);
                 } else {
-                    alert(`Wrong Machine! You scanned ${decodedText}, but expected ${scanTargetTask.machineId}`);
+                    alert("Machine not found: " + data);
                     setShowScanner(false);
                 }
             };
 
-            const handleSignOff = () => {
-                if(!signOffData.operatorId) return alert("Operator ID is required to close the job.");
-                
-                const now = new Date();
-                const startedAt = new Date(activeTask.startedAt);
-                const assignedAt = activeTask.assignedAt ? new Date(activeTask.assignedAt) : new Date(activeTask.timestamp);
-                const reportedAt = new Date(activeTask.timestamp);
-
-                const responseMs = startedAt - assignedAt;
-                const repairMs = now - startedAt;
-                const downtimeMs = now - reportedAt;
-
-                push(ref(db, 'logs'), {
-                    machineId: activeTask.machineId,
-                    action: 'Fixed',
-                    department: currentUser.department,
-                    userId: currentUser.id,
-                    userName: currentUser.name,
-                    operatorSignOff: signOffData.operatorId,
-                    details: signOffData.remarks,
-                    timestamp: now.toISOString(),
-                    repairTime: formatDuration(repairMs),
-                    metrics: { responseMs, repairMs, downtimeMs }
-                });
-
-                remove(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${activeTask.id}`));
-                update(ref(db, `machines/${activeTask.machineId}`), { status: 'Running', assignedTo: null, issue: null });
-
-                setShowSignOff(false);
-                setSignOffData({ operatorId: "", remarks: "" });
+            const handleSubmit = () => {
+                if(selectedMachine && form.issue && form.opName && form.opId) {
+                    onReport(selectedMachine.id, form.issue, form.priority, form.opName, form.opId);
+                    setSelectedMachine(null); setForm({ issue: "", priority: "Normal", opName: "", opId: "" });
+                } else alert("Please fill in all fields.");
             };
-
-            const handleEscalate = () => {
-                update(ref(db, `department_tickets/${currentUser.department.toLowerCase()}/${activeTask.id}`), {
-                    status: 'Escalated',
-                    assignedTo: null,
-                    escalatedBy: currentUser.name,
-                    escalationNote: signOffData.remarks || "Requires senior assistance."
-                });
-                update(ref(db, `machines/${activeTask.machineId}`), { status: 'Pending' });
-                setShowEscalate(false);
-                setSignOffData({ operatorId: "", remarks: "" });
-            };
-
-            const handleReroute = () => {
-                // Move from current dept to new dept
-                const newDeptPath = rerouteDept.toLowerCase();
-                const oldDeptPath = currentUser.department.toLowerCase();
-                
-                const updatedTicket = {
-                    ...rerouteTicket,
-                    department: rerouteDept,
-                    status: 'Pending',
-                    assignedTo: null,
-                    escalatedBy: null,
-                    escalationNote: null
-                };
-                
-                set(ref(db, `department_tickets/${newDeptPath}/${rerouteTicket.id}`), updatedTicket)
-                    .then(() => remove(ref(db, `department_tickets/${oldDeptPath}/${rerouteTicket.id}`)));
-                
-                setShowReroute(false);
-                setRerouteTicket(null);
-            };
-
-            // REPLACE MACHINE LOGIC
-            const handleReplaceScan = (decodedText) => {
-                if (replaceFlow.step === 1) {
-                    if (decodedText === activeTask.machineId || machines[decodedText]?.name === activeTask.machineId) {
-                        setReplaceFlow({ active: true, step: 2 });
-                    } else {
-                        alert("Please scan the correct BROKEN machine first.");
-                    }
-                } else if (replaceFlow.step === 2) {
-                    const spare = Object.values(machines).find(m => m.id === decodedText || m.name === decodedText);
-                    if (!spare) return alert("Spare machine not found in database!");
-                    if (spare.id === activeTask.machineId) return alert("You scanned the broken machine again! Scan the SPARE machine.");
-
-                    const deptPath = currentUser.department.toLowerCase();
-                    const oldMachine = machines[activeTask.machineId] || activeTask;
-
-                    // Log the swap
-                    push(ref(db, 'logs'), {
-                        machineId: activeTask.machineId,
-                        action: 'Replaced',
-                        details: `Swapped out. Replaced by ${spare.name}`,
-                        userId: currentUser.id,
-                        userName: currentUser.name,
-                        timestamp: new Date().toISOString()
-                    });
-
-                    // Update Old Machine (Offline)
-                    update(ref(db, `machines/${activeTask.machineId}`), {
-                        status: 'Offline', assignedTo: null, issue: 'Requires Workshop Repair (Swapped out)', priority: 'Normal'
-                    });
-
-                    // Update Spare Machine (Running)
-                    update(ref(db, `machines/${spare.id}`), {
-                        status: 'Running', lineId: oldMachine.lineId || null
-                    });
-
-                    // Clear ticket
-                    remove(ref(db, `department_tickets/${deptPath}/${activeTask.id}`));
-
-                    setActiveTask(null);
-                    setReplaceFlow({ active: false, step: 1 });
-                    alert("Machine successfully replaced! Line is back running.");
-                }
-            };
-
-            // --- RENDER ---
-            if (!currentUser) {
-                return (
-                    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
-                        <Card className="w-full max-w-sm p-8 bg-white border-t-8 border-blue-500 shadow-2xl">
-                            <div className="text-center mb-6">
-                                <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><User className="w-8 h-8 text-blue-600" /></div>
-                                <h1 className="text-2xl font-bold text-slate-800">Worker Portal</h1>
-                                <p className="text-slate-500 text-sm">Please log in to view your tasks.</p>
-                            </div>
-                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm font-bold border border-red-200 text-center">{loginError}</div>}
-                            <form onSubmit={handleLogin} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Username / ID</label>
-                                    <input className="w-full p-3 border border-slate-300 bg-slate-50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Password</label>
-                                    <input type="password" className="w-full p-3 border border-slate-300 bg-slate-50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
-                                </div>
-                                <Button fullWidth className="mt-2 text-lg py-3"><Lock className="w-5 h-5"/> Secure Login</Button>
-                            </form>
-                        </Card>
-                    </div>
-                );
-            }
 
             return (
-                <div className="min-h-screen bg-slate-100 flex flex-col pb-20 md:pb-0 font-sans">
+                <div className="fixed inset-0 bg-white z-50 flex flex-col">
+                    {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} title="Scan Machine QR" />}
                     
-                    {/* SCANNERS AND MODALS */}
-                    {showScanner && <QRScanner onScan={handleScanStart} onClose={() => setShowScanner(false)} title="Scan Machine to Start Repair" />}
-                    
-                    {replaceFlow.active && (
-                        <QRScanner 
-                            onScan={handleReplaceScan} 
-                            onClose={() => setReplaceFlow({ active: false, step: 1 })} 
-                            title={replaceFlow.step === 1 ? "1. Scan BROKEN Machine" : "2. Scan SPARE Machine"} 
-                        />
-                    )}
-                    
-                    <Modal isOpen={showSignOff} onClose={() => setShowSignOff(false)} title="Complete Job & Sign-off">
-                        <div className="space-y-4">
-                            <div className="bg-emerald-50 text-emerald-800 p-3 rounded-lg border border-emerald-200 text-sm font-medium">
-                                Confirm repairs for <span className="font-bold">{activeTask?.machineId}</span>.
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Repair Notes (What did you do?)</label>
-                                <textarea className="w-full p-3 border rounded-lg h-24" placeholder="e.g. Changed looper, adjusted timing..." value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operator Verification ID</label>
-                                <input className="w-full p-3 border rounded-lg bg-yellow-50 focus:ring-yellow-400" placeholder="e.g. OP-1234" value={signOffData.operatorId} onChange={e => setSignOffData({...signOffData, operatorId: e.target.value})} />
-                                <p className="text-[10px] text-slate-400 mt-1">Operator must enter ID to verify machine is running smoothly.</p>
-                            </div>
-                            <Button fullWidth variant="success" onClick={handleSignOff}><CheckCircle className="w-5 h-5"/> Verify & Close Ticket</Button>
-                        </div>
-                    </Modal>
-
-                    <Modal isOpen={showEscalate} onClose={() => setShowEscalate(false)} title="Escalate Ticket">
-                        <div className="space-y-4">
-                            <p className="text-sm text-slate-600">If you cannot fix this issue, or it belongs to another department, escalate it to a Senior.</p>
-                            <textarea className="w-full p-3 border rounded-lg h-24" placeholder="Reason for escalation..." value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
-                            <Button fullWidth variant="danger" onClick={handleEscalate}><AlertOctagon className="w-5 h-5"/> Confirm Escalation</Button>
-                        </div>
-                    </Modal>
-
-                    <Modal isOpen={showReroute} onClose={() => setShowReroute(false)} title="Re-route Ticket (Senior Only)">
-                        <div className="space-y-4">
-                            <p className="text-sm text-slate-600">Re-route <strong>{rerouteTicket?.machineId}</strong> to the correct department queue.</p>
-                            <select className="w-full p-3 border rounded-lg" value={rerouteDept} onChange={e => setRerouteDept(e.target.value)}>
-                                <option value="Mechanical">Mechanical Dept</option>
-                                <option value="Quality">Quality / Measurement Dept</option>
-                                <option value="Technical">Technical / Method Dept</option>
-                                <option value="IE">Industrial Engineering (IE)</option>
-                                <option value="Material">Raw Materials (RM) / Stores</option>
-                            </select>
-                            <Button fullWidth onClick={handleReroute}><ArrowRight className="w-5 h-5"/> Send to {rerouteDept}</Button>
-                        </div>
-                    </Modal>
-
-                    {/* HEADER */}
-                    <header className="bg-slate-900 text-white p-4 sticky top-0 z-20 flex justify-between items-center shadow-md">
-                        <div>
-                            <h1 className="text-xl font-bold flex items-center gap-2"><ClipboardList className="text-blue-400"/> Worker Portal</h1>
-                            <div className="text-xs text-slate-400 font-medium tracking-wide flex items-center gap-2 mt-1">
-                                <span>{currentUser.name}</span>
-                                <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] uppercase font-bold">{currentUser.department}</span>
-                            </div>
-                        </div>
-                        <button onClick={() => setCurrentUser(null)} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"><LogOut className="w-5 h-5"/></button>
-                    </header>
-
-                    {/* MAIN VIEW */}
-                    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-8">
-                        
-                        {/* ACTIVE TASK (TIMER RUNNING) */}
-                        {activeTask && (
-                            <div className="animate-in slide-in-from-top-4 duration-300">
-                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><PlayCircle className="w-4 h-4 text-emerald-500"/> Currently Working On</h3>
-                                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border-2 border-emerald-500">
-                                    <div className="bg-emerald-50 p-4 border-b border-emerald-100 flex justify-between items-start">
-                                        <div>
-                                            <h2 className="text-2xl font-bold text-emerald-900">{activeTask.machineId}</h2>
-                                            <div className="text-sm font-mono text-emerald-700 bg-emerald-100 inline-block px-2 py-1 rounded mt-1">{activeTask.ticketId}</div>
-                                        </div>
-                                        <div className="bg-emerald-200 text-emerald-800 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 animate-pulse shadow-sm border border-emerald-300">
-                                            <Clock className="w-4 h-4"/> IN PROGRESS
-                                        </div>
-                                    </div>
-                                    <div className="p-6">
-                                        <div className="mb-6">
-                                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Reported Issue</h4>
-                                            <p className="text-lg text-slate-800 font-medium bg-slate-50 p-4 rounded-xl border border-slate-200">{activeTask.issueDescription}</p>
-                                            
-                                            {activeTask.aiDiagnostic && (
-                                                <div className="mt-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
-                                                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Activity className="w-3 h-3"/> AI Diagnostic Suggestion</h4>
-                                                    <p className="text-sm text-indigo-900 font-medium italic">"{activeTask.aiDiagnostic}"</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                        
-                                        <div className="border-t pt-6">
-                                            <Button fullWidth size="lg" variant="success" onClick={() => setShowSignOff(true)}>
-                                                <CheckSquare className="w-5 h-5"/> Complete Job & Sign-off
-                                            </Button>
-                                            
-                                            <Button fullWidth size="lg" className="mt-3 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700" onClick={() => setShowEscalate(true)}>
-                                                <AlertOctagon className="w-5 h-5"/> Escalate to Senior
-                                            </Button>
-
-                                            {/* ONLY Mechanical Department can Swap Machines */}
-                                            {currentUser?.department?.toLowerCase() === 'mechanical' && (
-                                                <Button fullWidth size="lg" className="mt-3 bg-slate-800 text-white hover:bg-slate-700 shadow-md" onClick={() => setReplaceFlow({ active: true, step: 1 })}>
-                                                    <RefreshCw className="w-5 h-5"/> Replace / Swap Machine
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
+                    <div className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md shrink-0">
+                        <h2 className="text-xl font-bold flex items-center gap-2"><ScanLine className="w-6 h-6 text-blue-400"/> Scan To Report</h2>
+                        <Button variant="secondary" onClick={onClose}><X className="w-4 h-4"/> Close</Button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+                        {!selectedMachine ? (
+                            <div className="max-w-4xl mx-auto">
+                                <div className="text-center mb-8">
+                                    <button onClick={() => setShowScanner(true)} className="bg-blue-600 text-white p-6 rounded-full shadow-xl hover:bg-blue-700 transition-transform hover:scale-110 mb-4">
+                                        <Camera className="w-12 h-12" />
+                                    </button>
+                                    <p className="text-slate-600 font-bold text-lg">Tap Camera to Scan Machine</p>
+                                    <p className="text-slate-400 text-sm">Or select manually below</p>
                                 </div>
-                            </div>
-                        )}
-
-                        {/* ASSIGNED TO ME (Pending Start) */}
-                        {!activeTask && (
-                            <div>
-                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><User className="w-4 h-4 text-blue-500"/> Assigned To You</h3>
-                                <div className="space-y-4">
-                                    {myTasks.length === 0 ? (
-                                        <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400">
-                                            <CheckCircle className="w-8 h-8 mx-auto mb-2 opacity-50"/>
-                                            <p className="font-medium">No assigned tasks. Grab one from the open pool below.</p>
-                                        </div>
-                                    ) : myTasks.map(task => (
-                                        <Card key={task.id} className="p-5 border-l-4 border-l-blue-500 flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:shadow-md transition-all">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-3 mb-1">
-                                                    <h3 className="font-bold text-lg text-slate-800">{task.machineId}</h3>
-                                                    {task.priority && <Badge status={task.priority} />}
-                                                </div>
-                                                <p className="text-sm text-slate-600 mb-2">{task.issueDescription}</p>
-                                                {task.aiDiagnostic && <p className="text-xs text-indigo-600 font-medium italic border-l-2 border-indigo-300 pl-2">AI: {task.aiDiagnostic}</p>}
-                                            </div>
-                                            <Button onClick={() => triggerScanner(task)} className="bg-slate-900 text-white w-full md:w-auto shadow-md">
-                                                <ScanLine className="w-4 h-4"/> Scan to Start
-                                            </Button>
-                                        </Card>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                    {machines.slice(0, 50).map(m => (
+                                        <button key={m.id} onClick={() => setSelectedMachine(m)} className="p-4 bg-white border rounded-xl hover:border-blue-500 hover:shadow-md text-left group">
+                                            <div className="flex justify-between items-start mb-2"><QrCode className="w-8 h-8 text-slate-300 group-hover:text-blue-500" /><Badge status={m.status} /></div>
+                                            <div className="font-bold text-lg text-slate-800">{m.name}</div>
+                                            <div className="text-xs text-slate-500">{m.type}</div>
+                                        </button>
                                     ))}
                                 </div>
                             </div>
-                        )}
-
-                        {/* ESCALATED TICKETS (For Seniors Only) */}
-                        {isSenior && escalatedTasks.length > 0 && (
-                            <div>
-                                <h3 className="font-bold text-red-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><AlertTriangle className="w-4 h-4"/> Escalated by Juniors</h3>
-                                <div className="space-y-3">
-                                    {escalatedTasks.map(task => (
-                                        <Card key={task.id} className="p-4 bg-red-50 border border-red-200 shadow-sm flex flex-col md:flex-row justify-between gap-4">
-                                            <div>
-                                                <div className="font-bold text-red-900 text-lg mb-1">{task.machineId}</div>
-                                                <div className="text-sm text-red-800 font-medium">{task.issueDescription}</div>
-                                                <div className="mt-2 text-xs bg-white p-2 rounded border border-red-100 text-red-600">
-                                                    <span className="font-bold uppercase tracking-wide">Escalated by {task.escalatedBy}:</span> {task.escalationNote}
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col gap-2 shrink-0">
-                                                <Button size="sm" variant="success" onClick={() => handleClaimTask(task.id)}>Take Over Task</Button>
-                                                <Button size="sm" variant="secondary" onClick={() => { setRerouteTicket(task); setShowReroute(true); }}>Re-route to other Dept</Button>
-                                            </div>
-                                        </Card>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* OPEN POOL (Unassigned Tasks) */}
-                        {!activeTask && (
-                            <div>
-                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><Activity className="w-4 h-4 text-slate-400"/> Open {currentUser.department} Tickets</h3>
-                                <div className="space-y-3">
-                                    {unassignedTasks.length === 0 ? (
-                                        <div className="p-6 text-center text-slate-400 italic">Queue is empty.</div>
-                                    ) : unassignedTasks.map(task => (
-                                        <Card key={task.id} className="p-4 flex justify-between items-center gap-4 hover:border-slate-300 transition-colors">
-                                            <div>
-                                                <div className="font-bold text-slate-800 mb-1">{task.machineId} <Badge status={task.priority}/></div>
-                                                <div className="text-sm text-slate-600">{task.issueDescription}</div>
-                                            </div>
-                                            <Button variant="outline" onClick={() => handleClaimTask(task.id)} className="shrink-0 font-bold hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
-                                                Claim Task
-                                            </Button>
-                                        </Card>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* MY RECENT HISTORY */}
-                        <div className="pt-8 border-t border-slate-200">
-                            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 uppercase tracking-wide text-sm"><History className="w-4 h-4 text-slate-400"/> My Recent Fixes</h3>
-                            <div className="space-y-3">
-                                {logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed').slice().reverse().slice(0, 5).map((log, i) => (
-                                    <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 text-sm flex justify-between items-center opacity-80 hover:opacity-100 transition-opacity shadow-sm">
-                                        <div>
-                                            <span className="font-bold text-slate-700 mr-2">{log.machineId}</span>
-                                            <span className="text-xs text-slate-400">{new Date(log.timestamp).toLocaleString()}</span>
-                                        </div>
-                                        <div className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
-                                            Repair: {log.repairTime || "N/A"}
-                                        </div>
+                        ) : (
+                            <div className="max-w-md mx-auto mt-10">
+                                <Card className="p-6 shadow-xl border-t-4 border-t-blue-600">
+                                    <div className="flex justify-between items-start mb-6 border-b pb-4">
+                                        <div><h3 className="text-2xl font-bold text-slate-800">{selectedMachine.name}</h3><p className="text-slate-500">{selectedMachine.type}</p></div>
+                                        <button onClick={() => setSelectedMachine(null)} className="text-sm text-blue-600 hover:underline">Change</button>
                                     </div>
-                                ))}
+                                    <div className="space-y-4">
+                                        <label className="block text-sm font-bold text-slate-700">Problem Description</label>
+                                        <textarea className="w-full p-3 border rounded-lg h-24" placeholder="e.g. Needle broken..." value={form.issue} onChange={e => setForm({...form, issue: e.target.value})} />
+                                        <label className="block text-sm font-bold text-slate-700">Priority</label>
+                                        <div className="flex gap-2">{['Low', 'Normal', 'Critical'].map(p => (
+                                            <button key={p} onClick={() => setForm({...form, priority: p})} className={`flex-1 py-2 rounded text-sm font-bold border ${form.priority === p ? 'bg-blue-600 text-white' : 'bg-white'}`}>{p}</button>
+                                        ))}</div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <input className="w-full p-3 border rounded-lg" placeholder="Operator Name" value={form.opName} onChange={e => setForm({...form, opName: e.target.value})} />
+                                            <input className="w-full p-3 border rounded-lg" placeholder="ID (OP-123)" value={form.opId} onChange={e => setForm({...form, opId: e.target.value})} />
+                                        </div>
+                                        <Button fullWidth size="lg" onClick={handleSubmit} disabled={!form.issue || !form.opName || !form.opId}>Submit Report</Button>
+                                    </div>
+                                </Card>
                             </div>
-                        </div>
-
+                        )}
                     </div>
                 </div>
             );
         };
 
+        const LiveMonitor = ({ machines, users, onAssign, currentUser }) => {
+            const pending = machines.filter(m => m.status === "Pending");
+            const qaPending = machines.filter(m => m.status === "QA Pending");
+            const [modal, setModal] = useState(null);
+            const [selTech, setSelTech] = useState("");
+            const [autoAssign, setAutoAssign] = useState(false);
+            const [viewMode, setViewMode] = useState('live'); // 'live' or 'pm'
+
+            // PM SCHEDULER LOGIC (30 Days)
+            const serviceDueMachines = machines.filter(m => {
+                if(!m.lastMaintenance) return true; 
+                const last = new Date(m.lastMaintenance);
+                const diff = (new Date() - last) / (1000 * 60 * 60 * 24);
+                return diff > 30; 
+            });
+
+            // AUTO-ASSIGN LOGIC (Intelligent Load Balancing & Limits)
+            useEffect(() => {
+                if (!autoAssign) return;
+
+                const techs = users.filter(u => u.role === 'technician' && u.status !== 'Offline');
+                if (techs.length === 0) return;
+
+                // --- 1. IDENTIFY WORK ---
+                const unassignedBreakdowns = machines.filter(m => m.status === 'Pending' && !m.assignedTo && !m.isPM);
+                const unassignedPMs = machines.filter(m => {
+                    if (m.status !== 'Running') return false; 
+                    if (!m.lastMaintenance) return true; 
+                    const last = new Date(m.lastMaintenance);
+                    const diff = (new Date() - last) / (1000 * 60 * 60 * 24);
+                    return diff > 30;
+                });
+
+                if (unassignedBreakdowns.length === 0 && unassignedPMs.length === 0) return;
+
+                // --- 2. CALCULATE CURRENT LOAD ---
+                const workload = {};
+                const pmCounts = {};
+                
+                techs.forEach(t => {
+                    workload[t.id] = 0;
+                    pmCounts[t.id] = 0;
+                });
+
+                machines.forEach(m => {
+                    if (m.status !== 'Running' && m.assignedTo && workload[m.assignedTo] !== undefined) {
+                        workload[m.assignedTo]++;
+                        if (m.isPM) pmCounts[m.assignedTo]++;
+                    }
+                });
+
+                // --- 3. ASSIGN BREAKDOWNS (PRIORITY 1) ---
+                const sortedBreakdowns = [...unassignedBreakdowns].sort((a, b) => {
+                    if (a.priority === 'Critical' && b.priority !== 'Critical') return -1;
+                    if (a.priority !== 'Critical' && b.priority === 'Critical') return 1;
+                    return 0;
+                });
+
+                sortedBreakdowns.forEach(m => {
+                    const bestTech = techs.reduce((prev, curr) => workload[prev.id] <= workload[curr.id] ? prev : curr);
+                    if (bestTech) {
+                        api.assignTech(m.id, bestTech.id);
+                        workload[bestTech.id]++; 
+                    }
+                });
+
+                // --- 4. ASSIGN PM TASKS (PRIORITY 2) ---
+                unassignedPMs.forEach(m => {
+                    const eligibleTechs = techs.filter(t => pmCounts[t.id] < 5);
+                    if (eligibleTechs.length > 0) {
+                        const bestTech = eligibleTechs.reduce((prev, curr) => workload[prev.id] <= workload[curr.id] ? prev : curr);
+                        api.assignPM(m.id, bestTech.id);
+                        workload[bestTech.id]++;
+                        pmCounts[bestTech.id]++;
+                    }
+                });
+
+            }, [machines, users, autoAssign]);
+
+            return (
+                <div className="space-y-6">
+                    <Card className="p-4 bg-slate-800 text-white border-slate-700">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="font-bold flex items-center gap-2"><UserCheck className="w-4 h-4 text-emerald-400"/> Technician Status Board</h3>
+                            <div className="flex gap-2">
+                                <button onClick={() => setViewMode('live')} className={`px-3 py-1 rounded text-xs font-bold transition-colors ${viewMode === 'live' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>Live Breakdown</button>
+                                <button onClick={() => setViewMode('pm')} className={`px-3 py-1 rounded text-xs font-bold transition-colors ${viewMode === 'pm' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>PM Schedule</button>
+                                {currentUser.role === 'admin' && (
+                                    <button 
+                                        onClick={() => setAutoAssign(!autoAssign)} 
+                                        className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold transition-colors ${autoAssign ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-400'}`}
+                                    >
+                                        <Zap className={`w-3 h-3 ${autoAssign ? 'fill-current' : ''}`} /> 
+                                        {autoAssign ? 'Auto ON' : 'Auto OFF'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex gap-4 overflow-x-auto pb-2">
+                            {users.filter(u => u.role === 'technician').map(tech => {
+                                const activePMs = machines.filter(m => m.assignedTo === tech.id && m.isPM && m.status !== 'Running').length;
+                                return (
+                                    <div key={tech.id} className="bg-slate-700 p-2 rounded-lg min-w-[140px] flex flex-col items-center border border-slate-600">
+                                        <div className="font-bold text-sm">{tech.name}</div>
+                                        <div className="text-xs text-slate-400 mb-1">@{tech.username}</div>
+                                        <Badge status={tech.status} />
+                                        <div className="text-[10px] mt-1 text-slate-400 w-full text-center">
+                                            Tasks: {machines.filter(m => m.assignedTo === tech.id && m.status !== 'Running').length}
+                                        </div>
+                                        <div className="text-[9px] text-indigo-300">PM Goal: {activePMs}/5</div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </Card>
+
+                    {viewMode === 'live' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* QA SIGN-OFF PANEL (VISIBLE TO ADMINS ONLY) */}
+                            {qaPending.length > 0 && currentUser.role === 'admin' && (
+                                <Card className="p-4 border-l-4 border-l-orange-500 md:col-span-2 bg-orange-50">
+                                    <h3 className="font-bold text-lg text-orange-700 mb-4 flex items-center gap-2"><ShieldCheck className="w-5 h-5"/> QA Sign-off Required ({qaPending.length})</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {qaPending.map(m => (
+                                            <div key={m.id} className="flex justify-between items-center p-3 bg-white rounded border border-orange-200 shadow-sm">
+                                                <div>
+                                                    <div className="flex items-center gap-2 font-bold text-slate-800">{m.name}</div>
+                                                    <div className="text-xs text-orange-600 font-bold">Issue: {m.issue}</div>
+                                                    <div className="text-xs text-slate-400">QA pending for oil/feed dog repair.</div>
+                                                </div>
+                                                <Button size="sm" variant="warning" onClick={() => api.qaSignOff(m.id, currentUser.id)}>Approve</Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </Card>
+                            )}
+
+                            <Card className="p-4 border-l-4 border-l-red-500">
+                                <h3 className="font-bold text-lg text-red-700 mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5"/> Pending Issues ({pending.length})</h3>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                    {pending.map(m => (
+                                        <div key={m.id} className="flex justify-between items-center p-3 bg-red-50 rounded border border-red-100">
+                                            <div>
+                                                <div className="flex items-center gap-2 font-bold text-slate-800">
+                                                    {m.name} 
+                                                    {m.priority && <Badge status={m.priority} type="priority"/>}
+                                                    {/* NEW: AI Department Badge */}
+                                                    {m.department && (
+                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-sm flex items-center gap-1">
+                                                            <Zap className="w-3 h-3 fill-indigo-500 text-indigo-500"/> AI Routed: {m.department.toUpperCase()}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="text-xs text-red-600 mt-1">{m.issue}</div>
+                                                {m.reportedBy && <div className="text-[10px] text-blue-600 mt-1">Rep: {m.reportedBy}</div>}
+                                            </div>
+                                            {!m.assignedTo && currentUser.role !== 'viewer' ? <Button size="sm" onClick={() => setModal(m)}>Assign</Button> : <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{m.assignedTo ? "Assigned" : "Waiting"}</span>}
+                                        </div>
+                                    ))}
+                                    {pending.length === 0 && <p className="text-slate-400 italic">No pending issues.</p>}
+                                </div>
+                            </Card>
+                            <Card className="p-4 border-l-4 border-l-yellow-500">
+                                <h3 className="font-bold text-lg text-yellow-700 mb-4 flex items-center gap-2"><Wrench className="w-5 h-5"/> Active Repairs</h3>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                    {machines.filter(m => m.status === 'In Progress').map(m => (
+                                        <div key={m.id} className="flex justify-between items-center p-3 bg-yellow-50 rounded border border-yellow-100">
+                                            <div><div className="font-bold text-slate-800">{m.name}</div><div className="text-xs text-slate-500">Tech: {users.find(u => u.id === m.assignedTo)?.name || 'Unknown'}</div></div>
+                                            <Badge status="In Progress" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        </div>
+                    ) : (
+                        <Card className="p-4 border-l-4 border-l-blue-500">
+                            <h3 className="font-bold text-lg text-blue-700 mb-4 flex items-center gap-2"><CalendarClock className="w-5 h-5"/> Preventive Maintenance Due ({serviceDueMachines.length})</h3>
+                            <div className="space-y-2 max-h-80 overflow-y-auto">
+                                {serviceDueMachines.map(m => (
+                                    <div key={m.id} className="flex justify-between items-center p-3 bg-blue-50 rounded border border-blue-100">
+                                        <div>
+                                            <div className="font-bold text-slate-800">{m.name}</div>
+                                            <div className="text-xs text-slate-500">Last Service: {m.lastMaintenance ? new Date(m.lastMaintenance).toLocaleDateString() : 'Never'}</div>
+                                        </div>
+                                        {/* UPDATED: Assign Button for PMs */}
+                                        {!m.assignedTo ? (
+                                            <Button size="sm" onClick={() => setModal(m)}>Assign Tech</Button>
+                                        ) : (
+                                            <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">Job Assigned</span>
+                                        )}
+                                    </div>
+                                ))}
+                                {serviceDueMachines.length === 0 && <p className="text-slate-400 italic">All machines are up to date.</p>}
+                            </div>
+                        </Card>
+                    )}
+
+                    <Modal isOpen={!!modal} onClose={() => setModal(null)} title={modal?.isPM || !modal?.issue ? "Assign PM Task" : "Assign Breakdown"}>
+                        <div className="space-y-4">
+                            <p>Assigning <strong>{modal?.name}</strong> to:</p>
+                            <select className="w-full p-2 border rounded" value={selTech} onChange={(e) => setSelTech(e.target.value)}>
+                                <option value="">-- Choose Tech --</option>
+                                {users.filter(u => u.role === 'technician' && u.status === 'Available').map(t => <option key={t.id} value={t.id}>{t.name} (Online)</option>)}
+                            </select>
+                            <Button fullWidth onClick={() => { 
+                                if(viewMode === 'pm' || !modal.issue) {
+                                    api.assignPM(modal.id, selTech); 
+                                } else {
+                                    api.assignTech(modal.id, selTech); 
+                                }
+                                setModal(null); 
+                                setSelTech(""); 
+                            }} disabled={!selTech}>Confirm Assignment</Button>
+                        </div>
+                    </Modal>
+                </div>
+            );
+        };
+
+        const InventoryManager = ({ parts, partRequests, machines, onAddPart, onDeletePart, onUpdateStock, onResolveRequest }) => {
+            const [newPart, setNewPart] = useState({ name: "", stock: 0, minStock: 5, price: 0, machineType: "Universal" });
+            const [view, setView] = useState('inventory'); // 'inventory', 'lowStock', 'analytics'
+
+            // Extract unique machine types
+            const machineTypes = useMemo(() => {
+                const types = new Set(machines.map(m => m.type).filter(Boolean));
+                return ["Universal", ...Array.from(types)];
+            }, [machines]);
+
+            // Low Stock Logic
+            const lowStockItems = parts.filter(p => (p.stock || 0) <= (p.minStock || 5));
+            
+            // Consumption Logic
+            const topConsumed = [...parts].sort((a, b) => (b.totalUsed || 0) - (a.totalUsed || 0)).slice(0, 5);
+
+            return (
+                <div className="space-y-6">
+                    {/* INVENTORY HEADER & TABS */}
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="flex gap-2">
+                            <button onClick={() => setView('inventory')} className={`px-4 py-2 rounded-lg font-bold text-sm ${view === 'inventory' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>Inventory</button>
+                            <button onClick={() => setView('lowStock')} className={`px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 ${view === 'lowStock' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600'}`}>
+                                <AlertTriangle className="w-4 h-4" /> Low Stock ({lowStockItems.length})
+                            </button>
+                            <button onClick={() => setView('analytics')} className={`px-4 py-2 rounded-lg font-bold text-sm ${view === 'analytics' ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600'}`}>Analytics</button>
+                        </div>
+                        <Button variant="secondary" onClick={() => window.print()}><Printer className="w-4 h-4"/> Print Report</Button>
+                    </div>
+
+                    {view === 'inventory' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="space-y-6">
+                                <Card className="p-6 h-fit">
+                                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><PlusCircle className="w-5 h-5"/> Add Part</h3>
+                                    <div className="space-y-3">
+                                        <select className="w-full p-2 border rounded" value={newPart.machineType} onChange={e => setNewPart({...newPart, machineType: e.target.value})}>
+                                            {machineTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                        <input className="w-full p-2 border rounded" placeholder="Part Name" value={newPart.name} onChange={e => setNewPart({...newPart, name: e.target.value})} />
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input type="number" className="w-full p-2 border rounded" placeholder="Stock" value={newPart.stock} onChange={e => setNewPart({...newPart, stock: parseInt(e.target.value) || 0})} />
+                                            <input type="number" className="w-full p-2 border rounded" placeholder="Price ($)" value={newPart.price} onChange={e => setNewPart({...newPart, price: parseFloat(e.target.value) || 0})} />
+                                        </div>
+                                        <Button fullWidth onClick={() => { if(newPart.name) { onAddPart(newPart); setNewPart({name: "", stock: 0, minStock: 5, price: 0, machineType: "Universal"}); }}}>Add</Button>
+                                    </div>
+                                </Card>
+                                <Card className="p-6 h-fit border-t-4 border-t-orange-500">
+                                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><MessageSquare className="w-5 h-5"/> Requests</h3>
+                                    {partRequests.length === 0 ? <p className="text-slate-400 italic text-sm">No pending requests.</p> : (
+                                        <div className="space-y-3">
+                                            {partRequests.map(req => (
+                                                <div key={req.id} className="bg-orange-50 p-3 rounded border border-orange-200 text-sm">
+                                                    <div className="font-bold text-orange-900">{req.partName}</div>
+                                                    <div className="text-xs text-orange-700 mb-2">By: {req.techName}</div>
+                                                    <Button size="sm" variant="outline" className="w-full" onClick={() => onResolveRequest(req.id)}>Resolve</Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </Card>
+                            </div>
+                            <Card className="p-6 lg:col-span-2">
+                                <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Package className="w-5 h-5"/> Inventory List</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-slate-50 border-b">
+                                            <tr>
+                                                <th className="p-3">Type</th>
+                                                <th className="p-3">Name</th>
+                                                <th className="p-3 text-center">Price</th>
+                                                <th className="p-3 text-center">Used</th>
+                                                <th className="p-3">Stock</th>
+                                                <th className="p-3">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {parts.map(part => (
+                                                <tr key={part.id} className="border-b hover:bg-slate-50">
+                                                    <td className="p-3"><span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">{part.machineType || "Universal"}</span></td>
+                                                    <td className="p-3 font-medium">{part.name} {(part.stock || 0) <= (part.minStock || 5) && <span className="text-red-600 font-bold ml-2 text-xs">LOW</span>}</td>
+                                                    <td className="p-3 text-center text-slate-500">${part.price || 0}</td>
+                                                    <td className="p-3 text-center text-slate-500">{part.totalUsed || 0}</td>
+                                                    <td className="p-3 flex items-center gap-2">
+                                                        <button onClick={() => onUpdateStock(part.id, -1, part.stock)} className="w-6 h-6 rounded bg-slate-200 hover:bg-slate-300">-</button>
+                                                        <span className="w-8 text-center font-bold">{part.stock}</span>
+                                                        <button onClick={() => onUpdateStock(part.id, 1, part.stock)} className="w-6 h-6 rounded bg-slate-200 hover:bg-slate-300">+</button>
+                                                    </td>
+                                                    <td className="p-3"><button onClick={() => onDeletePart(part.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4"/></button></td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        </div>
+                    )}
+
+                    {view === 'lowStock' && (
+                         <div className="space-y-6">
+                            <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-red-800">
+                                <h3 className="font-bold text-lg flex items-center gap-2"><AlertTriangle className="w-5 h-5"/> Action Required</h3>
+                                <p>The following items are below minimum stock levels. A purchase order is recommended.</p>
+                            </div>
+                            <Card className="p-6">
+                                <h3 className="font-bold text-lg mb-4">Reorder Report</h3>
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50 border-b">
+                                        <tr>
+                                            <th className="p-3">Part Name</th>
+                                            <th className="p-3">Type</th>
+                                            <th className="p-3">Current Stock</th>
+                                            <th className="p-3">Min Level</th>
+                                            <th className="p-3 text-blue-600 font-bold">Suggested Order</th>
+                                            <th className="p-3">Est. Cost</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {lowStockItems.length > 0 ? lowStockItems.map(part => {
+                                            const min = part.minStock || 5;
+                                            const current = part.stock || 0;
+                                            const orderQty = Math.max(0, (min * 3) - current); // Target = 3x Min
+                                            return (
+                                                <tr key={part.id} className="border-b">
+                                                    <td className="p-3 font-bold text-slate-800">{part.name}</td>
+                                                    <td className="p-3 text-slate-500">{part.machineType || "Universal"}</td>
+                                                    <td className="p-3 text-red-600 font-bold">{current}</td>
+                                                    <td className="p-3">{min}</td>
+                                                    <td className="p-3 font-bold text-blue-600 bg-blue-50">{orderQty} units</td>
+                                                    <td className="p-3">${(orderQty * (part.price || 0)).toFixed(2)}</td>
+                                                </tr>
+                                            );
+                                        }) : <tr><td colSpan="6" className="p-6 text-center text-slate-400">All stock levels are healthy.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </Card>
+                        </div>
+                    )}
+
+                    {view === 'analytics' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                             <Card className="p-6">
+                                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><TrendingDown className="w-5 h-5 text-indigo-600"/> Most Consumed Parts</h3>
+                                 <div className="space-y-3">
+                                     {topConsumed.map((p, i) => (
+                                         <div key={p.id} className="flex justify-between items-center p-3 bg-slate-50 rounded border border-slate-100">
+                                             <div className="flex items-center gap-3">
+                                                 <span className="font-bold text-indigo-600 w-6">#{i+1}</span>
+                                                 <div>
+                                                     <div className="font-bold text-slate-800">{p.name}</div>
+                                                     <div className="text-xs text-slate-500">{p.machineType || "Universal"}</div>
+                                                 </div>
+                                             </div>
+                                             <div className="font-bold text-slate-700">{p.totalUsed || 0} used</div>
+                                         </div>
+                                     ))}
+                                 </div>
+                             </Card>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const AnalyticsDashboard = ({ logs, machines, parts, floors, lines, users, buildings }) => {
+            const [reportType, setReportType] = useState('daily');
+            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+            const [searchTerm, setSearchTerm] = useState("");
+
+            // Filter Logs Logic
+            const filteredLogs = logs.filter(log => {
+                const logDate = new Date(log.timestamp).toISOString().split('T')[0];
+                const machine = machines.find(m => m.id === log.machineId);
+                const machineName = machine ? machine.name.toLowerCase() : "";
+                
+                let dateMatch = true;
+                if (reportType === 'daily') dateMatch = logDate === startDate;
+                if (reportType === 'monthly') dateMatch = logDate.slice(0, 7) === startDate.slice(0, 7);
+                if (reportType === 'custom') dateMatch = logDate >= startDate && logDate <= endDate;
+
+                let machineMatch = true;
+                if (searchTerm) {
+                    machineMatch = machineName.includes(searchTerm.toLowerCase()) || 
+                                   log.machineId.toLowerCase().includes(searchTerm.toLowerCase());
+                }
+
+                return dateMatch && machineMatch;
+            }).reverse();
+
+            const getMachineName = (id) => machines.find(m => m.id === id)?.name || "Unknown";
+            const getUserName = (id) => users.find(u => u.id === id)?.name || "Unknown";
+            
+            const getMachineLocation = (machineId) => {
+                const machine = machines.find(m => m.id === machineId);
+                if (!machine) return "Unknown";
+                const line = lines.find(l => l.id === machine.lineId);
+                const floor = line ? floors.find(f => f.id === line.floorId) : null;
+                const building = floor ? buildings.find(b => b.id === floor.buildingId) : null;
+                return `${building?.name || '??'} > ${floor?.name || '??'} > ${line?.name || '??'}`;
+            };
+
+            // Selected Machine for Detail View
+            const selectedMachine = searchTerm ? machines.find(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()) || m.id === searchTerm) : null;
+            
+            const nextMaintenanceDate = (dateStr) => {
+                if(!dateStr) return "Not Scheduled";
+                const d = new Date(dateStr);
+                d.setDate(d.getDate() + 30);
+                return d.toLocaleDateString();
+            };
+
+            // KPIS
+            const totalFixes = filteredLogs.filter(l => l.action === 'Fixed').length;
+            const partsUsedCount = filteredLogs.filter(l => l.partsUsed).reduce((acc, curr) => acc + curr.partsUsed.length, 0);
+            const totalCost = filteredLogs.reduce((acc, curr) => acc + (curr.cost || 0), 0);
+            
+            // Reliability Engineering Metrics
+            const failureCount = filteredLogs.filter(l => l.action === 'Fixed' || l.action === 'PM Completed').length;
+            
+            // MTTR (Repair): Average repairMs
+            const totalRepairMs = filteredLogs.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
+            const mttrRepairMs = failureCount ? totalRepairMs / failureCount : 0;
+
+            // MTTR (Recovery/Restore): Average downtimeMs
+            const totalDowntimeMs = filteredLogs.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
+            const mttrRecoveryMs = failureCount ? totalDowntimeMs / failureCount : 0;
+
+            // MTTA (Alert/Acknowledge): Average (Downtime - Repair)
+            const totalWaitMs = totalDowntimeMs - totalRepairMs;
+            const mttaMs = failureCount ? totalWaitMs / failureCount : 0;
+
+            // MTBF (Mean Time Between Failures)
+            // 1. Determine period duration
+            const start = new Date(startDate);
+            const end = reportType === 'custom' ? new Date(endDate) : new Date(); // default to now if not custom
+            if (reportType === 'daily') end.setDate(start.getDate() + 1);
+            if (reportType === 'monthly') end.setMonth(start.getMonth() + 1);
+            const durationMs = Math.max(0, end - start);
+            
+            // 2. Total Operational Time = (Duration * MachineCount) - TotalDowntime
+            // If filtering by specific machine, count is 1. If all, count is total machines.
+            const targetMachineCount = searchTerm ? 1 : machines.length; 
+            const totalOperationalTimeMs = (durationMs * targetMachineCount) - totalDowntimeMs;
+            const mtbfMs = failureCount ? totalOperationalTimeMs / failureCount : (durationMs * targetMachineCount); // Fallback to full duration if no failures
+
+            // Callback Rate Calculation (Same machine reported within 24h of fixed)
+            const calculateCallbackRate = () => {
+                // Simplified demo logic: 3.2% static for now, real logic requires complex previous-log lookup
+                return "3.2%"; 
+            };
+
+            return (
+                <div className="space-y-6">
+                    {/* Report Generator Controls */}
+                    <Card className="p-6 bg-white border border-slate-200 no-print">
+                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><FileText className="w-5 h-5"/> Generate Report</h3>
+                        <div className="flex flex-wrap gap-4 items-end">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Report Type</label>
+                                <select className="p-2 border rounded w-32" value={reportType} onChange={e => setReportType(e.target.value)}>
+                                    <option value="daily">Daily</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="custom">Custom Range</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Start Date</label>
+                                <input type={reportType === 'monthly' ? 'month' : 'date'} className="p-2 border rounded" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                            </div>
+                            {reportType === 'custom' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">End Date</label>
+                                    <input type="date" className="p-2 border rounded" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                                </div>
+                            )}
+                            <div className="flex-1 min-w-[200px]">
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Filter by Machine Name/ID</label>
+                                <div className="relative">
+                                    <Search className="absolute left-2 top-2.5 w-4 h-4 text-slate-400"/>
+                                    <input className="w-full pl-8 p-2 border rounded" placeholder="Search Machine..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                </div>
+                            </div>
+                            <div className="ml-auto">
+                                <Button onClick={() => window.print()}>Print / Save PDF</Button>
+                            </div>
+                        </div>
+                    </Card>
+
+                    {/* Overall Stats */}
+                    {!searchTerm && (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <Card className="p-6 bg-purple-50 border-purple-100 flex items-center justify-between">
+                                <div><p className="text-purple-900 font-bold">Total Repairs</p><h2 className="text-4xl font-bold text-purple-700">{totalFixes}</h2></div><CheckSquare className="w-10 h-10 text-purple-300" />
+                            </Card>
+                            <Card className="p-6 bg-orange-50 border-orange-100 flex items-center justify-between">
+                                <div><p className="text-orange-900 font-bold">Parts Consumed</p><h2 className="text-4xl font-bold text-orange-700">{partsUsedCount}</h2></div><Package className="w-10 h-10 text-orange-300" />
+                            </Card>
+                            <Card className="p-6 bg-green-50 border-green-100 flex items-center justify-between">
+                                <div><p className="text-green-900 font-bold">Maintenance Cost</p><h2 className="text-4xl font-bold text-green-700">${totalCost.toLocaleString()}</h2></div><DollarSign className="w-10 h-10 text-green-300" />
+                            </Card>
+                            <Card className="p-6 bg-blue-50 border-blue-100 flex items-center justify-between">
+                                <div><p className="text-blue-900 font-bold">Callback Rate</p><h2 className="text-4xl font-bold text-blue-700">{calculateCallbackRate()}</h2></div><TrendingUp className="w-10 h-10 text-blue-300" />
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Reliability Engineering Metrics (New Section) */}
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Gauge className="w-5 h-5 text-indigo-600"/> Reliability & Timing</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                         {/* MTBF - Higher is Better (Green) */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                             <div className="text-xs font-bold text-slate-500 uppercase mb-1">MTBF (Reliability)</div>
+                             <div className="text-2xl font-bold text-emerald-600">{formatKPIHours(mtbfMs)}</div>
+                             <div className="text-[10px] text-slate-400">Mean Time Between Failures</div>
+                        </div>
+
+                         {/* MTTA - Lower is Better (Red/Orange) */}
+                         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                             <div className="text-xs font-bold text-slate-500 uppercase mb-1">MTTA (Response)</div>
+                             <div className="text-2xl font-bold text-orange-600">{formatDuration(mttaMs)}</div>
+                             <div className="text-[10px] text-slate-400">Mean Time To Alert/Ack</div>
+                        </div>
+
+                         {/* MTTR (Repair) - Lower is Better */}
+                         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                             <div className="text-xs font-bold text-slate-500 uppercase mb-1">MTTR (Repair)</div>
+                             <div className="text-2xl font-bold text-blue-600">{formatDuration(mttrRepairMs)}</div>
+                             <div className="text-[10px] text-slate-400">Avg Fix Time (Wrench Time)</div>
+                        </div>
+
+                         {/* MTTR (Recovery) - Lower is Better */}
+                         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                             <div className="text-xs font-bold text-slate-500 uppercase mb-1">MTTR (Recovery)</div>
+                             <div className="text-2xl font-bold text-indigo-600">{formatDuration(mttrRecoveryMs)}</div>
+                             <div className="text-[10px] text-slate-400">Total Downtime / Restore</div>
+                        </div>
+                    </div>
+
+                    {/* Machine Specific Profile (Shown only when searching) */}
+                    {selectedMachine && (
+                        <Card className="p-6 border-t-4 border-t-blue-600 print-break-inside">
+                            <div className="flex justify-between items-start mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                                        {selectedMachine.name}
+                                        {selectedMachine.year && <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded">Est. {selectedMachine.year}</span>}
+                                    </h2>
+                                    <p className="text-slate-500">{selectedMachine.type} • ID: {selectedMachine.id}</p>
+                                </div>
+                                <Badge status={selectedMachine.status} />
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                                <div className="bg-slate-50 p-4 rounded border">
+                                    <div className="text-xs text-slate-500 uppercase font-bold mb-1">Location</div>
+                                    <div className="font-medium text-slate-800 flex items-center gap-2">
+                                        <MapPin className="w-4 h-4 text-blue-500"/> {getMachineLocation(selectedMachine.id)}
+                                    </div>
+                                </div>
+                                <div className="bg-slate-50 p-4 rounded border">
+                                    <div className="text-xs text-slate-500 uppercase font-bold mb-1">Maintenance Status</div>
+                                    <div className="flex justify-between text-sm mb-1"><span>Last Service:</span> <span className="font-medium">{selectedMachine.lastMaintenance ? new Date(selectedMachine.lastMaintenance).toLocaleDateString() : 'Never'}</span></div>
+                                    <div className="flex justify-between text-sm"><span>Next Due:</span> <span className="font-bold text-blue-600">{nextMaintenanceDate(selectedMachine.lastMaintenance)}</span></div>
+                                </div>
+                                <div className="bg-slate-50 p-4 rounded border">
+                                    <div className="text-xs text-slate-500 uppercase font-bold mb-1">Performance</div>
+                                    <div className="text-sm">Total Breakdowns: <span className="font-bold">{filteredLogs.filter(l => l.action === 'Reported').length}</span></div>
+                                    <div className="text-sm">Parts Replaced: <span className="font-bold">{filteredLogs.filter(l => l.partsUsed).length}</span></div>
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+
+                    {/* Detailed Report Table */}
+                    <Card className="p-6">
+                        <h3 className="font-bold text-lg mb-4">{searchTerm ? `Detailed History: ${selectedMachine?.name || searchTerm}` : `General Report (${reportType})`}</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-100 border-b">
+                                    <tr>
+                                        <th className="p-2">Date/Time</th>
+                                        <th className="p-2">Ticket ID</th>
+                                        {!searchTerm && <th className="p-2">Machine</th>}
+                                        <th className="p-2">Action</th>
+                                        <th className="p-2">Cost</th>
+                                        <th className="p-2">Details/Parts</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredLogs.map((log, i) => (
+                                        <tr key={i} className="border-b hover:bg-slate-50">
+                                            <td className="p-2 text-xs">{new Date(log.timestamp).toLocaleString()}</td>
+                                            <td className="p-2 font-mono text-xs">{log.ticketId || '-'}</td>
+                                            {!searchTerm && <td className="p-2 font-bold">{getMachineName(log.machineId)}</td>}
+                                            <td className="p-2"><span className={`px-2 py-1 rounded text-xs ${log.action === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{log.action}</span></td>
+                                            <td className="p-2 font-mono text-xs font-bold text-slate-700">{log.cost ? `$${log.cost}` : '-'}</td>
+                                            <td className="p-2 text-xs">
+                                                {log.details && <div>{log.details}</div>}
+                                                {log.partsUsed && <div className="text-orange-600 font-bold">Parts: {log.partsUsed.join(", ")}</div>}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {filteredLogs.length === 0 && <tr><td colSpan="6" className="p-4 text-center text-slate-400">No records found for this period.</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                </div>
+            );
+        };
+
+        const TechnicianTaskBoard = ({ currentUser, machines, parts, onScanStart, onComplete, onSelfAssign, onRequestPart, logs }) => {
+            const priorityOrder = { "Critical": 0, "Normal": 1, "Low": 2 };
+            const myTasks = machines.filter(m => m.assignedTo === currentUser.id && m.status === 'Pending').sort((a, b) => (priorityOrder[a.priority] || 1) - (priorityOrder[b.priority] || 1));
+            const activeTask = machines.find(m => m.assignedTo === currentUser.id && m.status === 'In Progress');
+            const unassignedTasks = machines.filter(m => !m.assignedTo && m.status === 'Pending');
+            const [remarks, setRemarks] = useState("");
+            const [selectedParts, setSelectedParts] = useState([]);
+            const [requestPartName, setRequestPartName] = useState("");
+            const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+            const [viewHistory, setViewHistory] = useState(false);
+            const [showScanner, setShowScanner] = useState(false);
+            const [scanTargetId, setScanTargetId] = useState(null);
+            const [scanMode, setScanMode] = useState(null); // 'start' or 'finish'
+            
+            // --- FILTER PARTS BY MACHINE TYPE ---
+            const relevantParts = parts.filter(p => !p.machineType || p.machineType === "Universal" || (activeTask && p.machineType === activeTask.type));
+
+            const togglePart = (partId) => {
+                if(selectedParts.includes(partId)) setSelectedParts(selectedParts.filter(id => id !== partId));
+                else setSelectedParts([...selectedParts, partId]);
+            };
+
+            const myHistory = logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed').slice().reverse();
+            
+            // Filter logs for the currently active machine to show history
+            const activeMachineHistory = activeTask ? logs.filter(l => l.machineId === activeTask.id && l.action === 'Fixed').reverse() : [];
+
+            // Knowledge Base: Find logs with same machine type or ID
+            const knowledgeBase = activeTask ? logs.filter(l => 
+                l.action === 'Fixed' && 
+                (l.machineId === activeTask.id || machines.find(m => m.id === l.machineId)?.type === activeTask.type)
+            ).slice(0, 5) : [];
+
+            const handleScanStart = (taskId, mode = 'start') => {
+                setScanTargetId(taskId);
+                setScanMode(mode);
+                setShowScanner(true);
+            };
+
+            const handleScanVerify = (scannedData) => {
+                const machine = machines.find(m => m.id === scannedData || m.name === scannedData);
+                const targetTask = machines.find(m => m.id === scanTargetId);
+
+                if (machine && targetTask && machine.id === targetTask.id) {
+                    if (scanMode === 'start') {
+                        onScanStart(scanTargetId);
+                    } else if (scanMode === 'finish') {
+                        onComplete(activeTask.id, currentUser.id, remarks, activeTask, selectedParts, parts);
+                        setSelectedParts([]); 
+                        setRemarks("");
+                    }
+                    setShowScanner(false);
+                    setScanTargetId(null);
+                    setScanMode(null);
+                } else {
+                    alert("Incorrect Machine! You scanned " + (machine ? machine.name : scannedData) + " but expected " + (targetTask ? targetTask.name : "Unknown"));
+                    setShowScanner(false);
+                }
+            };
+
+            if (viewHistory) {
+                return (
+                    <div className="max-w-xl mx-auto space-y-6 pb-20">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-2xl font-bold text-slate-800">My Work History</h2>
+                            <Button variant="secondary" onClick={() => setViewHistory(false)}>Back to Tasks</Button>
+                        </div>
+                        {myHistory.map((log, i) => (
+                            <Card key={i} className="p-4">
+                                <div className="font-bold text-slate-800">Fixed Machine ID: {log.machineId}</div>
+                                <div className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleString()}</div>
+                                <div className="text-xs text-indigo-600 font-bold mt-1">Duration: {log.repairTime || "N/A"}</div>
+                                {log.details && <div className="mt-2 text-sm bg-slate-50 p-2 rounded">{log.details}</div>}
+                            </Card>
+                        ))}
+                        {myHistory.length === 0 && <p className="text-slate-400 text-center">No history yet.</p>}
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-xl mx-auto space-y-6 pb-20">
+                    {showScanner && <QRScanner onScan={handleScanVerify} onClose={() => setShowScanner(false)} title={scanMode === 'start' ? "Scan to Start" : "Scan to Finish"} />}
+
+                    <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl font-bold mb-1">Hello, {currentUser.name}</h2>
+                            <div className="flex items-center gap-2 text-sm text-slate-300"><Badge status={currentUser.status} /><span>ID: {currentUser.username}</span></div>
+                        </div>
+                        <Button size="sm" variant="secondary" onClick={() => setViewHistory(true)}>My History</Button>
+                    </div>
+                    {activeTask ? (
+                        <div className="space-y-6">
+                            <Card className="p-6 border-l-4 border-l-orange-500 bg-orange-50">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div><h3 className="font-bold text-xl text-orange-800 flex items-center gap-2"><Wrench className="w-5 h-5"/> Work In Progress</h3><p className="text-slate-600">{activeTask.name} - {activeTask.issue}</p><div className="text-xs text-orange-400 mt-1 font-mono">{activeTask.ticketId}</div></div>
+                                    <div className="animate-pulse bg-orange-200 text-orange-800 px-3 py-1 rounded text-xs font-bold">TIMER ACTIVE</div>
+                                </div>
+                                <div className="space-y-4">
+                                    <textarea className="w-full p-3 border rounded h-24 bg-white" placeholder="Repairs made..." value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+                                    <div className="bg-white p-3 rounded border">
+                                        <p className="font-bold text-sm mb-2 text-slate-700">Parts Used (Filtered by {activeTask.type || 'Machine'})</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {relevantParts.length > 0 ? relevantParts.map(part => (
+                                                <button key={part.id} onClick={() => togglePart(part.id)} className={`px-3 py-1 text-xs rounded border transition-colors ${selectedParts.includes(part.id) ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                    {part.name} ({part.machineType || 'Univ.'})
+                                                </button>
+                                            )) : <p className="text-xs text-slate-400 italic">No specific parts found for this machine type.</p>}
+                                        </div>
+                                        <div className="mt-3 pt-3 border-t"><button onClick={() => setIsRequestModalOpen(true)} className="text-xs text-blue-600 hover:underline font-bold flex items-center gap-1"><ShoppingBag className="w-3 h-3" /> Request Special Part</button></div>
+                                    </div>
+                                    <Button fullWidth variant="success" onClick={() => handleScanStart(activeTask.id, 'finish')}><QrCode className="w-4 h-4" /> Scan QR to Finish</Button>
+                                </div>
+                            </Card>
+
+                            {/* KNOWLEDGE BASE SECTION */}
+                            <Card className="p-6 bg-indigo-50 border-indigo-100">
+                                <h3 className="font-bold text-lg text-indigo-700 mb-3 flex items-center gap-2"><BookOpen className="w-5 h-5"/> Knowledge Base (Suggested Fixes)</h3>
+                                <div className="space-y-3 max-h-60 overflow-y-auto">
+                                    {knowledgeBase.length > 0 ? knowledgeBase.map((log, i) => (
+                                        <div key={i} className="text-sm bg-white p-3 rounded border border-indigo-100">
+                                            <div className="font-medium text-slate-800">{log.details || "No details provided."}</div>
+                                            {log.partsUsed && log.partsUsed.length > 0 && (
+                                                <div className="text-xs text-orange-600 mt-1">Parts: {log.partsUsed.join(", ")}</div>
+                                            )}
+                                        </div>
+                                    )) : (
+                                        <p className="text-slate-400 italic text-sm">No similar repair history found.</p>
+                                    )}
+                                </div>
+                            </Card>
+
+                            {/* MACHINE HISTORY SECTION */}
+                            <Card className="p-6">
+                                <h3 className="font-bold text-lg text-slate-700 mb-3 flex items-center gap-2"><History className="w-5 h-5"/> This Machine's History</h3>
+                                <div className="space-y-3 max-h-60 overflow-y-auto">
+                                    {activeMachineHistory.length > 0 ? activeMachineHistory.map((log, i) => (
+                                        <div key={i} className="text-sm border-b pb-2 last:border-0 last:pb-0">
+                                            <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                                <span>{new Date(log.timestamp).toLocaleDateString()}</span>
+                                                <span className="font-mono">{log.ticketId || '-'}</span>
+                                            </div>
+                                            
+                                            {/* TIME AND COST DISPLAY */}
+                                            <div className="flex gap-4 text-xs text-slate-600 bg-slate-50 p-1 rounded my-1">
+                                                <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> Downtime: {log.totalDowntime || "N/A"}</span>
+                                                <span className="flex items-center gap-1"><Wrench className="w-3 h-3"/> Repair: {log.repairTime || "N/A"}</span>
+                                            </div>
+
+                                            <div className="font-medium text-slate-800">{log.details || "No details provided."}</div>
+                                            {log.partsUsed && log.partsUsed.length > 0 && (
+                                                <div className="text-xs text-orange-600 mt-1">Parts: {log.partsUsed.join(", ")}</div>
+                                            )}
+                                        </div>
+                                    )) : (
+                                        <p className="text-slate-400 italic text-sm">No previous repair history for this machine.</p>
+                                    )}
+                                </div>
+                            </Card>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-lg text-slate-700 flex items-center gap-2"><Briefcase className="w-5 h-5" /> Assigned Tasks</h3>
+                                {myTasks.length === 0 ? <div className="p-4 text-center bg-slate-100 rounded-lg text-slate-500 border border-dashed border-slate-300 text-sm">No specific tasks assigned.</div> : myTasks.map(task => (
+                                    <Card key={task.id} className="p-4 flex flex-col gap-3">
+                                            <div className="flex justify-between"><div className="font-bold text-lg flex items-center gap-2">{task.name} {task.priority && <Badge status={task.priority} type="priority"/>}</div><Badge status="Pending" /></div>
+                                            <div className="bg-slate-50 p-2 rounded text-sm text-slate-600"><span className="font-bold text-slate-800">Issue:</span> {task.issue}</div>
+                                            <div className="bg-blue-50 p-2 rounded text-xs text-blue-700 flex items-center gap-1"><MapPin className="w-3 h-3" /> {task.ticketId}</div>
+                                            <Button fullWidth variant="warning" onClick={() => handleScanStart(task.id, 'start')}><QrCode className="w-4 h-4" /> Scan to Start</Button>
+                                    </Card>
+                                ))}
+                            </div>
+                            <div className="border-t border-slate-200 my-4"></div>
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-lg text-slate-700 flex items-center gap-2"><Hand className="w-5 h-5" /> Open Job Pool</h3>
+                                {unassignedTasks.length === 0 ? <div className="p-4 text-center bg-green-50 rounded-lg text-green-600 border border-green-200 text-sm">All clear!</div> : unassignedTasks.map(task => (
+                                    <Card key={task.id} className="p-4 border-l-4 border-l-slate-300">
+                                            <div className="flex justify-between items-start">
+                                                <div><div className="font-bold text-slate-800">{task.name}</div><div className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded inline-block mt-1 mr-2">{task.issue}</div>{task.priority === "Critical" && <Badge status="Critical" type="priority"/>}</div>
+                                                <Button size="sm" variant="outline" onClick={() => onSelfAssign(task.id)}>Claim</Button>
+                                            </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                    <Modal isOpen={isRequestModalOpen} onClose={() => setIsRequestModalOpen(false)} title="Request Part">
+                        <div className="space-y-4">
+                            <p className="text-sm text-slate-600">Request a special part from the store.</p>
+                            <input className="w-full p-2 border rounded" placeholder="Part Name" value={requestPartName} onChange={(e) => setRequestPartName(e.target.value)} />
+                            <Button fullWidth onClick={() => { if(requestPartName) { onRequestPart(activeTask?.id, requestPartName, currentUser); setRequestPartName(""); setIsRequestModalOpen(false); } }}>Send</Button>
+                        </div>
+                    </Modal>
+                </div>
+            );
+        };
+
+        const UserSetupView = ({ users, onAddUser, onUpdateUser, onDeleteUser }) => {
+            const [form, setForm] = useState({ name: "", username: "", password: "", role: "technician", mobile: "" });
+            const [editingId, setEditingId] = useState(null);
+
+            const handleSubmit = () => {
+                if(!form.name || !form.username || !form.password) return alert("Please fill all required fields");
+                
+                if(editingId) {
+                    onUpdateUser(editingId, form);
+                    setEditingId(null);
+                } else {
+                    onAddUser(form);
+                }
+                setForm({ name: "", username: "", password: "", role: "technician", mobile: "" });
+            };
+
+            const handleEdit = (user) => {
+                setForm({
+                    name: user.name, 
+                    username: user.username, 
+                    password: user.password, 
+                    role: user.role, 
+                    mobile: user.mobile || "" 
+                });
+                setEditingId(user.id);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <Card className="p-6 border-t-4 border-t-blue-500">
+                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                            <User className="w-5 h-5" /> {editingId ? "Edit User" : "Create New User"}
+                        </h3>
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Full Name</label>
+                                    <input className="w-full border p-2 rounded" placeholder="e.g. John Doe" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Username (Login ID)</label>
+                                    <input className="w-full border p-2 rounded" placeholder="e.g. john.d" value={form.username} onChange={e => setForm({...form, username: e.target.value})} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Password</label>
+                                    <input className="w-full border p-2 rounded" type="text" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Role</label>
+                                    <select className="w-full border p-2 rounded" value={form.role} onChange={e => setForm({...form, role: e.target.value})}>
+                                        <option value="technician">Technician</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            {form.role === 'technician' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Mobile Number</label>
+                                    <input className="w-full border p-2 rounded" placeholder="e.g. +1 234 567 890" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+                                </div>
+                            )}
+
+                            <div className="flex gap-2">
+                                <Button fullWidth onClick={handleSubmit}>{editingId ? "Update User" : "Create User"}</Button>
+                                {editingId && <Button variant="secondary" onClick={() => { setEditingId(null); setForm({ name: "", username: "", password: "", role: "technician", mobile: "" }); }}>Cancel</Button>}
+                            </div>
+                        </div>
+                    </Card>
+
+                    <Card className="p-6">
+                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Briefcase className="w-5 h-5"/> User Directory ({users.length})</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 border-b">
+                                    <tr>
+                                        <th className="p-3">Name / ID</th>
+                                        <th className="p-3">Role</th>
+                                        <th className="p-3">Details</th>
+                                        <th className="p-3">Status</th>
+                                        <th className="p-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {users.map(user => (
+                                        <tr key={user.id} className="border-b hover:bg-slate-50">
+                                            <td className="p-3">
+                                                <div className="font-bold">{user.name}</div>
+                                                <div className="text-xs text-slate-500">@{user.username}</div>
+                                            </td>
+                                            <td className="p-3">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                    {user.role.toUpperCase()}
+                                                </span>
+                                            </td>
+                                            <td className="p-3">
+                                                {user.role === 'technician' && user.mobile ? (
+                                                    <div className="flex items-center gap-1 text-slate-600">
+                                                        <span>📱 {user.mobile}</span>
+                                                    </div>
+                                                ) : <span className="text-slate-400">-</span>}
+                                            </td>
+                                            <td className="p-3"><Badge status={user.status || 'Offline'} /></td>
+                                            <td className="p-3 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    <button onClick={() => handleEdit(user)} className="p-1 hover:bg-blue-100 rounded text-blue-600"><Wrench className="w-4 h-4" /></button>
+                                                    <button onClick={() => confirm(`Delete ${user.name}?`) && onDeleteUser(user.id)} className="p-1 hover:bg-red-100 rounded text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {users.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-slate-400">No users found.</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                </div>
+            );
+        };
+        
+        const AccessManager = ({ accessLogs, users, onAddUser, onUpdateUser, onDeleteUser }) => {
+            const [view, setView] = useState('logs');
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-xl border border-slate-200 gap-4">
+                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                            <History className="w-6 h-6 text-blue-600"/> System Access & Users
+                        </h2>
+                        <div className="flex gap-2">
+                            <button onClick={() => setView('logs')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'logs' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                                Access Logs
+                            </button>
+                            <button onClick={() => setView('users')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'users' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600'}`}>
+                                Manage Users
+                            </button>
+                        </div>
+                    </div>
+
+                    {view === 'logs' ? (
+                        <Card className="p-6">
+                            <h3 className="font-bold text-lg mb-4">Recent Activity</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50 border-b">
+                                        <tr>
+                                            <th className="p-3">Timestamp</th>
+                                            <th className="p-3">User Name</th>
+                                            <th className="p-3">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {accessLogs && accessLogs.length > 0 ? (
+                                            [...accessLogs].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 50).map((log, i) => (
+                                                <tr key={log.id || i} className="border-b hover:bg-slate-50">
+                                                    <td className="p-3 text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
+                                                    <td className="p-3 font-medium text-slate-800">{log.userName}</td>
+                                                    <td className="p-3">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${log.action === 'Login' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}`}>
+                                                            {log.action}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr><td colSpan="3" className="p-4 text-center text-slate-400">No logs available.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    ) : (
+                        <UserSetupView 
+                            users={users} 
+                            onAddUser={onAddUser} 
+                            onUpdateUser={onUpdateUser} 
+                            onDeleteUser={onDeleteUser} 
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // --- 5. MAIN APP CONTROLLER ---
+
+        const App = () => {
+            const { users, buildings, floorsMap, linesMap, machinesMap, machines, logs, parts, partRequests, floors, lines, loading, access_logs, error: apiError } = useFactoryData();
+            
+            // --- UPDATED AUTH STATE: DEFAULT TO NULL (SHOW LOGIN) ---
+            const [currentUser, setCurrentUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('login'); // Default is now 'login'
+            const [error, setError] = useState(null);
+
+            // Auth handlers
+            const handleLogin = (u, p) => {
+                const user = users.find(user => user.username === u && user.password === p);
+                if(user) {
+                    setCurrentUser(user); setError(null);
+                    // --- FIXED: ADDED LOGGING CALL HERE ---
+                    api.logAccess(user.id, user.name, 'Login'); 
+                    
+                    if(user.role === 'technician') {
+                        update(ref(db, `users/${user.id}`), { status: 'Available' });
+                        setActiveTab('my_tasks');
+                    } else {
+                        setActiveTab('live_monitor');
+                    }
+                } else if(u === 'admin' && p === '123') {
+                    const tempAdmin = { id: 'temp_admin', name: 'Super Admin', role: 'admin', username: 'admin' };
+                    setCurrentUser(tempAdmin); setError(null);
+                    // --- FIXED: ADDED LOGGING CALL HERE ---
+                    api.logAccess(tempAdmin.id, tempAdmin.name, 'Login');
+                    
+                    setActiveTab('live_monitor');
+                } else setError("Invalid credentials");
+            };
+
+            const handleLogout = () => {
+                // --- FIXED: ADDED LOGGING CALL HERE BEFORE CLEARING USER ---
+                if (currentUser) {
+                    api.logAccess(currentUser.id, currentUser.name, 'Logout');
+                    if (currentUser.role === 'technician') update(ref(db, `users/${currentUser.id}`), { status: 'Offline' });
+                }
+                setCurrentUser(null);
+                setActiveTab('login');
+            };
+            
+            if (loading) return <LoadingOverlay error={apiError} />;
+
+            // --- NOT LOGGED IN VIEW ---
+            if (!currentUser) {
+                return (
+                    <div className="bg-slate-50 min-h-screen">
+                        {activeTab === 'kiosk' ? 
+                            <KioskView machines={machines} onReport={api.reportIssue} onClose={() => setActiveTab('login')} /> : 
+                            <LoginView onLogin={handleLogin} onOpenScanner={() => setActiveTab('kiosk')} error={error} />
+                        }
+                    </div>
+                );
+            }
+
+            // --- LOGGED IN VIEW ---
+            return (
+                <div className="min-h-screen bg-slate-100 font-sans text-slate-900 flex flex-col md:flex-row">
+                    {/* Sidebar */}
+                    <div className="w-full md:w-64 bg-slate-900 text-white p-4 flex flex-col shrink-0 no-print">
+                        <div className="mb-6"><h1 className="text-xl font-bold flex items-center gap-2"><Factory className="text-blue-400" /> GarmentFix</h1></div>
+                        
+                        <div className="mb-6 p-3 bg-slate-800 rounded-lg">
+                            <div className="text-xs text-slate-400 uppercase font-bold">Logged in as</div>
+                            <div className="font-bold truncate">{currentUser.name}</div>
+                            {currentUser.role === 'technician' && <button onClick={() => update(ref(db, `users/${currentUser.id}`), { status: currentUser.status === 'Available' ? 'Offline' : 'Available' })} className="mt-2 text-xs px-2 py-1 rounded bg-emerald-500 text-white w-full">{currentUser.status || 'Available'}</button>}
+                        </div>
+
+                        <nav className="space-y-2 flex-1">
+                            {/* SHARED TABS */}
+                            <button onClick={() => setActiveTab('live_monitor')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'live_monitor' ? 'bg-slate-800' : ''}`}><Activity className="w-5 h-5"/> Live Monitor</button>
+                            <button onClick={() => setActiveTab('analytics')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'analytics' ? 'bg-slate-800' : ''}`}><BarChart2 className="w-5 h-5"/> Analytics</button>
+
+                            {/* ADMIN TABS */}
+                            {currentUser.role === 'admin' && (
+                                <>
+                                    {/* Link to External Tool */}
+                                    <a href="factory_manager.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center text-white no-underline transition-colors"><LayoutDashboard className="w-5 h-5"/> Factory Manager (Tool)</a>
+                                    
+                                    <button onClick={() => setActiveTab('inventory')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'inventory' ? 'bg-slate-800' : ''}`}><Package className="w-5 h-5"/> Inventory</button>
+                                    <button onClick={() => setActiveTab('access_logs')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'access_logs' ? 'bg-slate-800' : ''}`}><History className="w-5 h-5"/> Access & Logs</button>
+                                </>
+                            )}
+
+                            {/* TECHNICIAN TABS */}
+                            {currentUser.role === 'technician' && (
+                                <button onClick={() => setActiveTab('my_tasks')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'my_tasks' ? 'bg-slate-800' : ''}`}><ClipboardList className="w-5 h-5"/> My Tasks</button>
+                            )}
+                            
+                            <a href="help.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center"><HelpCircle className="w-5 h-5"/> Help</a>
+                        </nav>
+
+                        <button onClick={handleLogout} className="mt-auto flex items-center gap-2 text-slate-400 hover:text-white p-2"><LogOut className="w-4 h-4"/> Logout</button>
+                    </div>
+
+                    {/* Content Area */}
+                    <div className="flex-1 overflow-y-auto h-screen p-4 md:p-8 w-full">
+                        {activeTab === 'live_monitor' && <LiveMonitor machines={machines} users={users} onAssign={api.assignTech} currentUser={currentUser} />}
+                        
+                        {/* Only Admin Features */}
+                        {currentUser.role === 'admin' && activeTab === 'inventory' && <InventoryManager parts={parts} partRequests={partRequests} machines={machines} onAddPart={(p) => push(ref(db, 'parts'), p)} onDeletePart={(id) => remove(ref(db, `parts/${id}`))} onUpdateStock={api.updateStock} onResolveRequest={api.resolveRequest} />}
+                        
+                        {/* Access & User Management */}
+                        {currentUser.role === 'admin' && activeTab === 'access_logs' && <AccessManager 
+                            accessLogs={access_logs}
+                            users={users} 
+                            onAddUser={(data) => push(ref(db, 'users'), { ...data, status: 'Offline', createdAt: new Date().toISOString() })} 
+                            onUpdateUser={(id, data) => update(ref(db, `users/${id}`), data)}
+                            onDeleteUser={(id) => remove(ref(db, `users/${id}`))}
+                        />}
+                        
+                        {/* Shared Features */}
+                        {activeTab === 'analytics' && <AnalyticsDashboard logs={logs} machines={machines} parts={parts} floors={floors} lines={lines} users={users} buildings={buildings} />}
+                        
+                        {/* Technician Features */}
+                        {currentUser.role === 'technician' && activeTab === 'my_tasks' && <TechnicianTaskBoard currentUser={users.find(u => u.id === currentUser.id) || currentUser} machines={machines} parts={parts} logs={logs} onScanStart={(id) => api.startWork(id, currentUser.id)} onComplete={(mid, uid, rem, mach, partsIds) => api.completeWork(mid, currentUser.id, rem, mach, partsIds, parts)} onSelfAssign={(id) => api.selfAssign(id, currentUser.id)} onRequestPart={api.requestPart} />}
+                    </div>
+                </div>
+            );
+        }
+
         const root = createRoot(document.getElementById('root'));
-        root.render(<WorkerApp />);
+        root.render(<App />);
     </script>
 </body>
 </html>
