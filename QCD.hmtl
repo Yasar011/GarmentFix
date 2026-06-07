@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brandex Quality Monitor - Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* Toggle Switch CSS */
+        .toggle-checkbox:checked { right: 0; border-color: #3b82f6; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #3b82f6; }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1e3a8a',
+                        secondary: '#3b82f6',
+                        accent: '#f59e0b',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="flex h-screen overflow-hidden text-slate-800">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0">
+        <div>
+            <div class="h-20 flex items-center px-6 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded bg-secondary flex items-center justify-center text-white font-bold text-lg">
+                        B
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Brandex QC</span>
+                </div>
+            </div>
+            
+            <div class="p-4 overflow-y-auto" style="max-height: calc(100vh - 160px);">
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-2">Main Menu</p>
+                <nav class="space-y-1">
+                    <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors bg-secondary/20 text-white">
+                        <i class="ph ph-squares-four text-lg"></i>
+                        Dashboard
+                    </button>
+                    <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
+                        <i class="ph ph-chart-bar text-lg"></i>
+                        Data Reports
+                    </button>
+                </nav>
+
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 mt-8 px-2">Master Data</p>
+                <nav class="space-y-1">
+                    <button onclick="switchTab('modules')" id="nav-modules" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
+                        <i class="ph ph-factory text-lg"></i>
+                        Modules & Areas
+                    </button>
+                    <button onclick="switchTab('workers')" id="nav-workers" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
+                        <i class="ph ph-users text-lg"></i>
+                        Workers
+                    </button>
+                    <button onclick="switchTab('styles')" id="nav-styles" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
+                        <i class="ph ph-t-shirt text-lg"></i>
+                        Styles & Targets
+                    </button>
+                    <button onclick="switchTab('defects')" id="nav-defects" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
+                        <i class="ph ph-warning-circle text-lg"></i>
+                        Defect Dictionary
+                    </button>
+                </nav>
+            </div>
+        </div>
+        
+        <div class="p-4 border-t border-slate-800 shrink-0">
+            <div class="flex items-center gap-3 px-2 py-2">
+                <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
+                    <i class="ph ph-user text-white"></i>
+                </div>
+                <div>
+                    <p class="text-sm font-semibold text-white">Admin User</p>
+                    <p class="text-xs text-slate-500">Quality Head</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col h-screen overflow-hidden">
+        
+        <!-- Top Navigation / Header -->
+        <header class="flex justify-between items-center bg-white px-8 py-5 border-b border-slate-200 shrink-0">
+            <div>
+                <h2 id="page-title" class="text-2xl font-bold text-slate-800">Factory Overview</h2>
+                <p id="current-time" class="text-sm text-slate-500 mt-1">Loading time...</p>
+            </div>
+            <div class="flex items-center gap-6">
+                <!-- Demo Mode Toggle -->
+                <div class="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
+                    <span class="text-sm font-semibold text-slate-600">Demo Mode</span>
+                    <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                        <input type="checkbox" name="toggle" id="demo-toggle" onchange="toggleDemoMode(this)" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 border-slate-300 appearance-none cursor-pointer z-10 transition-all duration-300"/>
+                        <label for="demo-toggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-300 cursor-pointer transition-colors duration-300"></label>
+                    </div>
+                </div>
+
+                <div id="header-alert-badge" class="hidden bg-red-50 text-red-600 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2 border border-red-100">
+                    <div class="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>
+                    2 Critical Alerts
+                </div>
+            </div>
+        </header>
+
+        <!-- Scrollable Content -->
+        <main class="flex-1 overflow-y-auto p-8 relative">
+            
+            <!-- TAB: DASHBOARD -->
+            <div id="tab-dashboard" class="tab-content active">
+                <!-- Top KPI Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl">
+                            <i class="ph ph-factory"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">Active Modules</p>
+                            <p id="kpi-modules" class="text-2xl font-bold">0 <span class="text-sm font-normal text-slate-400">/ 0</span></p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-2xl">
+                            <i class="ph ph-t-shirt"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">Shift 1 Output</p>
+                            <p id="kpi-output" class="text-2xl font-bold">0 <span class="text-sm font-normal text-slate-400">pcs</span></p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl">
+                            <i class="ph ph-warning"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">Average DHU</p>
+                            <p id="kpi-dhu" class="text-2xl font-bold">0.0%</p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl">
+                            <i class="ph ph-trend-up"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">Efficiency</p>
+                            <p id="kpi-eff" class="text-2xl font-bold">0.0%</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Layout Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    
+                    <!-- Left Column (Heatmap) -->
+                    <div class="lg:col-span-2">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold text-slate-800">Live Factory Heatmap</h3>
+                            <button class="text-sm text-secondary font-medium hover:underline">View All</button>
+                        </div>
+                        
+                        <div id="heatmap-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            <!-- Populated by JS -->
+                        </div>
+
+                        <!-- Top Defects Chart -->
+                        <div class="mt-8 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                            <h3 class="text-lg font-bold text-slate-800 mb-6">Top Frequent Defects (Today)</h3>
+                            <div class="h-64 w-full">
+                                <canvas id="defectsChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column (AI Alerts) -->
+                    <div class="lg:col-span-1">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <i class="ph-fill ph-robot text-secondary"></i> AI Root Cause Alerts
+                            </h3>
+                        </div>
+                        
+                        <div id="ai-alerts-container" class="space-y-4">
+                            <!-- Empty State for non-demo mode -->
+                            <div class="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                No active alerts. Factory is operating normally.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: REPORTS -->
+            <div id="tab-reports" class="tab-content hidden">
+                <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-bold text-slate-800">Completed Styles & Production Reports</h3>
+                        <button class="px-4 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition">
+                            <i class="ph ph-export mr-1"></i> Export CSV
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
+                                    <th class="p-3 font-medium">Date Ended</th>
+                                    <th class="p-3 font-medium">Style No</th>
+                                    <th class="p-3 font-medium">Color</th>
+                                    <th class="p-3 font-medium">Module</th>
+                                    <th class="p-3 font-medium">Status</th>
+                                    <th class="p-3 font-medium text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-reports" class="text-sm text-slate-700 divide-y divide-slate-100">
+                                <!-- Populated by Firebase -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: MODULES -->
+            <div id="tab-modules" class="tab-content hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Add New Module</h3>
+                        <form id="form-modules" onsubmit="submitForm(event, 'modules')">
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Module Name</label>
+                                <input type="text" id="module_name" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Module 01">
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Supervisor Name</label>
+                                <input type="text" id="module_supervisor" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., John Doe">
+                            </div>
+                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Save Module</button>
+                            <p id="msg-modules" class="text-emerald-600 text-sm mt-2 hidden">Module saved successfully!</p>
+                        </form>
+                    </div>
+                    <div class="col-span-1 lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Active Production Modules</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
+                                        <th class="p-3 font-medium">Module Name</th>
+                                        <th class="p-3 font-medium">Supervisor</th>
+                                        <th class="p-3 font-medium">Status</th>
+                                        <th class="p-3 font-medium text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-modules" class="text-sm text-slate-700 divide-y divide-slate-100">
+                                    <!-- Populated by Firebase -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: WORKERS -->
+            <div id="tab-workers" class="tab-content hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Register Worker</h3>
+                        <form id="form-workers" onsubmit="submitForm(event, 'workers')">
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Worker ID</label>
+                                <input type="text" id="worker_id" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., WK-10838">
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Full Name</label>
+                                <input type="text" id="worker_name" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Jane Smith">
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Worker Role</label>
+                                <select id="worker_role" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                    <option value="Sewing Operator">Sewing Operator</option>
+                                    <option value="Inline QC">Inline QC</option>
+                                    <option value="End Line QC">End Line QC</option>
+                                    <option value="Admin">Admin / Supervisor</option>
+                                </select>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Skill Grade</label>
+                                <select id="worker_skill" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                    <option value="A">Grade A (High Skill)</option>
+                                    <option value="B">Grade B (Medium Skill)</option>
+                                    <option value="C">Grade C (Entry Level)</option>
+                                    <option value="N/A">N/A (For QC/Admin)</option>
+                                </select>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Assigned Module</label>
+                                <select id="worker_module" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                    <option value="Unassigned">Unassigned</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Save Worker</button>
+                            <p id="msg-workers" class="text-emerald-600 text-sm mt-2 hidden">Worker saved successfully!</p>
+                        </form>
+                    </div>
+                    <div class="col-span-1 lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Worker Database</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
+                                        <th class="p-3 font-medium">ID</th>
+                                        <th class="p-3 font-medium">Name</th>
+                                        <th class="p-3 font-medium">Role</th>
+                                        <th class="p-3 font-medium">Grade</th>
+                                        <th class="p-3 font-medium">Assigned Module</th>
+                                        <th class="p-3 font-medium text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-workers" class="text-sm text-slate-700 divide-y divide-slate-100">
+                                    <!-- Populated by Firebase -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: STYLES -->
+            <div id="tab-styles" class="tab-content hidden">
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Start New Style</h3>
+                        <form id="form-styles" onsubmit="submitForm(event, 'styles')">
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Style Number</label>
+                                <input type="text" id="style_no" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., SHIRT-V1">
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Color</label>
+                                <input type="text" id="style_color" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Navy Blue">
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Assign to Module</label>
+                                <select id="style_module" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                    <option value="" disabled selected>Select Module</option>
+                                    <!-- Populated by Firebase -->
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-600 mb-1">Shift 1 Target</label>
+                                    <input type="number" id="style_t1" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Qty">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-600 mb-1">Shift 2 Target</label>
+                                    <input type="number" id="style_t2" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Qty">
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Start Production</button>
+                            <p id="msg-styles" class="text-emerald-600 text-sm mt-2 hidden">Style started successfully!</p>
+                        </form>
+                    </div>
+                    <div class="col-span-1 xl:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Active Styles in Production</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
+                                        <th class="p-3 font-medium">Style & Color</th>
+                                        <th class="p-3 font-medium">Module</th>
+                                        <th class="p-3 font-medium">Targets (S1/S2)</th>
+                                        <th class="p-3 font-medium text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-styles" class="text-sm text-slate-700 divide-y divide-slate-100">
+                                    <!-- Populated by Firebase -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: DEFECTS -->
+            <div id="tab-defects" class="tab-content hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Add Defect to Dictionary</h3>
+                        <form id="form-defects" onsubmit="submitForm(event, 'defects')">
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Category</label>
+                                <select id="defect_cat" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                    <option value="Stitching">Stitching</option>
+                                    <option value="Fabric">Fabric / Material</option>
+                                    <option value="Handling">Handling / Cleanliness</option>
+                                    <option value="Measurement">Measurement</option>
+                                </select>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-slate-600 mb-1">Defect Name</label>
+                                <input type="text" id="defect_name" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Skip Stitch">
+                            </div>
+                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Save Defect</button>
+                            <p id="msg-defects" class="text-emerald-600 text-sm mt-2 hidden">Defect saved successfully!</p>
+                        </form>
+                    </div>
+                    <div class="col-span-1 lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Defect Dictionary</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
+                                        <th class="p-3 font-medium">Category</th>
+                                        <th class="p-3 font-medium">Defect Name</th>
+                                        <th class="p-3 font-medium text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-defects" class="text-sm text-slate-700 divide-y divide-slate-100">
+                                    <!-- Populated by Firebase -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Custom Confirm Modal Overlay (Replaces default alerts) -->
+    <div id="custom-modal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm transition-opacity">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl transform transition-transform">
+            <div class="flex items-center gap-3 mb-4">
+                <div id="modal-icon-bg" class="w-10 h-10 rounded-full flex items-center justify-center shrink-0">
+                    <i id="modal-icon" class="ph-fill text-xl"></i>
+                </div>
+                <h3 id="modal-title" class="text-lg font-bold text-slate-800">Confirm Action</h3>
+            </div>
+            <p id="modal-desc" class="text-sm text-slate-600 mb-6 leading-relaxed">Are you sure you want to proceed?</p>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeModal()" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
+                <button id="modal-confirm-btn" class="px-4 py-2 rounded-lg text-sm font-medium transition text-white">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getDatabase, ref, onValue, set, get, push, remove, update } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA-aIRjMPFkK0hQKWY8-rpcA_5TfMhbRM4",
+            authDomain: "qc--brandex.firebaseapp.com",
+            databaseURL: "https://qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "qc--brandex",
+            storageBucket: "qc--brandex.firebasestorage.app",
+            messagingSenderId: "109990871136",
+            appId: "1:109990871136:web:c0dfa5f0ba78bed77c8305",
+            measurementId: "G-N200MYHVPZ"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        // Global Demo Mode Variable
+        window.isDemoMode = false;
+
+        // Update Live Clock
+        function updateClock() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            const dateString = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            document.getElementById('current-time').textContent = `${dateString} | ${timeString}`;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Custom Modal Logic (Replaces window.confirm)
+        let pendingModalAction = null;
+        window.showModal = function(title, desc, confirmText, colorTheme, iconClass, action) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-desc').textContent = desc;
+            
+            const btn = document.getElementById('modal-confirm-btn');
+            btn.textContent = confirmText;
+            
+            const iconBg = document.getElementById('modal-icon-bg');
+            const icon = document.getElementById('modal-icon');
+            icon.className = `ph-fill ${iconClass} text-xl`;
+
+            if(colorTheme === 'red') {
+                btn.className = 'px-4 py-2 rounded-lg text-sm font-medium transition text-white bg-red-600 hover:bg-red-700';
+                iconBg.className = 'w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-red-100 text-red-600';
+            } else if (colorTheme === 'blue') {
+                btn.className = 'px-4 py-2 rounded-lg text-sm font-medium transition text-white bg-blue-600 hover:bg-blue-700';
+                iconBg.className = 'w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-blue-100 text-blue-600';
+            }
+
+            pendingModalAction = action;
+            document.getElementById('custom-modal').classList.remove('hidden');
+        };
+
+        window.closeModal = function() {
+            document.getElementById('custom-modal').classList.add('hidden');
+            pendingModalAction = null;
+        };
+
+        document.getElementById('modal-confirm-btn').addEventListener('click', () => {
+            if(pendingModalAction) pendingModalAction();
+            closeModal();
+        });
+
+        // Tab Switching Logic
+        const tabNames = {
+            'dashboard': 'Factory Overview',
+            'reports': 'Data & Production Reports',
+            'modules': 'Module Management',
+            'workers': 'Worker Database',
+            'styles': 'Styles & Operations',
+            'defects': 'Defect Dictionary Setup'
+        };
+
+        window.switchTab = function(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.add('hidden');
+                el.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-btn').forEach(el => {
+                el.classList.remove('bg-secondary/20', 'text-white');
+                el.classList.add('hover:bg-slate-800');
+            });
+
+            const targetTab = document.getElementById(`tab-${tabId}`);
+            if(targetTab) {
+                targetTab.classList.remove('hidden');
+                targetTab.classList.add('active');
+            }
+            
+            const activeNav = document.getElementById(`nav-${tabId}`);
+            if(activeNav) {
+                activeNav.classList.remove('hover:bg-slate-800');
+                activeNav.classList.add('bg-secondary/20', 'text-white');
+            }
+
+            document.getElementById('page-title').textContent = tabNames[tabId];
+        }
+
+        
+        window.deleteRecord = function(type, key) {
+            showModal(
+                "Delete Record", 
+                "Are you sure you want to permanently delete this record? This action cannot be undone.", 
+                "Delete", "red", "ph-trash",
+                async () => {
+                    try {
+                        await remove(ref(db, `masterData/${type}/${key}`));
+                    } catch (error) {
+                        console.error("Error deleting record:", error);
+                    }
+                }
+            );
+        };
+
+        window.endStyleProcess = function(key, styleName, moduleName) {
+            showModal(
+                "End Style Production",
+                `Are you sure you want to end production for ${styleName} on ${moduleName}? This will close the style and generate a final report.`,
+                "End & Generate Report", "blue", "ph-flag-checkered",
+                async () => {
+                    try {
+                        const now = new Date();
+                        await update(ref(db, `masterData/styles/${key}`), { 
+                            status: 'Ended',
+                            endedAt: now.toISOString()
+                        });
+                        // Automatically switch to reports tab to see the result
+                        switchTab('reports');
+                    } catch (error) {
+                        console.error("Error ending style:", error);
+                    }
+                }
+            );
+        }
+
+        window.submitForm = async function(e, type) {
+            e.preventDefault();
+            const dbRef = ref(db, `masterData/${type}`);
+            let data = {};
+
+            if (type === 'modules') {
+                data = {
+                    name: document.getElementById('module_name').value,
+                    supervisor: document.getElementById('module_supervisor').value,
+                    status: 'Active'
+                };
+            } else if (type === 'workers') {
+                data = {
+                    operatorId: document.getElementById('worker_id').value,
+                    name: document.getElementById('worker_name').value,
+                    role: document.getElementById('worker_role').value,
+                    skill: document.getElementById('worker_skill').value,
+                    assignedLine: document.getElementById('worker_module').value
+                };
+            } else if (type === 'styles') {
+                data = {
+                    styleNo: document.getElementById('style_no').value,
+                    color: document.getElementById('style_color').value,
+                    module: document.getElementById('style_module').value,
+                    shift1: document.getElementById('style_t1').value,
+                    shift2: document.getElementById('style_t2').value,
+                    status: 'Active',
+                    startedAt: new Date().toISOString()
+                };
+            } else if (type === 'defects') {
+                data = {
+                    category: document.getElementById('defect_cat').value,
+                    name: document.getElementById('defect_name').value
+                };
+            }
+
+            try {
+                await push(dbRef, data);
+                e.target.reset();
+                const msg = document.getElementById(`msg-${type}`);
+                msg.classList.remove('hidden');
+                setTimeout(() => msg.classList.add('hidden'), 3000);
+            } catch (error) {
+                console.error(`Error saving ${type}:`, error);
+            }
+        };
+
+
+        const dummyModulesData = [
+            { id: 1, name: 'Module 01', produced: 340, target: 400, dhu: 1.2, status: 'good' },
+            { id: 2, name: 'Module 02', produced: 380, target: 400, dhu: 3.5, status: 'warning' },
+            { id: 3, name: 'Module 03', produced: 410, target: 400, dhu: 0.8, status: 'good' },
+            { id: 4, name: 'Module 04', produced: 290, target: 400, dhu: 1.5, status: 'good' },
+            { id: 5, name: 'Module 05', produced: 210, target: 400, dhu: 5.8, status: 'critical' },
+            { id: 6, name: 'Module 06', produced: 350, target: 400, dhu: 2.1, status: 'warning' }
+        ];
+
+        window.toggleDemoMode = function(checkbox) {
+            window.isDemoMode = checkbox.checked;
+            const alertContainer = document.getElementById('ai-alerts-container');
+            const alertBadge = document.getElementById('header-alert-badge');
+
+            if(window.isDemoMode) {
+                renderHeatmap(dummyModulesData);
+                updateChart(true);
+                
+                // Populate KPIs
+                document.getElementById('kpi-modules').innerHTML = '8 <span class="text-sm font-normal text-slate-400">/ 12</span>';
+                document.getElementById('kpi-output').innerHTML = '2,705 <span class="text-sm font-normal text-slate-400">pcs</span>';
+                document.getElementById('kpi-dhu').innerText = '2.4%';
+                document.getElementById('kpi-eff').innerText = '88.5%';
+                
+                alertBadge.classList.remove('hidden');
+                
+                // Populate AI Alerts
+                alertContainer.innerHTML = `
+                    <div class="bg-white border border-red-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
+                        <div class="flex items-start gap-3">
+                            <div class="bg-red-50 text-red-500 rounded-full p-2 mt-1 shrink-0">
+                                <i class="ph ph-warning-octagon text-xl"></i>
+                            </div>
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <h4 class="font-bold text-slate-800 text-sm">Module 05 • Critical DHU Spike</h4>
+                                    <span class="text-[10px] text-slate-400 font-medium">2m ago</span>
+                                </div>
+                                <p class="text-xs text-slate-600 leading-relaxed mb-3">Skip Stitch defects increased by 230% in the last 45 minutes.</p>
+                                <div class="bg-slate-50 rounded-lg p-3 border border-slate-100">
+                                    <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">AI Analysis</p>
+                                    <ul class="text-xs text-slate-700 space-y-1 mb-2 font-medium">
+                                        <li>• 85% of defects from Operator: OP-10838</li>
+                                        <li>• Operation: Waist Join</li>
+                                    </ul>
+                                    <p class="text-xs text-red-600 font-semibold flex items-center gap-1">
+                                        <i class="ph-fill ph-wrench"></i> Action: Check Machine Settings
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-white border border-amber-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+                        <div class="flex items-start gap-3">
+                            <div class="bg-amber-50 text-amber-500 rounded-full p-2 mt-1 shrink-0">
+                                <i class="ph ph-warning text-xl"></i>
+                            </div>
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <h4 class="font-bold text-slate-800 text-sm">Module 08 • Target Risk</h4>
+                                    <span class="text-[10px] text-slate-400 font-medium">14m ago</span>
+                                </div>
+                                <p class="text-xs text-slate-600 leading-relaxed mb-3">Module efficiency dropped to 72%. Projected to miss Shift 1 target by 60 pieces.</p>
+                                <div class="bg-slate-50 rounded-lg p-3 border border-slate-100">
+                                    <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">AI Analysis</p>
+                                    <p class="text-xs text-slate-700 font-medium">Bottleneck detected at "Collar Attach" operation. Intervention recommended.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                renderHeatmap([]);
+                updateChart(false);
+                
+                // Clear KPIs
+                document.getElementById('kpi-modules').innerHTML = '0 <span class="text-sm font-normal text-slate-400">/ 0</span>';
+                document.getElementById('kpi-output').innerHTML = '0 <span class="text-sm font-normal text-slate-400">pcs</span>';
+                document.getElementById('kpi-dhu').innerText = '0.0%';
+                document.getElementById('kpi-eff').innerText = '0.0%';
+                
+                alertBadge.classList.add('hidden');
+
+                // Clear AI Alerts
+                alertContainer.innerHTML = `
+                    <div class="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                        No active alerts. Factory is operating normally.
+                    </div>
+                `;
+            }
+        };
+
+        function renderHeatmap(modulesData) {
+            const container = document.getElementById('heatmap-container');
+            container.innerHTML = ''; 
+
+            if(modulesData.length === 0) {
+                container.innerHTML = '<div class="col-span-full p-8 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">No active production data. Turn on Demo Mode to preview.</div>';
+                return;
+            }
+
+            modulesData.forEach(mod => {
+                let bgClass = '', textClass = '', borderClass = '', icon = '';
+                if (mod.status === 'good') {
+                    bgClass = 'bg-emerald-50'; textClass = 'text-emerald-700'; borderClass = 'border-emerald-200'; icon = 'ph-check-circle';
+                } else if (mod.status === 'warning') {
+                    bgClass = 'bg-amber-50'; textClass = 'text-amber-700'; borderClass = 'border-amber-200'; icon = 'ph-warning';
+                } else {
+                    bgClass = 'bg-red-50'; textClass = 'text-red-700'; borderClass = 'border-red-200'; icon = 'ph-warning-octagon';
+                }
+
+                const efficiency = Math.round((mod.produced / mod.target) * 100) || 0;
+                const progressWidth = efficiency > 100 ? 100 : efficiency;
+
+                const cardHTML = `
+                    <div class="${bgClass} border ${borderClass} rounded-xl p-4 transition-transform hover:scale-[1.02] cursor-pointer">
+                        <div class="flex justify-between items-start mb-2">
+                            <h4 class="font-bold ${textClass}">${mod.name}</h4>
+                            <i class="ph-fill ${icon} ${textClass} text-lg"></i>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm mt-3">
+                            <div>
+                                <p class="text-slate-500 text-[10px] uppercase font-bold tracking-wider">DHU %</p>
+                                <p class="font-bold ${textClass} text-lg">${mod.dhu}%</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Efficiency</p>
+                                <p class="font-bold text-slate-700 text-lg">${efficiency}%</p>
+                            </div>
+                        </div>
+                        <div class="mt-3 w-full bg-white/50 rounded-full h-1.5 overflow-hidden">
+                            <div class="h-full bg-slate-400 rounded-full" style="width: ${progressWidth}%"></div>
+                        </div>
+                        <div class="mt-1 flex justify-between text-[10px] text-slate-500 font-medium">
+                            <span>${mod.produced} pcs</span>
+                            <span>Target: ${mod.target}</span>
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', cardHTML);
+            });
+        }
+
+        let defectsChartInstance = null;
+
+        function renderChart(isDemo) {
+            const ctx = document.getElementById('defectsChart').getContext('2d');
+            
+            if (defectsChartInstance) {
+                defectsChartInstance.destroy();
+            }
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, '#3b82f6'); 
+            gradient.addColorStop(1, '#93c5fd'); 
+
+            const dataPoints = isDemo ? [45, 32, 28, 15, 12] : [0, 0, 0, 0, 0];
+
+            defectsChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Skip Stitch', 'Puckering', 'Open Seam', 'Oil Stain', 'Broken Stitches'],
+                    datasets: [{
+                        label: 'Total Count',
+                        data: dataPoints,
+                        backgroundColor: gradient,
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        barThickness: 30
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { color: '#64748b' } },
+                        x: { grid: { display: false, drawBorder: false }, ticks: { color: '#64748b', font: { family: 'Inter' } } }
+                    }
+                }
+            });
+        }
+
+        function updateChart(isDemo) {
+            if (defectsChartInstance) {
+                defectsChartInstance.data.datasets[0].data = isDemo ? [45, 32, 28, 15, 12] : [0, 0, 0, 0, 0];
+                defectsChartInstance.update();
+            }
+        }
+        
+        window.onload = async function() {
+            renderChart(false);
+            renderHeatmap([]); // Start empty unless demo mode is on
+            try {
+                await signInAnonymously(auth);
+            } catch (error) {
+                console.error("Auth error:", error);
+            }
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+
+                // Listen to Master Modules
+                onValue(ref(db, 'masterData/modules'), (snapshot) => {
+                    const data = snapshot.val();
+                    const tbody = document.getElementById('table-modules');
+                    const workerDropdown = document.getElementById('worker_module');
+                    const styleDropdown = document.getElementById('style_module');
+                    
+                    tbody.innerHTML = '';
+                    workerDropdown.innerHTML = '<option value="Unassigned">Unassigned</option>';
+                    styleDropdown.innerHTML = '<option value="" disabled selected>Select Module</option>';
+
+                    if (data) {
+                        Object.entries(data).forEach(([key, mod]) => {
+                            tbody.insertAdjacentHTML('beforeend', `
+                                <tr class="hover:bg-slate-50 group border-b border-slate-50 last:border-0">
+                                    <td class="p-3 font-medium text-slate-800">${mod.name}</td>
+                                    <td class="p-3">${mod.supervisor}</td>
+                                    <td class="p-3"><span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] uppercase tracking-wider font-bold">${mod.status}</span></td>
+                                    <td class="p-3 text-center">
+                                        <button onclick="deleteRecord('modules', '${key}')" class="text-slate-400 hover:text-red-500 transition-colors">
+                                            <i class="ph-fill ph-trash text-lg"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            `);
+                            workerDropdown.insertAdjacentHTML('beforeend', `<option value="${mod.name}">${mod.name}</option>`);
+                            styleDropdown.insertAdjacentHTML('beforeend', `<option value="${mod.name}">${mod.name}</option>`);
+                        });
+                    }
+                });
+
+                // Listen to Master Workers
+                onValue(ref(db, 'masterData/workers'), (snapshot) => {
+                    const data = snapshot.val();
+                    const tbody = document.getElementById('table-workers');
+                    tbody.innerHTML = '';
+                    if (data) {
+                        Object.entries(data).forEach(([key, worker]) => {
+                            let gradeColor = worker.skill === 'A' ? 'bg-blue-100 text-blue-700' : (worker.skill === 'B' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700');
+                            tbody.insertAdjacentHTML('beforeend', `
+                                <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
+                                    <td class="p-3 font-medium">${worker.operatorId}</td>
+                                    <td class="p-3">${worker.name}</td>
+                                    <td class="p-3"><span class="px-2 py-1 rounded-md bg-slate-800 text-white text-xs font-medium">${worker.role || 'Operator'}</span></td>
+                                    <td class="p-3"><span class="px-2 py-1 rounded-md text-xs font-bold ${gradeColor}">Grade ${worker.skill}</span></td>
+                                    <td class="p-3">${worker.assignedLine}</td>
+                                    <td class="p-3 text-center">
+                                        <button onclick="deleteRecord('workers', '${key}')" class="text-slate-400 hover:text-red-500 transition-colors">
+                                            <i class="ph-fill ph-trash text-lg"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            `);
+                        });
+                    }
+                });
+
+                // Listen to Styles (Splits into Active vs Ended/Reports)
+                onValue(ref(db, 'masterData/styles'), (snapshot) => {
+                    const data = snapshot.val();
+                    const tbodyActive = document.getElementById('table-styles');
+                    const tbodyReports = document.getElementById('table-reports');
+                    
+                    tbodyActive.innerHTML = '';
+                    tbodyReports.innerHTML = '';
+
+                    if (data) {
+                        Object.entries(data).forEach(([key, style]) => {
+                            if (style.status === 'Active') {
+                                tbodyActive.insertAdjacentHTML('beforeend', `
+                                    <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
+                                        <td class="p-3">
+                                            <p class="font-bold text-slate-800">${style.styleNo}</p>
+                                            <p class="text-xs text-slate-500 flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-slate-300"></div> ${style.color || 'N/A'}</p>
+                                        </td>
+                                        <td class="p-3 font-medium text-primary">${style.module || 'Unassigned'}</td>
+                                        <td class="p-3 text-slate-600 text-sm">${style.shift1} / ${style.shift2}</td>
+                                        <td class="p-3 text-center space-x-2">
+                                            <button onclick="endStyleProcess('${key}', '${style.styleNo}', '${style.module}')" class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition-colors">
+                                                End Style
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `);
+                            } else if (style.status === 'Ended') {
+                                const endDate = new Date(style.endedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                                tbodyReports.insertAdjacentHTML('beforeend', `
+                                    <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
+                                        <td class="p-3 text-sm text-slate-500">${endDate}</td>
+                                        <td class="p-3 font-bold text-slate-800">${style.styleNo}</td>
+                                        <td class="p-3 text-sm">${style.color || 'N/A'}</td>
+                                        <td class="p-3 font-medium text-primary">${style.module}</td>
+                                        <td class="p-3"><span class="px-2 py-1 bg-slate-200 text-slate-700 rounded-full text-[10px] uppercase tracking-wider font-bold">Completed</span></td>
+                                        <td class="p-3 text-center">
+                                            <button class="text-secondary hover:text-blue-700 text-sm font-medium transition-colors">View Report</button>
+                                        </td>
+                                    </tr>
+                                `);
+                            }
+                        });
+                    }
+                });
+
+                // Listen to Master Defects
+                onValue(ref(db, 'masterData/defects'), (snapshot) => {
+                    const data = snapshot.val();
+                    const tbody = document.getElementById('table-defects');
+                    tbody.innerHTML = '';
+                    if (data) {
+                        Object.entries(data).forEach(([key, defect]) => {
+                            tbody.insertAdjacentHTML('beforeend', `
+                                <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
+                                    <td class="p-3 text-slate-500">${defect.category}</td>
+                                    <td class="p-3 font-medium text-slate-800">${defect.name}</td>
+                                    <td class="p-3 text-center">
+                                        <button onclick="deleteRecord('defects', '${key}')" class="text-slate-400 hover:text-red-500 transition-colors">
+                                            <i class="ph-fill ph-trash text-lg"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            `);
+                        });
+                    }
+                });
+            }
+        });
+
+    </script>
+</body>
+</html>
