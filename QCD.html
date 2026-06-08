@@ -1,982 +1,500 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Brandex Quality Monitor - Admin</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        
-        /* Toggle Switch CSS */
-        .toggle-checkbox:checked { right: 0; border-color: #3b82f6; }
-        .toggle-checkbox:checked + .toggle-label { background-color: #3b82f6; }
-    </style>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: '#1e3a8a',
-                        secondary: '#3b82f6',
-                        accent: '#f59e0b',
-                    }
-                }
-            }
-        }
-    </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brandix QMS — Admin</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, get, push, onValue, remove, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+  const app = initializeApp({
+    apiKey: "AIzaSyA-aIRjMPFkK0hQKWY8-rpcA_5TfMhbRM4",
+    authDomain: "qc--brandex.firebaseapp.com",
+    databaseURL: "https://qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "qc--brandex",
+    storageBucket: "qc--brandex.firebasestorage.app",
+    messagingSenderId: "109990871136",
+    appId: "1:109990871136:web:c0dfa5f0ba78bed77c8305"
+  });
+  const db = getDatabase(app);
+  const auth = getAuth(app);
+  signInAnonymously(auth).catch(e => console.error("Anon Auth Error:", e));
+
+  window._db = db; window._ref = ref; window._set = set; window._get = get;
+  window._push = push; window._onValue = onValue; window._remove = remove; window._update = update;
+
+  // DB-based login
+  window.dbLogin = async function(username, password) {
+    const snap = await get(ref(db, 'users'));
+    if (!snap.exists()) throw new Error('No users found. Seed data first.');
+    const users = snap.val();
+    for (const [key, u] of Object.entries(users)) {
+      if ((u.username === username || u.email === username) && u.password === password) {
+        return { fbKey: key, ...u };
+      }
+    }
+    throw new Error('Invalid username or password');
+  };
+
+  window.loadAll = function() {
+    onValue(ref(db,'inspections'), s => { window.D.inspections = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['dashboard','inspections','supervisor','ai-analysis','reports'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'modules'), s => { window.D.modules = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='modules') window.render(); });
+    onValue(ref(db,'styles'), s => { window.D.styles = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['styles','reports'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'users'), s => { window.D.users = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='users') window.render(); });
+    onValue(ref(db,'alerts'), s => { window.D.alerts = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; window.D.notifs = window.D.alerts.filter(a=>!a.read).length; if(['alerts','dashboard'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'operations'), s => { window.D.operations = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='operations') window.render(); });
+  };
+
+  window.fbAdd = async (p,d) => { const r=push(ref(db,p));await set(r,{...d,createdAt:new Date().toISOString()});return r.key; };
+  window.fbUpd = async (p,k,d) => { await update(ref(db,`${p}/${k}`),{...d,updatedAt:new Date().toISOString()}); };
+  window.fbDel = async (p,k) => { await remove(ref(db,`${p}/${k}`)); };
+  window._dbReady = true;
+
+  setTimeout(() => { if(window.D.page==='loading'){window.D.page='login';window.render();} }, 2000);
+</script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0c10;--bg2:#111318;--bg3:#1a1d24;--bg4:#22262f;--border:#2a2e38;--border2:#363c48;--text:#e8eaf0;--text2:#9097a8;--text3:#5c6478;--accent:#00d4a8;--accent2:#0099d4;--red:#e05555;--yellow:#d4a800;--green:#00d4a8;--blue:#4488ff;--purple:#9966ff;--radius:8px;--radius2:12px;--font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;font-size:14px;line-height:1.5}
+button{font-family:var(--font);cursor:pointer;border:none;outline:none}
+input,select,textarea{font-family:var(--font)}
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:230px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .25s}
+.sidebar.collapsed{width:60px}.sidebar.collapsed .hide-c{display:none}
+.logo{padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.logo-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:13px;flex-shrink:0}
+.nav{flex:1;padding:8px 0;overflow-y:auto}
+.nav-sec{padding:10px 16px 4px;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;transition:all .15s;border-left:3px solid transparent;color:var(--text2);font-size:13px;white-space:nowrap}
+.nav-item:hover{background:var(--bg3);color:var(--text)}.nav-item.active{background:rgba(0,212,168,.08);border-left-color:var(--accent);color:var(--accent)}
+.nav-icon{width:18px;height:18px;flex-shrink:0;opacity:.6}.nav-item.active .nav-icon{opacity:1}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;padding:1px 7px;border-radius:10px}
+.sidebar-footer{padding:12px;border-top:1px solid var(--border)}
+.user-pill{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);cursor:pointer}
+.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#000;flex-shrink:0}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{padding:0 24px;height:56px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg2);flex-shrink:0}
+.page-title{font-size:16px;font-weight:600}
+.content{flex:1;overflow-y:auto;padding:24px}
+.btn{padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:600}.btn-primary:hover{opacity:.9}
+.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border)}.btn-ghost:hover{background:var(--bg3)}
+.btn-danger{background:rgba(224,85,85,.15);color:var(--red);border:1px solid rgba(224,85,85,.3)}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-icon{padding:6px;background:transparent;color:var(--text2);border-radius:6px;cursor:pointer;border:none}.btn-icon:hover{background:var(--bg3);color:var(--text)}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:20px}.card-sm{padding:16px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
+.card-title{font-size:14px;font-weight:500;color:var(--text2)}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.metric-val{font-size:28px;font-weight:600;font-family:var(--mono)}.metric-label{font-size:11px;color:var(--text2);margin-top:4px;text-transform:uppercase;letter-spacing:.05em}
+.badge{display:inline-flex;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500}
+.badge-green{background:rgba(0,212,168,.15);color:var(--green)}.badge-red{background:rgba(224,85,85,.15);color:var(--red)}.badge-yellow{background:rgba(212,168,0,.15);color:var(--yellow)}.badge-blue{background:rgba(68,136,255,.15);color:var(--blue)}.badge-purple{background:rgba(153,102,255,.15);color:var(--purple)}.badge-gray{background:rgba(92,100,120,.15);color:var(--text3)}
+.module-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.module-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px;cursor:pointer;transition:all .2s;position:relative}
+.module-card:hover{border-color:var(--border2);transform:translateY(-2px)}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11px;color:var(--text3);padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;text-transform:uppercase;letter-spacing:.06em;background:var(--bg3)}
+td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.02)}
+.form-group{margin-bottom:16px}.form-label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.form-input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:var(--radius);font-size:13px;transition:border-color .2s}
+.form-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,168,.1)}.form-input::placeholder{color:var(--text3)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.alert-card{padding:14px 18px;border-radius:var(--radius);border-left:3px solid;margin-bottom:10px;display:flex;align-items:flex-start;gap:12px}
+.alert-critical{background:rgba(224,85,85,.08);border-color:var(--red)}.alert-high{background:rgba(212,168,0,.08);border-color:var(--yellow)}.alert-medium{background:rgba(68,136,255,.08);border-color:var(--blue)}.alert-low{background:rgba(0,212,168,.08);border-color:var(--green)}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:28px;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}.modal-title{font-size:18px;font-weight:600}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.login-card{width:420px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.chart-wrap{position:relative;width:100%;height:220px}
+.progress{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden}.progress-fill{height:100%;border-radius:3px;transition:width .4s}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
+.sep{height:1px;background:var(--border);margin:16px 0}
+.fb{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;background:rgba(255,148,36,.08);border:1px solid rgba(255,148,36,.2);border-radius:20px;font-size:10px;color:#ff9424;font-family:var(--mono)}
+.notif-btn{position:relative;background:transparent;color:var(--text2);padding:6px;border-radius:6px;cursor:pointer;border:none}.notif-btn:hover{background:var(--bg3)}
+.notif-dot{width:8px;height:8px;background:var(--red);border-radius:50%;position:absolute;top:2px;right:2px}
+.status-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.dot-green{background:var(--green)}.dot-yellow{background:var(--yellow)}.dot-red{background:var(--red)}
+.search-input{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:var(--radius);font-size:13px;width:220px}.search-input:focus{outline:none;border-color:var(--accent)}
+.toast{position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:var(--radius);font-size:13px;z-index:200;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.toast-success{background:rgba(0,212,168,.95);color:#000}.toast-error{background:rgba(224,85,85,.95);color:#fff}
+.ai-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(153,102,255,.12);border:1px solid rgba(153,102,255,.25);border-radius:20px;font-size:11px;color:var(--purple)}
+.ai-finding{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px}
+.ai-bar{background:var(--bg4);height:6px;border-radius:3px;overflow:hidden;margin:6px 0}.ai-bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--purple),var(--accent2))}
+.qr-container{background:#fff;padding:16px;border-radius:12px;display:inline-block;margin:12px 0}
+.report-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:20px;cursor:pointer;transition:all .2s;text-align:center}.report-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:18px;height:18px;border:2px solid rgba(0,212,168,.3);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+@media(max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:1fr 1fr}.sidebar{width:60px}.sidebar .hide-c{display:none}.form-row{grid-template-columns:1fr}}
+</style>
 </head>
-<body class="flex h-screen overflow-hidden text-slate-800">
+<body>
+<div id="app"><div class="login-wrap"><div style="text-align:center"><div class="spinner" style="width:36px;height:36px;margin:0 auto 16px"></div><div style="color:var(--text2)">Connecting...</div></div></div></div>
 
-    <!-- Sidebar Navigation -->
-    <aside class="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0">
-        <div>
-            <div class="h-20 flex items-center px-6 border-b border-slate-800">
-                <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded bg-secondary flex items-center justify-center text-white font-bold text-lg">
-                        B
-                    </div>
-                    <span class="text-xl font-bold text-white tracking-wide">Brandex QC</span>
-                </div>
-            </div>
-            
-            <div class="p-4 overflow-y-auto" style="max-height: calc(100vh - 160px);">
-                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-2">Main Menu</p>
-                <nav class="space-y-1">
-                    <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors bg-secondary/20 text-white">
-                        <i class="ph ph-squares-four text-lg"></i>
-                        Dashboard
-                    </button>
-                    <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
-                        <i class="ph ph-chart-bar text-lg"></i>
-                        Data Reports
-                    </button>
-                </nav>
+<script>
+// ICONS (compact)
+const I={grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',layout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',cpu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8"/><path d="M8 2v2M16 2v2M8 20v2M16 20v2M2 8h2M2 16h2M20 8h2M20 16h2"/></svg>',file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>',tag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/></svg>',settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',logout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>',warning:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',qr:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v7h-3M20 18h-3"/></svg>',check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 6L9 17l-5-5"/></svg>',wrench:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',refresh:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>',pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M10 13h4M10 17h4M8 13h.01M8 17h.01"/></svg>',excel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M8 13l3 4M11 13l-3 4M14 13v4M16 13v4"/></svg>'};
+function ic(n,s=18){return`<span style="width:${s}px;height:${s}px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${I[n]||I.file}</span>`;}
 
-                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 mt-8 px-2">Master Data</p>
-                <nav class="space-y-1">
-                    <button onclick="switchTab('modules')" id="nav-modules" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
-                        <i class="ph ph-factory text-lg"></i>
-                        Modules & Areas
-                    </button>
-                    <button onclick="switchTab('workers')" id="nav-workers" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
-                        <i class="ph ph-users text-lg"></i>
-                        Workers
-                    </button>
-                    <button onclick="switchTab('styles')" id="nav-styles" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
-                        <i class="ph ph-t-shirt text-lg"></i>
-                        Styles & Targets
-                    </button>
-                    <button onclick="switchTab('defects')" id="nav-defects" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800">
-                        <i class="ph ph-warning-circle text-lg"></i>
-                        Defect Dictionary
-                    </button>
-                </nav>
-            </div>
-        </div>
-        
-        <div class="p-4 border-t border-slate-800 shrink-0">
-            <div class="flex items-center gap-3 px-2 py-2">
-                <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-                    <i class="ph ph-user text-white"></i>
-                </div>
-                <div>
-                    <p class="text-sm font-semibold text-white">Admin User</p>
-                    <p class="text-xs text-slate-500">Quality Head</p>
-                </div>
-            </div>
-        </div>
-    </aside>
+// STATE
+window.D={page:'loading',user:null,loginLoading:false,collapsed:false,showModal:null,modalData:null,sq:'',notifs:0,inspections:[],modules:[],styles:[],users:[],alerts:[],operations:[]};
 
-    <!-- Main Content Area -->
-    <div class="flex-1 flex flex-col h-screen overflow-hidden">
-        
-        <!-- Top Navigation / Header -->
-        <header class="flex justify-between items-center bg-white px-8 py-5 border-b border-slate-200 shrink-0">
-            <div>
-                <h2 id="page-title" class="text-2xl font-bold text-slate-800">Factory Overview</h2>
-                <p id="current-time" class="text-sm text-slate-500 mt-1">Loading time...</p>
-            </div>
-            <div class="flex items-center gap-6">
-                <!-- Demo Mode Toggle -->
-                <div class="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
-                    <span class="text-sm font-semibold text-slate-600">Demo Mode</span>
-                    <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                        <input type="checkbox" name="toggle" id="demo-toggle" onchange="toggleDemoMode(this)" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 border-slate-300 appearance-none cursor-pointer z-10 transition-all duration-300"/>
-                        <label for="demo-toggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-300 cursor-pointer transition-colors duration-300"></label>
-                    </div>
-                </div>
+const BUYERS=['H&M','Zara','Gap','Next','M&S','Primark','ASOS','Nike','Adidas','Uniqlo'];
+const DEFECTS=['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Shade Variation','Uneven Stitch','Needle Mark','Incorrect SPI','Loose Thread','Missing Button','Seam Pucker','Run-Off','Pleat','Uncut Thread'];
+const DEF_OPS=['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Yoke Join','Back Panel Join','Front Panel Join','Tacking','Bartack','Topstitch','Overlock','Flatlock'];
 
-                <div id="header-alert-badge" class="hidden bg-red-50 text-red-600 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2 border border-red-100">
-                    <div class="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>
-                    2 Critical Alerts
-                </div>
-            </div>
-        </header>
+function ini(n){if(!n)return'BX';return n.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);}
+function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch{return d;}}
+function ft(d){return fd(d)+' '+((d&&new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))||'');}
+function ta(d){if(!d)return'';const m=Math.floor((Date.now()-new Date(d).getTime())/60000);if(m<1)return'now';if(m<60)return m+'m';const h=Math.floor(m/60);if(h<24)return h+'h';return Math.floor(h/24)+'d';}
+function dhu(a){const c=a.reduce((s,i)=>s+(parseInt(i.checkedQty)||0),0),d=a.reduce((s,i)=>s+(parseInt(i.defectQty)||0),0);return c?((d/c)*100).toFixed(1):'0.0';}
+function toast(m,t='success'){document.querySelectorAll('.toast').forEach(e=>e.remove());const d=document.createElement('div');d.className=`toast toast-${t}`;d.innerHTML=`${ic(t==='success'?'check':'warning',16)} ${m}`;document.body.appendChild(d);setTimeout(()=>d.remove(),3500);}
+function kpi(v,l,s,c='var(--accent)'){return`<div class="card card-sm"><div class="metric-val" style="color:${c}">${v}</div><div class="metric-label">${l}</div>${s?`<div style="font-size:11px;color:var(--text3);margin-top:4px;font-family:var(--mono)">${s}</div>`:''}</div>`;}
 
-        <!-- Scrollable Content -->
-        <main class="flex-1 overflow-y-auto p-8 relative">
-            
-            <!-- TAB: DASHBOARD -->
-            <div id="tab-dashboard" class="tab-content active">
-                <!-- Top KPI Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl">
-                            <i class="ph ph-factory"></i>
-                        </div>
-                        <div>
-                            <p class="text-sm text-slate-500 font-medium">Active Modules</p>
-                            <p id="kpi-modules" class="text-2xl font-bold">0 <span class="text-sm font-normal text-slate-400">/ 0</span></p>
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-2xl">
-                            <i class="ph ph-t-shirt"></i>
-                        </div>
-                        <div>
-                            <p class="text-sm text-slate-500 font-medium">Shift 1 Output</p>
-                            <p id="kpi-output" class="text-2xl font-bold">0 <span class="text-sm font-normal text-slate-400">pcs</span></p>
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl">
-                            <i class="ph ph-warning"></i>
-                        </div>
-                        <div>
-                            <p class="text-sm text-slate-500 font-medium">Average DHU</p>
-                            <p id="kpi-dhu" class="text-2xl font-bold">0.0%</p>
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl">
-                            <i class="ph ph-trend-up"></i>
-                        </div>
-                        <div>
-                            <p class="text-sm text-slate-500 font-medium">Efficiency</p>
-                            <p id="kpi-eff" class="text-2xl font-bold">0.0%</p>
-                        </div>
-                    </div>
-                </div>
+window.nav=function(p){D.page=p;D.showModal=null;D.sq='';render();};
+window.toggleSB=function(){D.collapsed=!D.collapsed;document.getElementById('sb')?.classList.toggle('collapsed');};
+window.showModal=function(t,d=null){D.showModal=t;D.modalData=d;render();};
+window.closeModal=function(){D.showModal=null;D.modalData=null;render();};
+window.logout=function(){D.user=null;D.page='login';render();};
 
-                <!-- Main Layout Grid -->
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    
-                    <!-- Left Column (Heatmap) -->
-                    <div class="lg:col-span-2">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg font-bold text-slate-800">Live Factory Heatmap</h3>
-                            <button class="text-sm text-secondary font-medium hover:underline">View All</button>
-                        </div>
-                        
-                        <div id="heatmap-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                            <!-- Populated by JS -->
-                        </div>
+let charts={};function dc(){Object.values(charts).forEach(c=>{try{c.destroy()}catch(e){}});charts={};}
 
-                        <!-- Top Defects Chart -->
-                        <div class="mt-8 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-                            <h3 class="text-lg font-bold text-slate-800 mb-6">Top Frequent Defects (Today)</h3>
-                            <div class="h-64 w-full">
-                                <canvas id="defectsChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
+// ============ RENDER ============
+window.render=function(){
+  dc();const app=document.getElementById('app');
+  if(D.page==='loading'){app.innerHTML=`<div class="login-wrap"><div style="text-align:center"><div class="spinner" style="width:36px;height:36px;margin:0 auto 16px"></div><div style="color:var(--text2)">Connecting...</div></div></div>`;return;}
+  if(D.page==='login'||!D.user){app.innerHTML=renderLogin();bindLogin();return;}
+  app.innerHTML=`<div class="app">${renderSB()}<div class="main">${renderTB()}<div class="content">${renderPg()}</div></div></div>${D.showModal?renderModal():''}`;
+  afterRender();
+};
 
-                    <!-- Right Column (AI Alerts) -->
-                    <div class="lg:col-span-1">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                <i class="ph-fill ph-robot text-secondary"></i> AI Root Cause Alerts
-                            </h3>
-                        </div>
-                        
-                        <div id="ai-alerts-container" class="space-y-4">
-                            <!-- Empty State for non-demo mode -->
-                            <div class="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                                No active alerts. Factory is operating normally.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+// LOGIN (DB-based, no Firebase Auth)
+function renderLogin(){
+  return`<div class="login-wrap"><div class="login-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:32px"><div class="logo-icon" style="width:48px;height:48px;font-size:16px;border-radius:12px">BX</div><div><div style="font-size:20px;font-weight:700">Brandix QMS</div><div style="font-size:11px;color:var(--text2);font-family:var(--mono)">Admin Dashboard</div></div></div><div id="lerr" style="display:none;color:var(--red);font-size:12px;margin-bottom:14px;padding:12px;background:rgba(224,85,85,.08);border-radius:8px;border:1px solid rgba(224,85,85,.2)"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" id="lu" placeholder="Your username"></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" id="lp" type="password" placeholder="••••••••"></div><button class="btn btn-primary" id="lbtn" style="width:100%;justify-content:center;padding:12px;font-size:14px">${D.loginLoading?'<span class="spinner"></span> Signing in...':'Sign In'}</button><div style="margin-top:16px;text-align:center;font-size:11px;color:var(--text3)">First time? Go to Settings → Seed Demo Data to create default admin user</div><div style="margin-top:8px;text-align:center"><button class="btn btn-ghost btn-sm" onclick="seedFirstUser()">Create Default Admin</button></div></div></div>`;
+}
 
-            <!-- TAB: REPORTS -->
-            <div id="tab-reports" class="tab-content hidden">
-                <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-                    <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-lg font-bold text-slate-800">Completed Styles & Production Reports</h3>
-                        <button class="px-4 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition">
-                            <i class="ph ph-export mr-1"></i> Export CSV
-                        </button>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                                    <th class="p-3 font-medium">Date Ended</th>
-                                    <th class="p-3 font-medium">Style No</th>
-                                    <th class="p-3 font-medium">Color</th>
-                                    <th class="p-3 font-medium">Module</th>
-                                    <th class="p-3 font-medium">Status</th>
-                                    <th class="p-3 font-medium text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="table-reports" class="text-sm text-slate-700 divide-y divide-slate-100">
-                                <!-- Populated by Firebase -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: MODULES -->
-            <div id="tab-modules" class="tab-content hidden">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Add New Module</h3>
-                        <form id="form-modules" onsubmit="submitForm(event, 'modules')">
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Module Name</label>
-                                <input type="text" id="module_name" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Module 01">
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Supervisor Name</label>
-                                <input type="text" id="module_supervisor" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., John Doe">
-                            </div>
-                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Save Module</button>
-                            <p id="msg-modules" class="text-emerald-600 text-sm mt-2 hidden">Module saved successfully!</p>
-                        </form>
-                    </div>
-                    <div class="col-span-1 lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Active Production Modules</h3>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse">
-                                <thead>
-                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                                        <th class="p-3 font-medium">Module Name</th>
-                                        <th class="p-3 font-medium">Supervisor</th>
-                                        <th class="p-3 font-medium">Status</th>
-                                        <th class="p-3 font-medium text-center">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="table-modules" class="text-sm text-slate-700 divide-y divide-slate-100">
-                                    <!-- Populated by Firebase -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: WORKERS -->
-            <div id="tab-workers" class="tab-content hidden">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Register Worker</h3>
-                        <form id="form-workers" onsubmit="submitForm(event, 'workers')">
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Worker ID</label>
-                                <input type="text" id="worker_id" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., WK-10838">
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Full Name</label>
-                                <input type="text" id="worker_name" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Jane Smith">
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Worker Role</label>
-                                <select id="worker_role" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
-                                    <option value="Sewing Operator">Sewing Operator</option>
-                                    <option value="Inline QC">Inline QC</option>
-                                    <option value="End Line QC">End Line QC</option>
-                                    <option value="Admin">Admin / Supervisor</option>
-                                </select>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Skill Grade</label>
-                                <select id="worker_skill" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
-                                    <option value="A">Grade A (High Skill)</option>
-                                    <option value="B">Grade B (Medium Skill)</option>
-                                    <option value="C">Grade C (Entry Level)</option>
-                                    <option value="N/A">N/A (For QC/Admin)</option>
-                                </select>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Assigned Module</label>
-                                <select id="worker_module" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
-                                    <option value="Unassigned">Unassigned</option>
-                                </select>
-                            </div>
-                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Save Worker</button>
-                            <p id="msg-workers" class="text-emerald-600 text-sm mt-2 hidden">Worker saved successfully!</p>
-                        </form>
-                    </div>
-                    <div class="col-span-1 lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Worker Database</h3>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse">
-                                <thead>
-                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                                        <th class="p-3 font-medium">ID</th>
-                                        <th class="p-3 font-medium">Name</th>
-                                        <th class="p-3 font-medium">Role</th>
-                                        <th class="p-3 font-medium">Grade</th>
-                                        <th class="p-3 font-medium">Assigned Module</th>
-                                        <th class="p-3 font-medium text-center">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="table-workers" class="text-sm text-slate-700 divide-y divide-slate-100">
-                                    <!-- Populated by Firebase -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: STYLES -->
-            <div id="tab-styles" class="tab-content hidden">
-                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Start New Style</h3>
-                        <form id="form-styles" onsubmit="submitForm(event, 'styles')">
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Style Number</label>
-                                <input type="text" id="style_no" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., SHIRT-V1">
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Color</label>
-                                <input type="text" id="style_color" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Navy Blue">
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Assign to Module</label>
-                                <select id="style_module" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
-                                    <option value="" disabled selected>Select Module</option>
-                                    <!-- Populated by Firebase -->
-                                </select>
-                            </div>
-                            <div class="grid grid-cols-2 gap-4 mb-4">
-                                <div>
-                                    <label class="block text-sm font-medium text-slate-600 mb-1">Shift 1 Target</label>
-                                    <input type="number" id="style_t1" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Qty">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-slate-600 mb-1">Shift 2 Target</label>
-                                    <input type="number" id="style_t2" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Qty">
-                                </div>
-                            </div>
-                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Start Production</button>
-                            <p id="msg-styles" class="text-emerald-600 text-sm mt-2 hidden">Style started successfully!</p>
-                        </form>
-                    </div>
-                    <div class="col-span-1 xl:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Active Styles in Production</h3>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse">
-                                <thead>
-                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                                        <th class="p-3 font-medium">Style & Color</th>
-                                        <th class="p-3 font-medium">Module</th>
-                                        <th class="p-3 font-medium">Targets (S1/S2)</th>
-                                        <th class="p-3 font-medium text-center">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="table-styles" class="text-sm text-slate-700 divide-y divide-slate-100">
-                                    <!-- Populated by Firebase -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: DEFECTS -->
-            <div id="tab-defects" class="tab-content hidden">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div class="col-span-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Add Defect to Dictionary</h3>
-                        <form id="form-defects" onsubmit="submitForm(event, 'defects')">
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Category</label>
-                                <select id="defect_cat" class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
-                                    <option value="Stitching">Stitching</option>
-                                    <option value="Fabric">Fabric / Material</option>
-                                    <option value="Handling">Handling / Cleanliness</option>
-                                    <option value="Measurement">Measurement</option>
-                                </select>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-slate-600 mb-1">Defect Name</label>
-                                <input type="text" id="defect_name" required class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g., Skip Stitch">
-                            </div>
-                            <button type="submit" class="w-full bg-primary text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors">Save Defect</button>
-                            <p id="msg-defects" class="text-emerald-600 text-sm mt-2 hidden">Defect saved successfully!</p>
-                        </form>
-                    </div>
-                    <div class="col-span-1 lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <h3 class="text-lg font-bold text-slate-800 mb-4">Defect Dictionary</h3>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse">
-                                <thead>
-                                    <tr class="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                                        <th class="p-3 font-medium">Category</th>
-                                        <th class="p-3 font-medium">Defect Name</th>
-                                        <th class="p-3 font-medium text-center">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="table-defects" class="text-sm text-slate-700 divide-y divide-slate-100">
-                                    <!-- Populated by Firebase -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-        </main>
-    </div>
-
-    <!-- Custom Confirm Modal Overlay (Replaces default alerts) -->
-    <div id="custom-modal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm transition-opacity">
-        <div class="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl transform transition-transform">
-            <div class="flex items-center gap-3 mb-4">
-                <div id="modal-icon-bg" class="w-10 h-10 rounded-full flex items-center justify-center shrink-0">
-                    <i id="modal-icon" class="ph-fill text-xl"></i>
-                </div>
-                <h3 id="modal-title" class="text-lg font-bold text-slate-800">Confirm Action</h3>
-            </div>
-            <p id="modal-desc" class="text-sm text-slate-600 mb-6 leading-relaxed">Are you sure you want to proceed?</p>
-            <div class="flex justify-end gap-3">
-                <button onclick="closeModal()" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button id="modal-confirm-btn" class="px-4 py-2 rounded-lg text-sm font-medium transition text-white">Confirm</button>
-            </div>
-        </div>
-    </div>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getDatabase, ref, onValue, set, get, push, remove, update } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyA-aIRjMPFkK0hQKWY8-rpcA_5TfMhbRM4",
-            authDomain: "qc--brandex.firebaseapp.com",
-            databaseURL: "https://qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "qc--brandex",
-            storageBucket: "qc--brandex.firebasestorage.app",
-            messagingSenderId: "109990871136",
-            appId: "1:109990871136:web:c0dfa5f0ba78bed77c8305",
-            measurementId: "G-N200MYHVPZ"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getDatabase(app);
-
-        // Global Demo Mode Variable
-        window.isDemoMode = false;
-
-        // Update Live Clock
-        function updateClock() {
-            const now = new Date();
-            const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-            const dateString = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-            document.getElementById('current-time').textContent = `${dateString} | ${timeString}`;
+// Create first admin user if none exist or reset password
+window.seedFirstUser = async function(){
+  try{
+    const snap = await window._get(window._ref(window._db, 'users'));
+    if(snap.exists()){
+      let updated = false;
+      for(const [key, u] of Object.entries(snap.val())) {
+        if (u.username === 'admin' || u.role === 'Admin' || u.email === 'admin@brandix.com') {
+          await window._update(window._ref(window._db, 'users/' + key), { password: 'admin123', username: 'admin' });
+          updated = true;
         }
-        setInterval(updateClock, 1000);
-        updateClock();
+      }
+      if (updated) {
+        toast('Admin password reset to admin123! Try logging in now.');
+      } else {
+        await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@brandix.com',status:'Active'});
+        toast('Admin user created! Username: admin / Password: admin123');
+      }
+      return;
+    }
+    await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@brandix.com',status:'Active'});
+    toast('Admin user created! Username: admin / Password: admin123');
+  }catch(e){toast('Error: '+e.message,'error');}
+};
 
-        // Custom Modal Logic (Replaces window.confirm)
-        let pendingModalAction = null;
-        window.showModal = function(title, desc, confirmText, colorTheme, iconClass, action) {
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-desc').textContent = desc;
-            
-            const btn = document.getElementById('modal-confirm-btn');
-            btn.textContent = confirmText;
-            
-            const iconBg = document.getElementById('modal-icon-bg');
-            const icon = document.getElementById('modal-icon');
-            icon.className = `ph-fill ${iconClass} text-xl`;
+function bindLogin(){
+  const btn=document.getElementById('lbtn');if(!btn)return;
+  const go=async()=>{
+    const u=document.getElementById('lu')?.value.trim(),p=document.getElementById('lp')?.value;
+    const err=document.getElementById('lerr');
+    if(!u||!p){err.style.display='block';err.textContent='Enter username and password';return;}
+    err.style.display='none';D.loginLoading=true;render();
+    try{
+      const user=await window.dbLogin(u,p);
+      D.user=user;D.page='dashboard';D.loginLoading=false;render();window.loadAll();toast('Welcome, '+user.name);
+    }catch(e){D.loginLoading=false;render();const el=document.getElementById('lerr');if(el){el.style.display='block';el.textContent=e.message;}}
+  };
+  btn.onclick=go;
+  document.getElementById('lu')?.addEventListener('keydown',e=>e.key==='Enter'&&go());
+  document.getElementById('lp')?.addEventListener('keydown',e=>e.key==='Enter'&&go());
+}
 
-            if(colorTheme === 'red') {
-                btn.className = 'px-4 py-2 rounded-lg text-sm font-medium transition text-white bg-red-600 hover:bg-red-700';
-                iconBg.className = 'w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-red-100 text-red-600';
-            } else if (colorTheme === 'blue') {
-                btn.className = 'px-4 py-2 rounded-lg text-sm font-medium transition text-white bg-blue-600 hover:bg-blue-700';
-                iconBg.className = 'w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-blue-100 text-blue-600';
-            }
+// NAV
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
-            pendingModalAction = action;
-            document.getElementById('custom-modal').classList.remove('hidden');
-        };
+function renderSB(){
+  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon">BX</div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">Brandix QMS</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
+}
 
-        window.closeModal = function() {
-            document.getElementById('custom-modal').classList.add('hidden');
-            pendingModalAction = null;
-        };
+function renderTB(){
+  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',supervisor:'Supervisor','ai-analysis':'AI Analysis',reports:'Reports',styles:'Styles',operations:'Operations',users:'Users',settings:'Settings'};
+  return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
+}
 
-        document.getElementById('modal-confirm-btn').addEventListener('click', () => {
-            if(pendingModalAction) pendingModalAction();
-            closeModal();
-        });
+function renderPg(){
+  const p=D.page;
+  if(p==='dashboard')return pgDash();
+  if(p==='modules')return pgMods();
+  if(p==='alerts')return pgAlerts();
+  if(p==='inspections')return pgInsp();
+  if(p==='supervisor')return pgSuper();
+  if(p==='ai-analysis')return pgAI();
+  if(p==='reports')return pgReports();
+  if(p==='styles')return pgStyles();
+  if(p==='operations')return pgOps();
+  if(p==='users')return pgUsers();
+  if(p==='settings')return pgSettings();
+  return pgDash();
+}
 
-        // Tab Switching Logic
-        const tabNames = {
-            'dashboard': 'Factory Overview',
-            'reports': 'Data & Production Reports',
-            'modules': 'Module Management',
-            'workers': 'Worker Database',
-            'styles': 'Styles & Operations',
-            'defects': 'Defect Dictionary Setup'
-        };
+// ======================== DASHBOARD ========================
+function pgDash(){
+  const ins=D.inspections,td=new Date().toISOString().split('T')[0];
+  const ti=ins.filter(i=>(i.createdAt||i.date||'').startsWith(td));
+  const comps=D.styles.filter(s=>s.status==='Completed');
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div class="grid-4">${kpi(ins.length,'Inspections','All time','var(--accent)')}${kpi(ti.length,"Today",'','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','Total','var(--red)')}${kpi(dhu(ins)+'%','DHU','Target 2.5%','var(--yellow)')}</div><div class="grid-4">${kpi(D.modules.length,'Modules','','var(--accent2)')}${kpi(D.styles.filter(s=>s.status==='Running').length,'Running Styles','','var(--purple)')}${kpi(comps.length,'Completed','Styles','var(--green)')}${kpi(D.notifs,'Unread Alerts','','var(--red)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Timeline</span></div><div class="chart-wrap"><canvas id="ch1"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch2"></canvas></div></div></div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Recent Inspections</span><button class="btn btn-ghost btn-sm" onclick="nav('inspections')">All</button></div>${ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Module</th><th>Defects</th><th>Time</th></tr></thead><tbody>${ins.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">Alerts</span></div>${D.alerts.slice(-4).reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',14)}<div style="flex:1"><div style="font-size:13px;font-weight:500">${a.title||''}</div><div style="font-size:11px;color:var(--text3)">${ta(a.createdAt)}</div></div></div>`).join('')||'<div style="color:var(--text3);padding:12px;text-align:center">No alerts</div>'}</div></div></div>`;
+}
 
-        window.switchTab = function(tabId) {
-            document.querySelectorAll('.tab-content').forEach(el => {
-                el.classList.add('hidden');
-                el.classList.remove('active');
-            });
-            document.querySelectorAll('.nav-btn').forEach(el => {
-                el.classList.remove('bg-secondary/20', 'text-white');
-                el.classList.add('hover:bg-slate-800');
-            });
+// ======================== MODULES ========================
+function pgMods(){
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><button class="btn btn-primary" onclick="showModal('addMod')">${ic('plus',14)} Add Module</button><span style="font-size:12px;color:var(--text3)">${D.modules.length} modules — click for QR</span></div>${D.modules.length===0?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No modules. Add styles first, then create modules.</div>`:`<div class="module-grid">${D.modules.map(m=>{const d=parseFloat(m.dhu)||0;return`<div class="module-card" style="border-left:3px solid ${d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)'}" onclick="showModal('modQR',${JSON.stringify(m).replace(/"/g,'&quot;')})"><span class="status-dot dot-${d>5?'red':d>3?'yellow':'green'}" style="position:absolute;top:10px;right:10px"></span><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${m.moduleId||''}</div><div style="font-size:14px;font-weight:600;margin:4px 0">${m.name||''}</div><div style="font-size:12px;color:var(--accent)">${m.styleName||'—'}</div><div style="font-size:11px;color:var(--text3)">${m.buyer||''}</div><div style="margin-top:8px;font-family:var(--mono);font-size:12px;color:${d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)'}">DHU ${d}%</div><div class="progress" style="margin-top:4px"><div class="progress-fill" style="width:${Math.min(d*10,100)}%;background:${d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)'}"></div></div><div style="display:flex;gap:4px;margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showModal('modQR',${JSON.stringify(m).replace(/"/g,'&quot;')})">${ic('qr',12)}</button><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showModal('editMod',${JSON.stringify(m).replace(/"/g,'&quot;')})">${ic('edit',12)}</button><button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="event.stopPropagation();del('modules','${m.fbKey}')">${ic('trash',12)}</button></div></div>`;}).join('')}</div>`}</div>`;
+}
 
-            const targetTab = document.getElementById(`tab-${tabId}`);
-            if(targetTab) {
-                targetTab.classList.remove('hidden');
-                targetTab.classList.add('active');
-            }
-            
-            const activeNav = document.getElementById(`nav-${tabId}`);
-            if(activeNav) {
-                activeNav.classList.remove('hover:bg-slate-800');
-                activeNav.classList.add('bg-secondary/20', 'text-white');
-            }
+// ======================== STYLES ========================
+function pgStyles(){
+  const running=D.styles.filter(s=>s.status==='Running');
+  const planned=D.styles.filter(s=>s.status==='Planned');
+  const completed=D.styles.filter(s=>s.status==='Completed');
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><button class="btn btn-primary" onclick="showModal('addStyle')">${ic('plus',14)} Add Style</button><div style="display:flex;gap:8px"><span class="badge badge-green">${running.length} Running</span><span class="badge badge-yellow">${planned.length} Planned</span><span class="badge badge-blue">${completed.length} Completed</span></div></div>${D.styles.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No styles. Add styles first.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Style ID</th><th>Name</th><th>Buyer</th><th>Color</th><th>Status</th><th>Target DHU</th><th>Completed Date</th><th></th></tr></thead><tbody>${D.styles.map(s=>`<tr><td style="font-family:var(--mono);font-size:12px">${s.styleId||''}</td><td style="font-weight:500">${s.name||''}</td><td>${s.buyer||''}</td><td><span class="chip">${s.color||''}</span></td><td><span class="badge badge-${s.status==='Running'?'green':s.status==='Completed'?'blue':'yellow'}">${s.status||''}</span></td><td style="font-family:var(--mono)">${s.targetDhu||''}%</td><td style="font-size:12px">${s.completedDate?fd(s.completedDate):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editStyle',${JSON.stringify(s).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>${s.status!=='Completed'?`<button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="completeStyle('${s.fbKey}')">✓ Complete</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('styles','${s.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;
+}
 
-            document.getElementById('page-title').textContent = tabNames[tabId];
-        }
+window.completeStyle = async function(key){
+  if(!confirm('Mark this style as completed?'))return;
+  await window.fbUpd('styles',key,{status:'Completed',completedDate:new Date().toISOString()});
+  toast('Style completed! Find it in Reports.');
+};
 
-        
-        window.deleteRecord = function(type, key) {
-            showModal(
-                "Delete Record", 
-                "Are you sure you want to permanently delete this record? This action cannot be undone.", 
-                "Delete", "red", "ph-trash",
-                async () => {
-                    try {
-                        await remove(ref(db, `masterData/${type}/${key}`));
-                    } catch (error) {
-                        console.error("Error deleting record:", error);
-                    }
-                }
-            );
-        };
+// ======================== REPORTS — PDF & Excel ========================
+function pgReports(){
+  const ins=D.inspections;
+  const completed=D.styles.filter(s=>s.status==='Completed');
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><span class="card-title">Reports</span><span class="fb">🔥 ${ins.length} records</span></div><div class="grid-3"><div class="report-card" onclick="rptAllInsp('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">All Inspections</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptAllInsp('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">All Inspections</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptDefects('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Defect Summary</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptDefects('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Defect Summary</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptModules('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Module Performance</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptModules('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Module Performance</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptOperator('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Operator Analysis</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptOperator('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Operator Analysis</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptCompleted('pdf')"><div style="margin-bottom:8px;color:var(--blue)">${ic('pdf',28)}</div><div style="font-weight:600">Completed Styles</div><div style="font-size:11px;color:var(--text3)">${completed.length} completed</div></div><div class="report-card" onclick="rptCompleted('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Completed Styles</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div></div></div>${completed.length>0?`<div class="card"><div class="card-header"><span class="card-title">Completed Styles Summary</span></div><div class="table-wrap"><table><thead><tr><th>Style</th><th>Buyer</th><th>Completed</th><th>Inspections</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${completed.map(s=>{const sIns=ins.filter(i=>i.style&&(i.style.includes(s.name)||i.style.includes(s.styleId)));const tc=sIns.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);const td=sIns.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);const d=tc?((td/tc)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${s.name} (${s.styleId})</td><td>${s.buyer||''}</td><td style="font-size:12px">${fd(s.completedDate)}</td><td style="font-family:var(--mono)">${sIns.length}</td><td style="font-family:var(--mono);color:var(--red)">${td}</td><td style="font-family:var(--mono);color:${d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)'}">${d}%</td></tr>`;}).join('')}</tbody></table></div></div>`:''}</div>`;
+}
 
-        window.endStyleProcess = function(key, styleName, moduleName) {
-            showModal(
-                "End Style Production",
-                `Are you sure you want to end production for ${styleName} on ${moduleName}? This will close the style and generate a final report.`,
-                "End & Generate Report", "blue", "ph-flag-checkered",
-                async () => {
-                    try {
-                        const now = new Date();
-                        await update(ref(db, `masterData/styles/${key}`), { 
-                            status: 'Ended',
-                            endedAt: now.toISOString()
-                        });
-                        // Automatically switch to reports tab to see the result
-                        switchTab('reports');
-                    } catch (error) {
-                        console.error("Error ending style:", error);
-                    }
-                }
-            );
-        }
+// ============ PDF REPORTS ============
+function makePDF(title,headers,rows,summary){
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF();
+  doc.setFontSize(18);doc.setTextColor(0,100,80);doc.text('Brandix QMS',14,20);
+  doc.setFontSize(12);doc.setTextColor(60,60,60);doc.text(title,14,28);
+  doc.setFontSize(9);doc.setTextColor(120,120,120);doc.text('Generated: '+new Date().toLocaleString('en-GB'),14,34);
+  if(summary){doc.setFontSize(10);doc.setTextColor(40,40,40);let y=42;summary.forEach(s=>{doc.text(s,14,y);y+=5;});}
+  doc.autoTable({head:[headers],body:rows,startY:summary?42+summary.length*5+4:40,theme:'grid',styles:{fontSize:8,cellPadding:3},headStyles:{fillColor:[0,180,140],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},margin:{left:14,right:14}});
+  doc.save(title.replace(/\s/g,'_')+'_'+new Date().toISOString().split('T')[0]+'.pdf');
+  toast('PDF downloaded');
+}
 
-        window.submitForm = async function(e, type) {
-            e.preventDefault();
-            const dbRef = ref(db, `masterData/${type}`);
-            let data = {};
+function makeExcel(title,headers,rows){
+  const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,title.slice(0,31));
+  XLSX.writeFile(wb,title.replace(/\s/g,'_')+'_'+new Date().toISOString().split('T')[0]+'.xlsx');
+  toast('Excel downloaded');
+}
 
-            if (type === 'modules') {
-                data = {
-                    name: document.getElementById('module_name').value,
-                    supervisor: document.getElementById('module_supervisor').value,
-                    status: 'Active'
-                };
-            } else if (type === 'workers') {
-                data = {
-                    operatorId: document.getElementById('worker_id').value,
-                    name: document.getElementById('worker_name').value,
-                    role: document.getElementById('worker_role').value,
-                    skill: document.getElementById('worker_skill').value,
-                    assignedLine: document.getElementById('worker_module').value
-                };
-            } else if (type === 'styles') {
-                data = {
-                    styleNo: document.getElementById('style_no').value,
-                    color: document.getElementById('style_color').value,
-                    module: document.getElementById('style_module').value,
-                    shift1: document.getElementById('style_t1').value,
-                    shift2: document.getElementById('style_t2').value,
-                    status: 'Active',
-                    startedAt: new Date().toISOString()
-                };
-            } else if (type === 'defects') {
-                data = {
-                    category: document.getElementById('defect_cat').value,
-                    name: document.getElementById('defect_name').value
-                };
-            }
+window.rptAllInsp=function(fmt){
+  const ins=D.inspections;if(!ins.length){toast('No data','error');return;}
+  const hdr=['Type','Date','Module','Operator','Operation','Checked','Defects','DHU%','Defect Type','Inspector'];
+  const rows=ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0;return[i.type,i.date||fd(i.createdAt),i.module,i.operatorId,i.operation,c,d,c?((d/c)*100).toFixed(1):'0',i.defectType,i.inspector||i.submittedBy];});
+  const tc=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),td=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const summary=[`Total Inspections: ${ins.length}`,`Total Checked: ${tc}`,`Total Defects: ${td}`,`Overall DHU: ${tc?((td/tc)*100).toFixed(1):0}%`];
+  if(fmt==='pdf')makePDF('All Inspections Report',hdr,rows,summary);
+  else makeExcel('All Inspections',hdr,rows);
+};
 
-            try {
-                await push(dbRef, data);
-                e.target.reset();
-                const msg = document.getElementById(`msg-${type}`);
-                msg.classList.remove('hidden');
-                setTimeout(() => msg.classList.add('hidden'), 3000);
-            } catch (error) {
-                console.error(`Error saving ${type}:`, error);
-            }
-        };
+window.rptDefects=function(fmt){
+  const dm={};D.inspections.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});
+  const sorted=Object.entries(dm).sort((a,b)=>b[1]-a[1]);const total=sorted.reduce((a,[_,c])=>a+c,0);
+  const hdr=['Defect Type','Count','Percentage'];
+  const rows=sorted.map(([n,c])=>[n,c,((c/total)*100).toFixed(1)+'%']);
+  const summary=[`Total Defect Types: ${sorted.length}`,`Total Defects: ${total}`,`Top Defect: ${sorted[0]?sorted[0][0]:'-'}`];
+  if(fmt==='pdf')makePDF('Defect Summary Report',hdr,rows,summary);
+  else makeExcel('Defect Summary',hdr,rows);
+};
 
+window.rptModules=function(fmt){
+  const mm={};D.inspections.forEach(i=>{if(i.module){if(!mm[i.module])mm[i.module]={c:0,d:0,n:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;mm[i.module].n++;}});
+  const hdr=['Module','Inspections','Checked','Defects','DHU%','Status'];
+  const rows=Object.entries(mm).map(([m,d])=>{const v=d.c?((d.d/d.c)*100).toFixed(1):0;return[m,d.n,d.c,d.d,v+'%',v>5?'Critical':v>3?'Warning':'Good'];});
+  if(fmt==='pdf')makePDF('Module Performance Report',hdr,rows);
+  else makeExcel('Module Performance',hdr,rows);
+};
 
-        const dummyModulesData = [
-            { id: 1, name: 'Module 01', produced: 340, target: 400, dhu: 1.2, status: 'good' },
-            { id: 2, name: 'Module 02', produced: 380, target: 400, dhu: 3.5, status: 'warning' },
-            { id: 3, name: 'Module 03', produced: 410, target: 400, dhu: 0.8, status: 'good' },
-            { id: 4, name: 'Module 04', produced: 290, target: 400, dhu: 1.5, status: 'good' },
-            { id: 5, name: 'Module 05', produced: 210, target: 400, dhu: 5.8, status: 'critical' },
-            { id: 6, name: 'Module 06', produced: 350, target: 400, dhu: 2.1, status: 'warning' }
-        ];
+window.rptOperator=function(fmt){
+  const om={};D.inspections.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={c:0,d:0,n:0,ops:new Set()};om[i.operatorId].c+=parseInt(i.checkedQty)||0;om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;if(i.operation)om[i.operatorId].ops.add(i.operation);}});
+  const hdr=['Operator','Inspections','Checked','Defects','Avg Defects','DHU%','Operations','Risk'];
+  const rows=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).map(([o,d])=>{const avg=(d.d/d.n).toFixed(1);const v=d.c?((d.d/d.c)*100).toFixed(1):0;return[o,d.n,d.c,d.d,avg,v+'%',[...d.ops].join(', '),avg>3?'High':avg>1?'Medium':'Low'];});
+  const summary=[`Total Operators: ${rows.length}`,`High Risk: ${rows.filter(r=>r[7]==='High').length}`,`Medium Risk: ${rows.filter(r=>r[7]==='Medium').length}`];
+  if(fmt==='pdf')makePDF('Operator Analysis Report',hdr,rows,summary);
+  else makeExcel('Operator Analysis',hdr,rows);
+};
 
-        window.toggleDemoMode = function(checkbox) {
-            window.isDemoMode = checkbox.checked;
-            const alertContainer = document.getElementById('ai-alerts-container');
-            const alertBadge = document.getElementById('header-alert-badge');
+window.rptCompleted=function(fmt){
+  const completed=D.styles.filter(s=>s.status==='Completed');
+  if(!completed.length){toast('No completed styles','error');return;}
+  const hdr=['Style ID','Name','Buyer','Color','Target DHU','Completed Date','Total Inspections','Total Checked','Total Defects','Final DHU%'];
+  const rows=completed.map(s=>{
+    const sIns=D.inspections.filter(i=>i.style&&(i.style.includes(s.name)||i.style.includes(s.styleId)));
+    const tc=sIns.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+    const td=sIns.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+    return[s.styleId,s.name,s.buyer,s.color,s.targetDhu+'%',fd(s.completedDate),sIns.length,tc,td,tc?((td/tc)*100).toFixed(1)+'%':'0%'];
+  });
+  const summary=[`Completed Styles: ${completed.length}`,`Total Inspections: ${rows.reduce((a,r)=>a+r[6],0)}`];
+  if(fmt==='pdf')makePDF('Completed Styles Report',hdr,rows,summary);
+  else makeExcel('Completed Styles',hdr,rows);
+};
 
-            if(window.isDemoMode) {
-                renderHeatmap(dummyModulesData);
-                updateChart(true);
-                
-                // Populate KPIs
-                document.getElementById('kpi-modules').innerHTML = '8 <span class="text-sm font-normal text-slate-400">/ 12</span>';
-                document.getElementById('kpi-output').innerHTML = '2,705 <span class="text-sm font-normal text-slate-400">pcs</span>';
-                document.getElementById('kpi-dhu').innerText = '2.4%';
-                document.getElementById('kpi-eff').innerText = '88.5%';
-                
-                alertBadge.classList.remove('hidden');
-                
-                // Populate AI Alerts
-                alertContainer.innerHTML = `
-                    <div class="bg-white border border-red-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
-                        <div class="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
-                        <div class="flex items-start gap-3">
-                            <div class="bg-red-50 text-red-500 rounded-full p-2 mt-1 shrink-0">
-                                <i class="ph ph-warning-octagon text-xl"></i>
-                            </div>
-                            <div>
-                                <div class="flex justify-between items-center mb-1">
-                                    <h4 class="font-bold text-slate-800 text-sm">Module 05 • Critical DHU Spike</h4>
-                                    <span class="text-[10px] text-slate-400 font-medium">2m ago</span>
-                                </div>
-                                <p class="text-xs text-slate-600 leading-relaxed mb-3">Skip Stitch defects increased by 230% in the last 45 minutes.</p>
-                                <div class="bg-slate-50 rounded-lg p-3 border border-slate-100">
-                                    <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">AI Analysis</p>
-                                    <ul class="text-xs text-slate-700 space-y-1 mb-2 font-medium">
-                                        <li>• 85% of defects from Operator: OP-10838</li>
-                                        <li>• Operation: Waist Join</li>
-                                    </ul>
-                                    <p class="text-xs text-red-600 font-semibold flex items-center gap-1">
-                                        <i class="ph-fill ph-wrench"></i> Action: Check Machine Settings
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="bg-white border border-amber-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
-                        <div class="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
-                        <div class="flex items-start gap-3">
-                            <div class="bg-amber-50 text-amber-500 rounded-full p-2 mt-1 shrink-0">
-                                <i class="ph ph-warning text-xl"></i>
-                            </div>
-                            <div>
-                                <div class="flex justify-between items-center mb-1">
-                                    <h4 class="font-bold text-slate-800 text-sm">Module 08 • Target Risk</h4>
-                                    <span class="text-[10px] text-slate-400 font-medium">14m ago</span>
-                                </div>
-                                <p class="text-xs text-slate-600 leading-relaxed mb-3">Module efficiency dropped to 72%. Projected to miss Shift 1 target by 60 pieces.</p>
-                                <div class="bg-slate-50 rounded-lg p-3 border border-slate-100">
-                                    <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">AI Analysis</p>
-                                    <p class="text-xs text-slate-700 font-medium">Bottleneck detected at "Collar Attach" operation. Intervention recommended.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                renderHeatmap([]);
-                updateChart(false);
-                
-                // Clear KPIs
-                document.getElementById('kpi-modules').innerHTML = '0 <span class="text-sm font-normal text-slate-400">/ 0</span>';
-                document.getElementById('kpi-output').innerHTML = '0 <span class="text-sm font-normal text-slate-400">pcs</span>';
-                document.getElementById('kpi-dhu').innerText = '0.0%';
-                document.getElementById('kpi-eff').innerText = '0.0%';
-                
-                alertBadge.classList.add('hidden');
+// ======================== OTHER PAGES ========================
+function pgAlerts(){return`<div style="display:flex;flex-direction:column;gap:20px"><div><button class="btn btn-primary" onclick="showModal('addAlert')">${ic('plus',14)} Create Alert</button></div>${D.alerts.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No alerts</div>':D.alerts.slice().reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',16)}<div style="flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">${a.title||''}</span><span class="badge badge-${a.level==='critical'?'red':a.level==='high'?'yellow':'blue'}">${a.level||''}</span>${a.read?'':'<span class="badge badge-red" style="font-size:9px">NEW</span>'}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">${a.message||''}</div><div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span style="font-size:10px;color:var(--text3)">${ft(a.createdAt)}</span>${!a.read?`<button class="btn btn-ghost btn-sm" onclick="markRead('${a.fbKey}')">Mark Read</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('alerts','${a.fbKey}')">${ic('trash',14)}</button></div></div></div>`).join('')}</div>`;}
 
-                // Clear AI Alerts
-                alertContainer.innerHTML = `
-                    <div class="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                        No active alerts. Factory is operating normally.
-                    </div>
-                `;
-            }
-        };
+function pgInsp(){
+  let ins=D.inspections.slice().reverse();const q=D.sq.toLowerCase();
+  if(q)ins=ins.filter(i=>(i.type||'').includes(q)||(i.module||'').toLowerCase().includes(q)||(i.inspector||'').toLowerCase().includes(q)||(i.operatorId||'').toLowerCase().includes(q));
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search..." value="${D.sq}" oninput="D.sq=this.value;render()"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td>${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('inspections','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
+}
 
-        function renderHeatmap(modulesData) {
-            const container = document.getElementById('heatmap-container');
-            container.innerHTML = ''; 
+function pgSuper(){const ins=D.inspections;const mm={};ins.forEach(i=>{if(i.module){if(!mm[i.module])mm[i.module]={c:0,d:0,n:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;mm[i.module].n++;}});return`<div style="display:flex;flex-direction:column;gap:20px"><div class="grid-4">${kpi(ins.length,'Inspections','','var(--accent)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),'Checked','','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','','var(--red)')}${kpi(dhu(ins)+'%','DHU','','var(--yellow)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Module</th><th>Inspections</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Status</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.c?((d.d/d.c)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${m}</td><td>${d.n}</td><td>${d.c}</td><td style="color:var(--red)">${d.d}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;}
 
-            if(modulesData.length === 0) {
-                container.innerHTML = '<div class="col-span-full p-8 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">No active production data. Turn on Demo Mode to preview.</div>';
-                return;
-            }
+function pgAI(){const ins=D.inspections;const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const td=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);const total=Object.values(dm).reduce((a,b)=>a+b,0)||1;const om={};ins.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});const to=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,5);return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="ai-chip">${ic('cpu',12)} AI Analysis</div><div style="margin-top:8px;font-size:14px;font-weight:500;color:var(--text2)">From ${ins.length} records</div></div>${ins.length>0?`<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Defect Distribution</span></div>${td.map(([n,c])=>`<div class="ai-finding"><div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:500">${n}</span><span style="font-size:12px;font-family:var(--mono);color:var(--red)">${c} (${((c/total)*100).toFixed(0)}%)</span></div><div class="ai-bar"><div class="ai-bar-fill" style="width:${(c/total)*100}%"></div></div></div>`).join('')}</div><div class="card"><div class="card-header"><span class="card-title">Operator Risk</span></div>${to.length===0?'<div style="color:var(--text3);padding:12px">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Operator</th><th>Checks</th><th>Defects</th><th>Risk</th></tr></thead><tbody>${to.map(([o,d])=>{const avg=(d.d/d.n).toFixed(1);return`<tr><td style="font-family:var(--mono)">${o}</td><td>${d.n}</td><td style="color:var(--red)">${d.d}</td><td><span class="badge badge-${avg>3?'red':avg>1?'yellow':'green'}">${avg>3?'High':avg>1?'Med':'Low'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div></div><div class="card"><div class="card-header"><span class="card-title">Recommendations</span><button class="btn btn-ghost btn-sm" onclick="rptOperator('pdf')">${ic('pdf',12)} Report</button></div>${td.slice(0,3).map(([n,c])=>`<div class="alert-card alert-high">${ic('cpu',14)}<div><div style="font-weight:500">"${n}" — ${c} occurrences (${((c/total)*100).toFixed(0)}%)</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Consider machine maintenance, retraining, or material check.</div></div></div>`).join('')}</div>`:''}</div>`;}
 
-            modulesData.forEach(mod => {
-                let bgClass = '', textClass = '', borderClass = '', icon = '';
-                if (mod.status === 'good') {
-                    bgClass = 'bg-emerald-50'; textClass = 'text-emerald-700'; borderClass = 'border-emerald-200'; icon = 'ph-check-circle';
-                } else if (mod.status === 'warning') {
-                    bgClass = 'bg-amber-50'; textClass = 'text-amber-700'; borderClass = 'border-amber-200'; icon = 'ph-warning';
-                } else {
-                    bgClass = 'bg-red-50'; textClass = 'text-red-700'; borderClass = 'border-red-200'; icon = 'ph-warning-octagon';
-                }
+function pgOps(){const ops=D.operations;return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><div><span class="card-title">Operations</span><div style="font-size:12px;color:var(--text3);margin-top:4px">These appear in worker dropdown</div></div><button class="btn btn-primary btn-sm" onclick="showModal('addOp')">${ic('plus',14)} Add</button></div>${ops.length===0?`<div style="padding:20px;text-align:center;color:var(--text3)">No custom operations. <button class="btn btn-ghost btn-sm" onclick="seedOps()">Load Defaults</button></div>`:`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Added</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td style="font-weight:500">${o.name||''}</td><td style="font-size:12px;color:var(--text3)">${fd(o.createdAt)}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('operations','${o.fbKey}')">${ic('trash',14)}</button></td></tr>`).join('')}</tbody></table></div>`}</div></div>`;}
 
-                const efficiency = Math.round((mod.produced / mod.target) * 100) || 0;
-                const progressWidth = efficiency > 100 ? 100 : efficiency;
+function pgUsers(){return`<div style="display:flex;flex-direction:column;gap:20px"><div><button class="btn btn-primary" onclick="showModal('addUser')">${ic('plus',14)} Add User</button></div>${D.users.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No users</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th></th></tr></thead><tbody>${D.users.map(u=>`<tr><td style="font-weight:500"><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:24px;height:24px;font-size:9px">${ini(u.name)}</div>${u.name||''}</div></td><td style="font-family:var(--mono);font-size:12px">${u.username||u.email||''}</td><td><span class="badge badge-${u.role==='Admin'?'green':u.role?.includes('QC')?'blue':'yellow'}">${u.role||''}</span></td><td style="font-family:var(--mono);font-size:12px">${u.password?'••••••':''} <button class="btn-icon" onclick="alert('Password: ${u.password||'none'}')" title="Show">${ic('eye',12)}</button></td><td><span class="badge badge-${u.status==='Active'?'green':'gray'}">${u.status||'Active'}</span></td><td><button class="btn-icon" onclick="showModal('editUser',${JSON.stringify(u).replace(/"/g,'&quot;')})">${ic('edit',14)}</button></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;}
 
-                const cardHTML = `
-                    <div class="${bgClass} border ${borderClass} rounded-xl p-4 transition-transform hover:scale-[1.02] cursor-pointer">
-                        <div class="flex justify-between items-start mb-2">
-                            <h4 class="font-bold ${textClass}">${mod.name}</h4>
-                            <i class="ph-fill ${icon} ${textClass} text-lg"></i>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-sm mt-3">
-                            <div>
-                                <p class="text-slate-500 text-[10px] uppercase font-bold tracking-wider">DHU %</p>
-                                <p class="font-bold ${textClass} text-lg">${mod.dhu}%</p>
-                            </div>
-                            <div>
-                                <p class="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Efficiency</p>
-                                <p class="font-bold text-slate-700 text-lg">${efficiency}%</p>
-                            </div>
-                        </div>
-                        <div class="mt-3 w-full bg-white/50 rounded-full h-1.5 overflow-hidden">
-                            <div class="h-full bg-slate-400 rounded-full" style="width: ${progressWidth}%"></div>
-                        </div>
-                        <div class="mt-1 flex justify-between text-[10px] text-slate-500 font-medium">
-                            <span>${mod.produced} pcs</span>
-                            <span>Target: ${mod.target}</span>
-                        </div>
-                    </div>
-                `;
-                container.insertAdjacentHTML('beforeend', cardHTML);
-            });
-        }
+function pgSettings(){return`<div style="max-width:640px"><div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">Profile</span></div><div style="display:flex;align-items:center;gap:16px;margin-bottom:16px"><div class="avatar" style="width:56px;height:56px;font-size:18px">${ini(D.user?.name)}</div><div><div style="font-size:16px;font-weight:600">${D.user?.name||''}</div><div style="font-size:12px;color:var(--text2)">${D.user?.username||D.user?.email||''}</div><span class="badge badge-green">${D.user?.role||''}</span></div></div></div><div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">Seed Demo Data</span></div><div style="font-size:12px;color:var(--text2);margin-bottom:12px">Populate with sample styles, modules, operations, inspections</div><button class="btn btn-ghost" id="seed-btn">${ic('refresh',14)} Seed Demo Data</button></div><div class="card"><button class="btn btn-danger" onclick="logout()">${ic('logout',14)} Sign Out</button></div></div>`;}
 
-        let defectsChartInstance = null;
+// ======================== MODAL ========================
+function renderModal(){
+  const m=D.showModal,d=D.modalData;let title='',body='';
+  if(m==='addMod'){
+    title='Add Module';const sopts=D.styles.map(s=>`<option value="${s.fbKey}" data-n="${s.name}" data-i="${s.styleId}" data-b="${s.buyer}">${s.styleId} — ${s.name} (${s.buyer||''})</option>`).join('');
+    body=`<form id="mf">${D.styles.length===0?'<div style="padding:12px;background:rgba(212,168,0,.1);border:1px solid rgba(212,168,0,.3);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--yellow)">⚠ Add styles first!</div>':''}<div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" placeholder="MOD-01" required></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" placeholder="Module 1" required></div></div><div class="form-group"><label class="form-label">Style *</label><select class="form-input" name="styleKey" id="ssel" required><option value="">— Pick style —</option>${sopts}</select></div><input type="hidden" name="styleName" id="hsn"><input type="hidden" name="styleId" id="hsi"><input type="hidden" name="buyer" id="hby"><div class="form-row"><div class="form-group"><label class="form-label">Shift</label><select class="form-input" name="shift"><option>A</option><option>B</option></select></div><div class="form-group"><label class="form-label">Operators</label><input class="form-input" name="operators" type="number" value="10"></div></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="2.5"></div><button class="btn btn-primary" type="button" onclick="sub('addMod')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
+  }else if(m==='editMod'){
+    title='Edit Module';const eo=D.styles.map(s=>`<option value="${s.fbKey}" ${d?.styleKey===s.fbKey||d?.styleName===s.name?'selected':''}>${s.styleId} — ${s.name}</option>`).join('');
+    body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" value="${d?.moduleId||''}"></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div></div><div class="form-group"><label class="form-label">Style</label><select class="form-input" name="styleKey" id="ssel"><option value="">—</option>${eo}</select></div><input type="hidden" name="styleName" id="hsn" value="${d?.styleName||''}"><input type="hidden" name="styleId" id="hsi" value="${d?.styleId||''}"><input type="hidden" name="buyer" id="hby" value="${d?.buyer||''}"><div class="form-row"><div class="form-group"><label class="form-label">Shift</label><select class="form-input" name="shift"><option ${d?.shift==='A'?'selected':''}>A</option><option ${d?.shift==='B'?'selected':''}>B</option></select></div><div class="form-group"><label class="form-label">Operators</label><input class="form-input" name="operators" type="number" value="${d?.operators||0}"></div></div><div class="form-group"><label class="form-label">DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="${d?.dhu||2.5}"></div><button class="btn btn-primary" type="button" onclick="sub('editMod')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+  }else if(m==='modQR'){
+    title='Module QR Code';const qd=JSON.stringify({moduleId:d?.moduleId,name:d?.name,styleName:d?.styleName,styleId:d?.styleId,buyer:d?.buyer,fbKey:d?.fbKey});
+    body=`<div style="text-align:center"><div style="font-size:16px;font-weight:600">${d?.name||''}</div><div style="font-size:13px;color:var(--text2)">${d?.styleName||''} ${d?.buyer?'• '+d.buyer:''}</div><div style="font-size:11px;color:var(--text3);margin-bottom:12px">${d?.moduleId||''}</div><div class="qr-container" id="qr-el"></div><div style="margin-top:16px;font-size:12px;color:var(--text3)">Workers scan this with worker.html</div><button class="btn btn-ghost" style="margin-top:12px" onclick="printQR()">🖨️ Print</button></div><span id="qr-d" data-v='${qd.replace(/'/g,"&#39;")}'></span>`;
+  }else if(m==='addStyle'){
+    title='Add Style';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Style ID *</label><input class="form-input" name="styleId" placeholder="STY-2024-001" required></div><div class="form-group"><label class="form-label">Name *</label><input class="form-input" name="name" placeholder="Polo Shirt" required></div></div><div class="form-row"><div class="form-group"><label class="form-label">Buyer</label><select class="form-input" name="buyer"><option value="">—</option>${BUYERS.map(b=>`<option>${b}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Color</label><input class="form-input" name="color" placeholder="Navy"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option>Planned</option><option selected>Running</option></select></div><div class="form-group"><label class="form-label">Target DHU</label><input class="form-input" name="targetDhu" type="number" step="0.1" value="2.5"></div></div><button class="btn btn-primary" type="button" onclick="sub('addStyle')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
+  }else if(m==='editStyle'){
+    title='Edit Style';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Style ID</label><input class="form-input" name="styleId" value="${d?.styleId||''}"></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Buyer</label><select class="form-input" name="buyer"><option value="">—</option>${BUYERS.map(b=>`<option ${d?.buyer===b?'selected':''}>${b}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Color</label><input class="form-input" name="color" value="${d?.color||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Planned'?'selected':''}>Planned</option><option ${d?.status==='Running'?'selected':''}>Running</option><option ${d?.status==='Completed'?'selected':''}>Completed</option></select></div><div class="form-group"><label class="form-label">Target DHU</label><input class="form-input" name="targetDhu" type="number" step="0.1" value="${d?.targetDhu||2.5}"></div></div><button class="btn btn-primary" type="button" onclick="sub('editStyle')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+  }else if(m==='addOp'){
+    title='Add Operation';body=`<form id="mf"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" required placeholder="e.g. Side Seam"></div><button class="btn btn-primary" type="button" onclick="sub('addOp')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
+  }else if(m==='addAlert'){
+    title='Create Alert';body=`<form id="mf"><div class="form-group"><label class="form-label">Title</label><input class="form-input" name="title" required></div><div class="form-group"><label class="form-label">Message</label><textarea class="form-input" name="message" rows="3" required></textarea></div><div class="form-row"><div class="form-group"><label class="form-label">Level</label><select class="form-input" name="level"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div><div class="form-group"><label class="form-label">Module</label><input class="form-input" name="module"></div></div><button class="btn btn-primary" type="button" onclick="sub('addAlert')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Create</button></form>`;
+  }else if(m==='addUser'){
+    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>QC Inline Inspector</option><option>QC End Line Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
+  }else if(m==='editUser'){
+    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role">${['Admin','Manager','Supervisor','QC Inline Inspector','QC End Line Inspector'].map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+  }else{title='Info';body='<button class="btn btn-ghost" onclick="closeModal()">Close</button>';}
+  return`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-header"><div class="modal-title">${title}</div><button class="btn-icon" onclick="closeModal()">${ic('x',18)}</button></div>${body}</div></div>`;
+}
 
-        function renderChart(isDemo) {
-            const ctx = document.getElementById('defectsChart').getContext('2d');
-            
-            if (defectsChartInstance) {
-                defectsChartInstance.destroy();
-            }
+// Style select → fill hidden fields
+function bindSsel(){const s=document.getElementById('ssel');if(!s)return;s.onchange=function(){const sty=D.styles.find(x=>x.fbKey===s.value);if(sty){document.getElementById('hsn').value=sty.name||'';document.getElementById('hsi').value=sty.styleId||'';document.getElementById('hby').value=sty.buyer||'';}};}
 
-            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-            gradient.addColorStop(0, '#3b82f6'); 
-            gradient.addColorStop(1, '#93c5fd'); 
+// Submit modal
+window.sub=async function(type){
+  const f=document.getElementById('mf');if(!f)return;const fd=new FormData(f);const data=Object.fromEntries(fd.entries());
+  try{
+    if(type==='addMod'){await window.fbAdd('modules',data);toast('Module added');}
+    else if(type==='editMod'){await window.fbUpd('modules',D.modalData.fbKey,data);toast('Updated');}
+    else if(type==='addStyle'){await window.fbAdd('styles',data);toast('Style added');}
+    else if(type==='editStyle'){if(data.status==='Completed'&&D.modalData.status!=='Completed')data.completedDate=new Date().toISOString();await window.fbUpd('styles',D.modalData.fbKey,data);toast('Updated');}
+    else if(type==='addOp'){await window.fbAdd('operations',data);toast('Added');}
+    else if(type==='addAlert'){await window.fbAdd('alerts',{...data,read:false,createdBy:D.user?.username});toast('Alert created');}
+    else if(type==='addUser'){if(!data.username||!data.password){toast('Username & password required','error');return;}await window.fbAdd('users',{...data,status:'Active'});toast('User added');}
+    else if(type==='editUser'){await window.fbUpd('users',D.modalData.fbKey,data);toast('Updated');}
+    closeModal();
+  }catch(e){toast('Error: '+e.message,'error');}
+};
 
-            const dataPoints = isDemo ? [45, 32, 28, 15, 12] : [0, 0, 0, 0, 0];
+// Delete helpers
+window.del=async function(p,k){if(!confirm('Delete?'))return;await window.fbDel(p,k);toast('Deleted');};
+window.markRead=async function(k){await window.fbUpd('alerts',k,{read:true});toast('Read');};
+window.seedOps=async function(){for(const o of DEF_OPS)await window.fbAdd('operations',{name:o});toast('Loaded');render();};
+window.printQR=function(){const el=document.getElementById('qr-el');if(!el)return;const w=window.open();w.document.write(`<html><body style="display:flex;justify-content:center;padding:40px"><div style="text-align:center"><h2>${D.modalData?.name||''}</h2><p>${D.modalData?.styleName||''} — ${D.modalData?.buyer||''}</p>${el.innerHTML}<p style="font-size:12px;margin-top:8px">${D.modalData?.moduleId||''}</p></div></body></html>`);w.document.close();w.print();};
 
-            defectsChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['Skip Stitch', 'Puckering', 'Open Seam', 'Oil Stain', 'Broken Stitches'],
-                    datasets: [{
-                        label: 'Total Count',
-                        data: dataPoints,
-                        backgroundColor: gradient,
-                        borderRadius: 6,
-                        borderSkipped: false,
-                        barThickness: 30
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        y: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { color: '#64748b' } },
-                        x: { grid: { display: false, drawBorder: false }, ticks: { color: '#64748b', font: { family: 'Inter' } } }
-                    }
-                }
-            });
-        }
+// Seed demo data
+function bindSeed(){
+  const btn=document.getElementById('seed-btn');if(!btn)return;
+  btn.onclick=async()=>{if(!confirm('Add demo data?'))return;btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Seeding...';
+  try{
+    // Users
+    await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@brandix.com',status:'Active'});
+    await window.fbAdd('users',{username:'ravi',password:'ravi123',name:'Ravi Perera',role:'QC Inline Inspector',dept:'Quality',status:'Active'});
+    await window.fbAdd('users',{username:'sita',password:'sita123',name:'Sita Nair',role:'QC End Line Inspector',dept:'Quality',status:'Active'});
+    await window.fbAdd('users',{username:'bimal',password:'bimal123',name:'Bimal Silva',role:'Supervisor',dept:'Production',status:'Active'});
+    // Styles
+    const stys=[{styleId:'STY-1000',name:'Polo Shirt',buyer:'H&M',color:'White',status:'Running',targetDhu:2.5},{styleId:'STY-1001',name:'Casual Tee',buyer:'Zara',color:'Navy',status:'Running',targetDhu:2.5},{styleId:'STY-1002',name:'Formal Shirt',buyer:'Gap',color:'Blue',status:'Completed',targetDhu:2.0,completedDate:new Date(Date.now()-3*86400000).toISOString()},{styleId:'STY-1003',name:'Denim Shirt',buyer:'Next',color:'Indigo',status:'Running',targetDhu:3.0}];
+    for(const s of stys)await window.fbAdd('styles',s);
+    // Modules
+    const mods=[{moduleId:'MOD-01',name:'Module 1',shift:'A',operators:12,styleName:'Polo Shirt',styleId:'STY-1000',buyer:'H&M',dhu:2.1},{moduleId:'MOD-02',name:'Module 2',shift:'A',operators:10,styleName:'Casual Tee',styleId:'STY-1001',buyer:'Zara',dhu:3.4},{moduleId:'MOD-03',name:'Module 3',shift:'B',operators:14,styleName:'Denim Shirt',styleId:'STY-1003',buyer:'Next',dhu:5.2}];
+    for(const m of mods)await window.fbAdd('modules',m);
+    // Operations
+    for(const o of DEF_OPS)await window.fbAdd('operations',{name:o});
+    // Inspections
+    for(let i=0;i<20;i++){const d=new Date(Date.now()-Math.random()*7*86400000);const m=mods[Math.floor(Math.random()*mods.length)];const c=20+Math.floor(Math.random()*80);const df=Math.floor(Math.random()*Math.max(1,c*0.1));await window.fbAdd('inspections',{id:'INS-SEED-'+i,type:Math.random()>.5?'inline':'endline',date:d.toISOString().split('T')[0],time:d.toTimeString().slice(0,5),shift:m.shift,module:m.name,style:m.styleName,operatorId:'OP-'+Math.floor(10800+Math.random()*50),operation:DEF_OPS[Math.floor(Math.random()*DEF_OPS.length)],checkedQty:c+'',defectQty:df+'',defectType:DEFECTS[Math.floor(Math.random()*DEFECTS.length)],inspector:'Admin',submittedBy:'admin'});}
+    await window.fbAdd('alerts',{title:'Module 3 DHU spike',message:'DHU at 5.2%',level:'critical',module:'Module 3',read:false,createdBy:'system'});
+    toast('Demo data seeded! Refresh to see all.');btn.innerHTML=ic('check',14)+' Done!';
+  }catch(e){toast('Error: '+e.message,'error');btn.innerHTML=ic('refresh',14)+' Retry';}btn.disabled=false;};
+}
 
-        function updateChart(isDemo) {
-            if (defectsChartInstance) {
-                defectsChartInstance.data.datasets[0].data = isDemo ? [45, 32, 28, 15, 12] : [0, 0, 0, 0, 0];
-                defectsChartInstance.update();
-            }
-        }
-        
-        window.onload = async function() {
-            renderChart(false);
-            renderHeatmap([]); // Start empty unless demo mode is on
-            try {
-                await signInAnonymously(auth);
-            } catch (error) {
-                console.error("Auth error:", error);
-            }
-        };
+// Charts
+function renderCharts(){
+  const ins=D.inspections;const colors=['#e05555','#d4a800','#4488ff','#9966ff','#00d4a8','#ff9424'];
+  const chOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:11}}},x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:10}}}}};
+  // ch1 - timeline
+  const e1=document.getElementById('ch1');
+  if(e1&&ins.length){const dm={};ins.forEach(i=>{const d=(i.date||(i.createdAt||'').split('T')[0])||'?';dm[d]=(dm[d]||0)+1;});const s=Object.entries(dm).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);charts.c1=new Chart(e1,{type:'bar',data:{labels:s.map(([d])=>d.slice(5)),datasets:[{data:s.map(([_,c])=>c),backgroundColor:'rgba(0,212,168,.6)',borderRadius:4}]},options:chOpts});}
+  // ch2 - defects donut
+  const e2=document.getElementById('ch2');
+  if(e2&&ins.length){const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);charts.c2=new Chart(e2,{type:'doughnut',data:{labels:t.map(([n])=>n),datasets:[{data:t.map(([_,c])=>c),backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#9097a8',font:{size:10},boxWidth:12}}},cutout:'65%'}});}
+  // ch3 - type split
+  const e3=document.getElementById('ch3');
+  if(e3){charts.c3=new Chart(e3,{type:'doughnut',data:{labels:['Inline','End Line'],datasets:[{data:[ins.filter(i=>i.type==='inline').length,ins.filter(i=>i.type==='endline').length],backgroundColor:['#4488ff','#9966ff'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#9097a8'}}},cutout:'65%'}});}
+  // ch4 - top defects bar
+  const e4=document.getElementById('ch4');
+  if(e4){const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);charts.c4=new Chart(e4,{type:'bar',data:{labels:t.map(([n])=>n.length>12?n.slice(0,12)+'…':n),datasets:[{data:t.map(([_,c])=>c),backgroundColor:colors,borderRadius:4}]},options:{...chOpts,indexAxis:'y'}});}
+  // ch5 - DHU trend
+  const e5=document.getElementById('ch5');
+  if(e5&&ins.length){const dm={};ins.forEach(i=>{const d=(i.date||(i.createdAt||'').split('T')[0])||'?';if(!dm[d])dm[d]={c:0,d:0};dm[d].c+=parseInt(i.checkedQty)||0;dm[d].d+=parseInt(i.defectQty)||0;});const s=Object.entries(dm).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);charts.c5=new Chart(e5,{type:'line',data:{labels:s.map(([d])=>d.slice(5)),datasets:[{label:'DHU %',data:s.map(([_,d])=>d.c?((d.d/d.c)*100).toFixed(1):0),borderColor:'#00d4a8',backgroundColor:'rgba(0,212,168,.1)',tension:.4,fill:true,pointRadius:4,pointBackgroundColor:'#00d4a8'},{label:'Target',data:s.map(()=>2.5),borderColor:'#e05555',borderDash:[4,4],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9097a8'}}},scales:{y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8'},suggestedMin:0},x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:10}}}}}});}
+}
 
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
+function renderQR(){
+  const el=document.getElementById('qr-el'),de=document.getElementById('qr-d');
+  if(el&&de){el.innerHTML='';try{new QRCode(el,{text:de.getAttribute('data-v'),width:200,height:200,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});}catch(e){el.innerHTML='<div style="color:red">QR failed</div>';}}
+}
 
-                // Listen to Master Modules
-                onValue(ref(db, 'masterData/modules'), (snapshot) => {
-                    const data = snapshot.val();
-                    const tbody = document.getElementById('table-modules');
-                    const workerDropdown = document.getElementById('worker_module');
-                    const styleDropdown = document.getElementById('style_module');
-                    
-                    tbody.innerHTML = '';
-                    workerDropdown.innerHTML = '<option value="Unassigned">Unassigned</option>';
-                    styleDropdown.innerHTML = '<option value="" disabled selected>Select Module</option>';
+function afterRender(){
+  bindSsel();bindSeed();
+  requestAnimationFrame(()=>{renderCharts();renderQR();});
+  document.onkeydown=e=>{if(e.key==='Escape'&&D.showModal)closeModal();};
+}
 
-                    if (data) {
-                        Object.entries(data).forEach(([key, mod]) => {
-                            tbody.insertAdjacentHTML('beforeend', `
-                                <tr class="hover:bg-slate-50 group border-b border-slate-50 last:border-0">
-                                    <td class="p-3 font-medium text-slate-800">${mod.name}</td>
-                                    <td class="p-3">${mod.supervisor}</td>
-                                    <td class="p-3"><span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] uppercase tracking-wider font-bold">${mod.status}</span></td>
-                                    <td class="p-3 text-center">
-                                        <button onclick="deleteRecord('modules', '${key}')" class="text-slate-400 hover:text-red-500 transition-colors">
-                                            <i class="ph-fill ph-trash text-lg"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            `);
-                            workerDropdown.insertAdjacentHTML('beforeend', `<option value="${mod.name}">${mod.name}</option>`);
-                            styleDropdown.insertAdjacentHTML('beforeend', `<option value="${mod.name}">${mod.name}</option>`);
-                        });
-                    }
-                });
-
-                // Listen to Master Workers
-                onValue(ref(db, 'masterData/workers'), (snapshot) => {
-                    const data = snapshot.val();
-                    const tbody = document.getElementById('table-workers');
-                    tbody.innerHTML = '';
-                    if (data) {
-                        Object.entries(data).forEach(([key, worker]) => {
-                            let gradeColor = worker.skill === 'A' ? 'bg-blue-100 text-blue-700' : (worker.skill === 'B' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700');
-                            tbody.insertAdjacentHTML('beforeend', `
-                                <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
-                                    <td class="p-3 font-medium">${worker.operatorId}</td>
-                                    <td class="p-3">${worker.name}</td>
-                                    <td class="p-3"><span class="px-2 py-1 rounded-md bg-slate-800 text-white text-xs font-medium">${worker.role || 'Operator'}</span></td>
-                                    <td class="p-3"><span class="px-2 py-1 rounded-md text-xs font-bold ${gradeColor}">Grade ${worker.skill}</span></td>
-                                    <td class="p-3">${worker.assignedLine}</td>
-                                    <td class="p-3 text-center">
-                                        <button onclick="deleteRecord('workers', '${key}')" class="text-slate-400 hover:text-red-500 transition-colors">
-                                            <i class="ph-fill ph-trash text-lg"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            `);
-                        });
-                    }
-                });
-
-                // Listen to Styles (Splits into Active vs Ended/Reports)
-                onValue(ref(db, 'masterData/styles'), (snapshot) => {
-                    const data = snapshot.val();
-                    const tbodyActive = document.getElementById('table-styles');
-                    const tbodyReports = document.getElementById('table-reports');
-                    
-                    tbodyActive.innerHTML = '';
-                    tbodyReports.innerHTML = '';
-
-                    if (data) {
-                        Object.entries(data).forEach(([key, style]) => {
-                            if (style.status === 'Active') {
-                                tbodyActive.insertAdjacentHTML('beforeend', `
-                                    <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
-                                        <td class="p-3">
-                                            <p class="font-bold text-slate-800">${style.styleNo}</p>
-                                            <p class="text-xs text-slate-500 flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-slate-300"></div> ${style.color || 'N/A'}</p>
-                                        </td>
-                                        <td class="p-3 font-medium text-primary">${style.module || 'Unassigned'}</td>
-                                        <td class="p-3 text-slate-600 text-sm">${style.shift1} / ${style.shift2}</td>
-                                        <td class="p-3 text-center space-x-2">
-                                            <button onclick="endStyleProcess('${key}', '${style.styleNo}', '${style.module}')" class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition-colors">
-                                                End Style
-                                            </button>
-                                        </td>
-                                    </tr>
-                                `);
-                            } else if (style.status === 'Ended') {
-                                const endDate = new Date(style.endedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                                tbodyReports.insertAdjacentHTML('beforeend', `
-                                    <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
-                                        <td class="p-3 text-sm text-slate-500">${endDate}</td>
-                                        <td class="p-3 font-bold text-slate-800">${style.styleNo}</td>
-                                        <td class="p-3 text-sm">${style.color || 'N/A'}</td>
-                                        <td class="p-3 font-medium text-primary">${style.module}</td>
-                                        <td class="p-3"><span class="px-2 py-1 bg-slate-200 text-slate-700 rounded-full text-[10px] uppercase tracking-wider font-bold">Completed</span></td>
-                                        <td class="p-3 text-center">
-                                            <button class="text-secondary hover:text-blue-700 text-sm font-medium transition-colors">View Report</button>
-                                        </td>
-                                    </tr>
-                                `);
-                            }
-                        });
-                    }
-                });
-
-                // Listen to Master Defects
-                onValue(ref(db, 'masterData/defects'), (snapshot) => {
-                    const data = snapshot.val();
-                    const tbody = document.getElementById('table-defects');
-                    tbody.innerHTML = '';
-                    if (data) {
-                        Object.entries(data).forEach(([key, defect]) => {
-                            tbody.insertAdjacentHTML('beforeend', `
-                                <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0">
-                                    <td class="p-3 text-slate-500">${defect.category}</td>
-                                    <td class="p-3 font-medium text-slate-800">${defect.name}</td>
-                                    <td class="p-3 text-center">
-                                        <button onclick="deleteRecord('defects', '${key}')" class="text-slate-400 hover:text-red-500 transition-colors">
-                                            <i class="ph-fill ph-trash text-lg"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            `);
-                        });
-                    }
-                });
-            }
-        });
-
-    </script>
+render();
+</script>
 </body>
 </html>
