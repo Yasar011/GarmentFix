@@ -1,628 +1,340 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GarmentFix - Worker Portal</title>
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Brandix QMS — Worker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
-    <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@18.2.0",
-        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.292.0",
-        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
-        "firebase/database": "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js"
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, get, push, onValue, child } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+  const app = initializeApp({
+    apiKey: "AIzaSyA-aIRjMPFkK0hQKWY8-rpcA_5TfMhbRM4",
+    authDomain: "qc--brandex.firebaseapp.com",
+    databaseURL: "https://qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "qc--brandex",
+    storageBucket: "qc--brandex.firebasestorage.app",
+    messagingSenderId: "109990871136",
+    appId: "1:109990871136:web:c0dfa5f0ba78bed77c8305"
+  });
+  const db = getDatabase(app);
+  const auth = getAuth(app);
+  signInAnonymously(auth).catch(e => console.error("Anon Auth Error:", e));
+  window._db = db;
+  window._ref = ref; window._set = set; window._get = get;
+  window._push = push; window._onValue = onValue; window._child = child;
+  window._dbReady = true;
+
+  // DB login - check username/password in users table
+  window.dbLogin = async function(username, password) {
+    const snap = await get(ref(db, 'users'));
+    if (!snap.exists()) throw new Error('No users in system');
+    const users = snap.val();
+    for (const [key, u] of Object.entries(users)) {
+      if ((u.username === username || u.email === username) && u.password === password) {
+        return { fbKey: key, ...u };
       }
     }
-    </script>
-</head>
-<body class="bg-slate-100 text-slate-800">
-    <div id="root"></div>
+    throw new Error('Invalid username or password');
+  };
 
-    <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo, useRef } from 'react';
-        import { createRoot } from 'react-dom/client';
-        import { 
-            ClipboardList, Wrench, Clock, CheckSquare, ScanLine, X, 
-            LogOut, User, Lock, Activity, TrendingUp, AlertTriangle, PlayCircle,
-            AlertOctagon, ArrowRight, CheckCircle, History, RefreshCw
-        } from 'lucide-react';
-        import { initializeApp } from "firebase/app";
-        import { getDatabase, ref, onValue, update, remove, push } from "firebase/database";
-
-        // --- FIREBASE CONFIG ---
-        const firebaseConfig = { databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com" };
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
-
-        // --- UI COMPONENTS ---
-        const Card = ({ children, className = "" }) => (
-            <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>
+  window.loadWorkerData = function() {
+    onValue(ref(db, 'modules'), s => {
+      window.WS.modules = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+    });
+    onValue(ref(db, 'styles'), s => {
+      window.WS.styles = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+    });
+    onValue(ref(db, 'operations'), s => {
+      window.WS.operations = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+    });
+    onValue(ref(db, 'inspections'), s => {
+      if (s.exists()) {
+        const today = new Date().toISOString().split('T')[0];
+        const all = Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v}));
+        window.WS.myInspections = all.filter(i =>
+          i.submittedBy === window.WS.user?.username &&
+          (i.date === today || (i.createdAt||'').startsWith(today))
         );
+      } else { window.WS.myInspections = []; }
+      if (window.WS.step === 'dashboard') window.renderW();
+    });
+    if (window.WS.user?.fbKey) {
+      onValue(ref(db, `users/${window.WS.user.fbKey}`), s => {
+        if(s.exists()){
+          const u = s.val();
+          window.WS.user = { fbKey: window.WS.user.fbKey, ...u };
+          if(!u.activeModule && window.WS.step === 'waiting') {
+            window.WS.scannedModule = null;
+            window.WS.step = 'scan';
+            window.renderW();
+            toast('Approved!');
+          } else if (u.activeModule && window.WS.step === 'scan') {
+            try { window.WS.scannedModule = JSON.parse(u.activeModule); } catch(e){}
+            window.WS.step = u.changeRequest ? 'waiting' : 'form';
+            window.renderW();
+          } else if (u.changeRequest && window.WS.step === 'form') {
+            window.WS.step = 'waiting';
+            window.renderW();
+          }
+        }
+      });
+    }
+  };
 
-        const Button = ({ onClick, children, variant = "primary", className = "", fullWidth = false }) => {
-            const variants = {
-                primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-sm",
-                secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                danger: "bg-red-50 text-red-600 hover:bg-red-100",
-                warning: "bg-orange-500 text-white hover:bg-orange-600",
-                success: "bg-emerald-600 text-white hover:bg-emerald-700"
-            };
-            return (
-                <button onClick={onClick} className={`px-4 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`}>
-                    {children}
-                </button>
-            );
-        };
+  window.fbAdd = async function(path, data) {
+    const r = push(ref(db, path));
+    await set(r, { ...data, createdAt: new Date().toISOString() });
+    return r.key;
+  };
 
-        const Badge = ({ status }) => {
-            const styles = {
-                "Critical": "bg-red-600 text-white animate-pulse",
-                "Normal": "bg-slate-100 text-slate-600 border",
-                "Low": "bg-blue-50 text-blue-600 border"
-            };
-            return <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${styles[status] || styles.Normal}`}>{status}</span>;
-        };
+  window.fbAddAlert = async function(data) {
+    const r = push(ref(db, 'alerts'));
+    await set(r, { ...data, createdAt: new Date().toISOString() });
+  };
 
-        const Modal = ({ isOpen, onClose, title, children }) => {
-            if (!isOpen) return null;
-            return (
-                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <Card className="w-full max-w-md p-0 overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-                            <h3 className="font-bold">{title}</h3>
-                            <button onClick={onClose}><X className="w-5 h-5"/></button>
-                        </div>
-                        <div className="p-6">{children}</div>
-                    </Card>
-                </div>
-            );
-        };
+  setTimeout(() => { if(window.WS.step==='loading'){window.WS.step='login';window.renderW();} }, 2000);
+</script>
 
-        // --- QR SCANNER COMPONENT ---
-        const QRScanner = ({ onScan, onClose, title = "Scan QR Code" }) => {
-            useEffect(() => {
-                const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                scanner.render((decodedText) => {
-                    scanner.clear().then(() => onScan(decodedText));
-                }, () => {});
-                return () => { try { scanner.clear(); } catch(e) {} };
-            }, [onScan]);
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0c10;--bg2:#111318;--bg3:#1a1d24;--bg4:#22262f;--border:#2a2e38;--border2:#363c48;--text:#e8eaf0;--text2:#9097a8;--text3:#5c6478;--accent:#00d4a8;--accent2:#0099d4;--red:#e05555;--yellow:#d4a800;--green:#00d4a8;--blue:#4488ff;--purple:#9966ff;--radius:12px;--font:'IBM Plex Sans',sans-serif}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;overflow-x:hidden;font-size:16px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+button{font-family:var(--font);cursor:pointer;border:none;outline:none}
+input,select,textarea{font-family:var(--font);font-size:16px}
+.page{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+.header{padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.header-left{display:flex;align-items:center;gap:10px}
+.logo-sm{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:12px}
+.body{flex:1;padding:16px;overflow-y:auto}
+.login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{width:100%;max-width:380px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px 24px}
+.form-group{margin-bottom:16px}
+.form-label{display:block;font-size:13px;font-weight:500;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.form-input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:14px;border-radius:var(--radius);font-size:16px;transition:border-color .2s}
+.form-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,168,.15)}
+.form-input::placeholder{color:var(--text3)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn-big{width:100%;padding:16px;border-radius:var(--radius);font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000}
+.btn-primary:active{transform:scale(.98)}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.badge{display:inline-flex;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500}
+.badge-green{background:rgba(0,212,168,.15);color:var(--green)}
+.badge-red{background:rgba(224,85,85,.15);color:var(--red)}
+.badge-yellow{background:rgba(212,168,0,.15);color:var(--yellow)}
+.badge-blue{background:rgba(68,136,255,.15);color:var(--blue)}
+.scan-area{background:var(--bg2);border:2px dashed var(--border);border-radius:16px;padding:20px;text-align:center;margin-bottom:16px;min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#qr-reader{width:100%;max-width:400px;border-radius:12px;overflow:hidden}
+.stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center}
+.stat-val{font-size:24px;font-weight:700;font-family:'IBM Plex Mono',monospace}
+.stat-label{font-size:11px;color:var(--text3);margin-top:2px;text-transform:uppercase}
+.sub-item{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.verify-box{background:var(--bg2);border:2px solid var(--accent);border-radius:16px;padding:24px;text-align:center;margin-bottom:16px}
+.success-box{background:rgba(0,212,168,.08);border:1px solid rgba(0,212,168,.3);border-radius:16px;padding:24px;text-align:center;margin-bottom:16px}
+.module-select-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.module-btn{padding:16px;background:var(--bg3);border:2px solid var(--border);border-radius:12px;text-align:center;cursor:pointer;transition:all .2s}
+.module-btn:active{border-color:var(--accent);background:rgba(0,212,168,.05)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:14px 24px;border-radius:12px;font-size:14px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5);max-width:90vw}
+.toast-success{background:rgba(0,212,168,.95);color:#000}
+.toast-error{background:rgba(224,85,85,.95);color:#fff}
+.err-msg{color:var(--red);font-size:13px;margin-bottom:12px;padding:12px;background:rgba(224,85,85,.08);border-radius:8px;border:1px solid rgba(224,85,85,.2);display:none}
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:20px;height:20px;border:2px solid rgba(0,212,168,.3);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+.fade-in{animation:fadeIn .3s ease}
+.btn-logout{padding:8px 14px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:8px;font-size:13px}
+@media(max-width:400px){.stats-row{grid-template-columns:1fr 1fr}.form-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const DEFECTS=['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Shade Variation','Uneven Stitch','Needle Mark','Incorrect SPI','Loose Thread','Missing Button','Seam Pucker','Run-Off','Pleat','Uncut Thread','Stain','Wrong Measurement'];
+const DEFAULT_OPS=['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Yoke Join','Back Panel Join','Front Panel Join','Tacking','Bartack','Topstitch','Overlock','Flatlock'];
 
-            return (
-                <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-md overflow-hidden relative">
-                        <div className="p-3 bg-slate-900 text-white flex justify-between items-center">
-                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title}</h3>
-                            <button onClick={onClose}><X className="w-5 h-5"/></button>
-                        </div>
-                        <div className="p-4 bg-black"><div id="reader" className="w-full"></div></div>
-                        <div className="p-4 text-center text-sm text-slate-500">Point camera at machine QR code</div>
-                    </div>
-                </div>
-            );
-        };
+window.WS = { step:'loading', user:null, loading:false, scannedModule:null, modules:[], styles:[], operations:[], myInspections:[], lastSub:null };
+let qrScanner = null;
 
-        // --- MAIN APP ---
-        const WorkerApp = () => {
-            const [currentUser, setCurrentUser] = useState(null);
-            const [users, setUsers] = useState([]);
-            const [machines, setMachines] = useState({});
-            const [tickets, setTickets] = useState([]);
-            const [logs, setLogs] = useState([]);
-            
-            // Login State
-            const [creds, setCreds] = useState({ username: "", password: "" });
-            const [loginError, setLoginError] = useState("");
+function toast(m,t='success'){document.querySelectorAll('.toast').forEach(e=>e.remove());const d=document.createElement('div');d.className=`toast toast-${t}`;d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),3000);}
 
-            // Task State
-            const [activeTask, setActiveTask] = useState(null);
-            const [showScanner, setShowScanner] = useState(false);
-            const [scanTargetTask, setScanTargetTask] = useState(null);
+// ============ RENDER ============
+window.renderW = function() {
+  const app = document.getElementById('app');
+  const s = WS;
+  if (s.step==='loading'){app.innerHTML=`<div class="login-page"><div style="text-align:center"><div class="spinner" style="width:36px;height:36px;margin:0 auto 16px"></div><div style="color:var(--text2)">Connecting...</div></div></div>`;return;}
+  if (s.step==='login'||!s.user){app.innerHTML=renderLogin();bindLogin();return;}
+  app.innerHTML=`<div class="page">${renderHeader()}<div class="body fade-in">${
+    s.step==='scan'?renderScan():
+    s.step==='verify'?renderVerify():
+    s.step==='form'?renderForm():
+    s.step==='success'?renderSuccess():
+    s.step==='dashboard'?renderDash():
+    s.step==='waiting'?renderWaiting():''
+  }</div></div>`;
+  bindAll();
+  if(s.step==='scan')initQR();
+};
 
-            // Modals & Actions
-            const [showSignOff, setShowSignOff] = useState(false);
-            const [signOffData, setSignOffData] = useState({ remarks: "", operatorId: "" });
-            
-            const [showEscalate, setShowEscalate] = useState(false);
-            const [showReroute, setShowReroute] = useState(false);
-            const [rerouteTicket, setRerouteTicket] = useState(null);
-            const [rerouteDept, setRerouteDept] = useState("Quality");
+function renderHeader(){
+  return`<div class="header"><div class="header-left"><div class="logo-sm">BX</div><div><div style="font-size:14px;font-weight:600">${WS.user?.name||'Worker'}</div><div style="font-size:10px;color:var(--text2)">${WS.scannedModule?WS.scannedModule.name:'QC Inspector'}</div></div></div><div style="display:flex;gap:8px">${WS.step!=='scan'&&WS.step!=='dashboard'?`<button class="btn-logout" onclick="WS.step='dashboard';renderW()">📊</button>`:''} ${WS.step==='dashboard'?`<button class="btn-logout" onclick="goInsp()">📷 Scan</button>`:''}<button class="btn-logout" onclick="WS.user=null;WS.step='login';WS.scannedModule=null;renderW()">Logout</button></div></div>`;
+}
 
-            // REPLACE FLOW STATE (Mechanical Only)
-            const [replaceFlow, setReplaceFlow] = useState({ active: false, step: 1 });
+// ============ LOGIN (Database-based) ============
+function renderLogin(){
+  return`<div class="login-page"><div class="login-card fade-in"><div style="display:flex;align-items:center;gap:12px;margin-bottom:28px"><div class="logo-sm" style="width:44px;height:44px;font-size:16px;border-radius:12px">BX</div><div><div style="font-size:18px;font-weight:700">Brandix QMS</div><div style="font-size:12px;color:var(--text2)">Worker Inspector</div></div></div><div class="err-msg" id="w-err"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" id="w-user" placeholder="Your username" autocomplete="username"></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" id="w-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div><button class="btn-big btn-primary" id="w-login-btn">${WS.loading?'<span class="spinner"></span> Signing in...':'Sign In'}</button><div style="margin-top:16px;text-align:center;font-size:11px;color:var(--text3)">Login with credentials given by your admin</div></div></div>`;
+}
 
-            // Sound Alert Tracking
-            const [lastTaskCount, setLastTaskCount] = useState(0);
+function bindLogin(){
+  const btn=document.getElementById('w-login-btn');if(!btn)return;
+  const go=async()=>{
+    const u=document.getElementById('w-user')?.value.trim();
+    const p=document.getElementById('w-pass')?.value;
+    const err=document.getElementById('w-err');
+    if(!u||!p){err.style.display='block';err.textContent='Enter username and password';return;}
+    err.style.display='none';
+    WS.loading=true;renderW();
+    try{
+      const user=await window.dbLogin(u,p);
+      WS.user=user;WS.step='scan';WS.loading=false;
+      renderW();
+      window.loadWorkerData();
+      toast('Welcome, '+user.name);
+    }catch(e){
+      WS.loading=false;renderW();
+      const el=document.getElementById('w-err');
+      if(el){el.style.display='block';el.textContent=e.message||'Login failed';}
+    }
+  };
+  btn.onclick=go;
+  document.getElementById('w-user')?.addEventListener('keydown',e=>e.key==='Enter'&&go());
+  document.getElementById('w-pass')?.addEventListener('keydown',e=>e.key==='Enter'&&go());
+}
 
-            // Safely check assignment ignoring spaces/case
-            const isMyTask = (assignedVal) => {
-                if (!assignedVal || !currentUser) return false;
-                const val = String(assignedVal).trim().toLowerCase();
-                return val === String(currentUser.id).toLowerCase() || 
-                       val === String(currentUser.name).trim().toLowerCase() || 
-                       val === String(currentUser.username).trim().toLowerCase();
-            };
+// ============ QR SCAN ============
+function renderScan(){
+  const mods=WS.modules;
+  return`<div style="text-align:center;margin-bottom:16px"><div style="font-size:20px;font-weight:600">Scan Module QR Code</div><div style="font-size:13px;color:var(--text2)">Point camera at the module QR code</div></div><div class="scan-area"><div id="qr-reader"></div></div><div style="text-align:center;margin-bottom:16px;color:var(--text3);font-size:13px">— OR select manually —</div>${mods.length===0?'<div style="text-align:center;color:var(--text3);padding:20px">No modules. Ask admin to add them.</div>':`<div class="module-select-grid">${mods.map(m=>`<div class="module-btn" onclick="pickModule('${m.fbKey}')"><div style="font-size:15px;font-weight:600">${m.name||m.moduleId}</div><div style="font-size:11px;color:var(--text3)">${m.styleName||'No style'}</div></div>`).join('')}</div>`}<div style="margin-top:20px;text-align:center"><button class="btn-logout" onclick="WS.step='dashboard';renderW()">📊 My Dashboard</button></div>`;
+}
 
-            // Safely check if unassigned or AI failed to assign
-            const isUnassignedTask = (assignedVal) => {
-                if (!assignedVal) return true;
-                const val = String(assignedVal).trim().toLowerCase();
-                return val === "" || val === "null" || val.includes("none") || val.includes("no ") || val.includes("unable") || val.includes("unassigned");
-            };
+function initQR(){
+  const el=document.getElementById('qr-reader');if(!el)return;
+  try{
+    if(qrScanner){try{qrScanner.clear();}catch(e){}}
+    qrScanner=new Html5Qrcode('qr-reader');
+    qrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250}},(text)=>{
+      qrScanner.stop().then(()=>handleQR(text));
+    },()=>{}).catch(()=>{el.innerHTML='<div style="padding:20px;color:var(--text3)">📷 Camera not available. Select manually.</div>';});
+  }catch(e){}
+}
 
-            // Fetch Initial Data (Users, Machines, Logs)
-            useEffect(() => {
-                onValue(ref(db, 'users'), (snap) => setUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
-                onValue(ref(db, 'machines'), (snap) => setMachines(snap.val() || {}));
-                onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
-            }, []);
+function handleQR(text){
+  let data;try{data=JSON.parse(text);}catch(e){data={moduleId:text,name:text};}
+  const mod=WS.modules.find(m=>m.moduleId===data.moduleId||m.name===data.name||m.fbKey===data.fbKey||m.name===text);
+  WS.scannedModule=mod||{name:data.name||text,moduleId:data.moduleId||text,styleName:data.styleName||'',buyer:data.buyer||''};
+  WS.step='verify';renderW();toast('Module: '+WS.scannedModule.name);
+}
 
-            // --- UPDATED: Fetch Department-Specific Tickets DIRECTLY from Machines ---
-            useEffect(() => {
-                if (currentUser && currentUser.department) {
-                    // Convert machines object to array and map properties for backwards compatibility
-                    const machineList = Object.entries(machines).map(([id, val]) => ({ 
-                        id, 
-                        ...val, 
-                        machineId: val.name || id, 
-                        issueDescription: val.issue 
-                    }));
-                    
-                    // Filter for this user's department and actionable statuses
-                    const deptTickets = machineList.filter(m => 
-                        m.department?.toLowerCase() === currentUser.department.toLowerCase() && 
-                        ['Pending', 'In Progress', 'Escalated'].includes(m.status)
-                    );
-                    
-                    setTickets(deptTickets);
-                    
-                    // Check if active task is in progress
-                    const active = deptTickets.find(t => t.status === 'In Progress' && isMyTask(t.assignedTo));
-                    setActiveTask(active || null);
-                }
-            }, [machines, currentUser]);
+window.pickModule=function(k){
+  const mod=WS.modules.find(m=>m.fbKey===k);
+  if(mod){if(qrScanner)try{qrScanner.stop();}catch(e){}WS.scannedModule=mod;WS.step='verify';renderW();}
+};
+window.goScan=function(){WS.scannedModule=null;WS.step='scan';renderW();};
+window.goInsp=function(){
+  if(WS.user?.changeRequest) WS.step='waiting';
+  else if(WS.user?.activeModule) {
+    try { WS.scannedModule = JSON.parse(WS.user.activeModule); } catch(e){}
+    WS.step='form';
+  } else WS.step='scan';
+  renderW();
+};
+window.requestChange=async function(){
+  if(!WS.user?.fbKey)return;
+  await window._update(window._ref(window._db, 'users/'+WS.user.fbKey), { changeRequest: true });
+};
 
-            // SOUND ALERT LOGIC
-            useEffect(() => {
-                if (!currentUser) return;
-                
-                const myTasksCount = tickets.filter(t => isMyTask(t.assignedTo) && t.status === 'Pending').length;
-                const unassignedCount = tickets.filter(t => isUnassignedTask(t.assignedTo) && t.status === 'Pending').length;
-                const currentCount = myTasksCount + unassignedCount;
+// ============ VERIFY STYLE ============
+function renderVerify(){
+  const m=WS.scannedModule;
+  return`<div class="verify-box fade-in"><div style="font-size:36px;margin-bottom:8px">🏭</div><div style="font-size:24px;font-weight:700;color:var(--accent)">${m?.name||''}</div><div style="font-size:13px;color:var(--text2);margin-bottom:16px">${m?.buyer?'Buyer: '+m.buyer+' • ':''}${m?.styleName?'Style: '+m.styleName:''}</div><div style="font-size:14px;font-weight:500">Enter Style Number to verify</div></div><div class="err-msg" id="v-err"></div><div class="form-group"><label class="form-label">Style Number / Name</label><input class="form-input" id="v-style" placeholder="e.g. STY-1000 or Polo Shirt"></div><button class="btn-big btn-primary" id="v-btn">✓ Verify & Start</button><button class="btn-big btn-ghost" style="margin-top:10px" onclick="goScan()">← Back</button>`;
+}
 
-                // If task count increases, play chime
-                if (currentCount > lastTaskCount && lastTaskCount !== 0) {
-                    try {
-                        Tone.start();
-                        const synth = new Tone.Synth().toDestination();
-                        const now = Tone.now();
-                        synth.triggerAttackRelease("C5", "8n", now);
-                        synth.triggerAttackRelease("E5", "8n", now + 0.2);
-                        synth.triggerAttackRelease("G5", "4n", now + 0.4);
-                    } catch (e) {
-                        console.log("Audio play blocked by browser policy");
-                    }
-                }
-                setLastTaskCount(currentCount);
-            }, [tickets, currentUser, lastTaskCount]);
+function bindVerify(){
+  const btn=document.getElementById('v-btn');if(!btn)return;
+  btn.onclick=async ()=>{
+    const inp=document.getElementById('v-style')?.value.trim().toLowerCase();
+    const err=document.getElementById('v-err');
+    if(!inp){err.style.display='block';err.textContent='Enter style number';return;}
+    const m=WS.scannedModule;
+    const ok=(m?.styleName||'').toLowerCase().includes(inp)||(m?.styleId||'').toLowerCase().includes(inp)||inp.includes((m?.styleName||'').toLowerCase())||inp.includes((m?.styleId||'').toLowerCase())||WS.styles.some(s=>(s.styleId||'').toLowerCase().includes(inp)||(s.name||'').toLowerCase().includes(inp));
+    if(ok||!m?.styleName){
+      await window._update(window._ref(window._db, 'users/'+WS.user.fbKey), { activeModule: JSON.stringify(m), changeRequest: false });
+      WS.step='form';renderW();toast('Verified ✓');
+    }
+    else{err.style.display='block';err.textContent=`Style mismatch. Expected: ${m?.styleName||m?.styleId||'unknown'}`;}
+  };
+  document.getElementById('v-style')?.addEventListener('keydown',e=>{if(e.key==='Enter')btn.click();});
+}
 
+// ============ INSPECTION FORM ============
+function renderForm(){
+  const m=WS.scannedModule;
+  const ops=WS.operations.length?WS.operations.map(o=>o.name):DEFAULT_OPS;
+  return`<div class="card" style="background:rgba(0,212,168,.05);border-color:rgba(0,212,168,.2)"><div style="display:flex;justify-content:space-between"><div><div style="font-size:16px;font-weight:600">${m?.name||''}</div><div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div></div><span class="badge badge-green">✓ Verified</span></div></div><div class="card"><div style="font-size:13px;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Inspection Entry</div><form id="wf" onsubmit="return false"><input type="hidden" name="module" value="${m?.name||m?.moduleId||''}"><input type="hidden" name="style" value="${m?.styleName||m?.styleId||''}"><div class="form-row"><div class="form-group"><label class="form-label">Shift *</label><select class="form-input" name="shift" required><option value="A" ${new Date().getHours()<14?'selected':''}>A</option><option value="B" ${new Date().getHours()>=14?'selected':''}>B</option></select></div><div class="form-group"><label class="form-label">Session / Section *</label><select class="form-input" name="session" required><option>1</option><option>2</option><option>Both</option></select></div></div><div class="form-group"><label class="form-label">Operator ID *</label><input class="form-input" name="operatorId" placeholder="e.g. OP-10838" required></div><div class="form-group"><label class="form-label">Operation *</label><select class="form-input" name="operation" required><option value="">— Select —</option>${ops.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></div><div class="form-row"><div class="form-group"><label class="form-label">Checked Qty *</label><input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div><div class="form-group"><label class="form-label">Defect Qty</label><input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div></div><div id="dhu-box" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;text-align:center"><div style="font-size:12px;color:var(--text2)">DHU</div><div id="dhu-val" style="font-size:28px;font-weight:700;font-family:'IBM Plex Mono',monospace"></div></div><div class="form-group"><label class="form-label">Defect Type</label><select class="form-input" name="defectType"><option value="">— No Defect —</option>${DEFECTS.map(d=>`<option value="${d}">${d}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Comments</label><textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div><button class="btn-big btn-primary" type="button" id="sub-btn">✓ Submit</button></form></div><button class="btn-big btn-ghost" style="margin-top:4px" onclick="requestChange()">🔒 Request Module Change</button>`;
+}
 
-            const formatDuration = (ms) => {
-                if(!ms || ms < 0) return "0m";
-                const minutes = Math.floor(ms / 60000);
-                const hours = Math.floor(minutes / 60);
-                if (hours > 0) return `${hours}h ${minutes % 60}m`;
-                return `${minutes}m`;
-            };
+window.calcDHU=function(){const f=document.getElementById('wf');if(!f)return;const c=parseInt(f.checkedQty?.value)||0,d=parseInt(f.defectQty?.value)||0;const el=document.getElementById('dhu-box'),v=document.getElementById('dhu-val');if(c>0){const dhu=((d/c)*100).toFixed(1);el.style.display='block';v.textContent=dhu+'%';v.style.color=dhu>5?'var(--red)':dhu>3?'var(--yellow)':'var(--green)';}else{el.style.display='none';}};
 
-            const isSenior = currentUser?.mechanicType === 'Sr Mechanic' || currentUser?.mechanicType === 'Mechanical Admin' || currentUser?.role === 'admin';
-            
-            // TASK CATEGORIES
-            const priorityOrder = { "Critical": 0, "Normal": 1, "Low": 2 };
-            const myTasks = tickets.filter(t => isMyTask(t.assignedTo) && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
-            const unassignedTasks = tickets.filter(t => isUnassignedTask(t.assignedTo) && t.status === 'Pending').sort((a,b) => (priorityOrder[a.priority]||1) - (priorityOrder[b.priority]||1));
-            const escalatedTasks = tickets.filter(t => t.status === 'Escalated');
+function bindSubmit(){
+  const btn=document.getElementById('sub-btn');if(!btn)return;
+  btn.onclick=async()=>{
+    const f=document.getElementById('wf');if(!f)return;
+    const fd=new FormData(f);const data=Object.fromEntries(fd.entries());
+    if(!data.operatorId){toast('Enter Operator ID','error');return;}
+    if(!data.operation){toast('Select Operation','error');return;}
+    if(!data.checkedQty||parseInt(data.checkedQty)<1){toast('Enter Checked Qty','error');return;}
+    btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Submitting...';
+    try{
+      const id='INS-'+Date.now();
+      await window.fbAdd('inspections',{id,type:'inline',date:new Date().toISOString().split('T')[0],time:new Date().toTimeString().slice(0,5),...data,submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name});
+      const c=parseInt(data.checkedQty)||0,d=parseInt(data.defectQty)||0;
+      if(c>0&&(d/c)*100>5){
+        await window.fbAddAlert({title:`High DHU ${((d/c)*100).toFixed(1)}% — ${data.module}`,message:`${data.defectType||'Defects'} on ${data.operation} by ${data.operatorId}`,level:(d/c)*100>8?'critical':'high',module:data.module,read:false,createdBy:'worker-auto'});
+      }
+      WS.lastSub={id,...data};WS.step='success';renderW();toast('Submitted ✓');
+    }catch(e){toast('Failed: '+e.message,'error');btn.disabled=false;btn.innerHTML='✓ Submit';}
+  };
+}
 
-            const handleLogin = (e) => {
-                e.preventDefault();
-                const user = users.find(u => u.username === creds.username && u.password === creds.password);
-                if (user) {
-                    setCurrentUser(user);
-                    setLoginError("");
-                    // Activate Tone.js on user interaction
-                    Tone.start();
-                } else {
-                    setLoginError("Invalid credentials.");
-                }
-            };
+// ============ SUCCESS ============
+function renderSuccess(){
+  const s=WS.lastSub;const c=parseInt(s?.checkedQty)||0,d=parseInt(s?.defectQty)||0;const dhu=c?((d/c)*100).toFixed(1):'0';
+  return`<div class="success-box fade-in"><div style="font-size:48px;margin-bottom:8px">✅</div><div style="font-size:18px;font-weight:600;color:var(--green)">Submitted!</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px">ID: ${s?.id||''}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center"><div><div style="font-size:11px;color:var(--text3)">OPERATOR</div><div style="font-weight:500">${s?.operatorId||''}</div></div><div><div style="font-size:11px;color:var(--text3)">OPERATION</div><div style="font-weight:500">${s?.operation||''}</div></div><div><div style="font-size:11px;color:var(--text3)">CHECKED</div><div style="font-weight:600;font-size:18px">${c}</div></div><div><div style="font-size:11px;color:var(--text3)">DEFECTS</div><div style="font-weight:600;font-size:18px;color:${d>0?'var(--red)':'var(--green)'}">${d}</div></div></div><div style="margin-top:12px;font-size:14px;color:${dhu>5?'var(--red)':dhu>3?'var(--yellow)':'var(--green)'};font-weight:600">DHU: ${dhu}%</div></div><button class="btn-big btn-primary" onclick="WS.step='form';renderW()">➕ Next Inspection</button><button class="btn-big btn-ghost" style="margin-top:10px" onclick="requestChange()">🔒 Request Module Change</button><button class="btn-big btn-ghost" style="margin-top:10px" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
+}
 
-            // --- UPDATED ACTIONS FOR DIRECT MACHINE DB ---
-            const handleClaimTask = (ticketId) => {
-                update(ref(db, `machines/${ticketId}`), {
-                    assignedTo: currentUser.id, // Assigning explicitly by ID
-                    assignedAt: new Date().toISOString()
-                });
-            };
+// ============ DASHBOARD ============
+function renderDash(){
+  const ins=WS.myInspections;
+  const tc=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),td=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const dhu=tc?((td/tc)*100).toFixed(1):'0.0';
+  return`<div style="margin-bottom:16px"><div style="font-size:18px;font-weight:600">Today's Summary</div><div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'short',year:'numeric'})}</div></div><div class="stats-row"><div class="stat-card"><div class="stat-val" style="color:var(--accent)">${ins.length}</div><div class="stat-label">Inspections</div></div><div class="stat-card"><div class="stat-val" style="color:var(--red)">${td}</div><div class="stat-label">Defects</div></div><div class="stat-card"><div class="stat-val" style="color:${dhu>5?'var(--red)':dhu>3?'var(--yellow)':'var(--green)'}">${dhu}%</div><div class="stat-label">DHU</div></div></div><button class="btn-big btn-primary" onclick="goInsp()" style="margin-bottom:16px">📷 Start Inspection</button><div style="font-size:13px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent</div>${ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No inspections today</div>':ins.slice().reverse().map(i=>`<div class="sub-item"><div><div style="font-size:14px;font-weight:500">${i.operatorId||''} • ${i.operation||''}</div><div style="font-size:11px;color:var(--text3)">${i.module||''} • ${i.time||''}</div></div><div style="font-size:18px;font-weight:600;color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}";font-family:'IBM Plex Mono',monospace">${i.defectQty||0}</div></div>`).join('')}`;
+}
 
-            const triggerScanner = (ticket) => {
-                setScanTargetTask(ticket);
-                setShowScanner(true);
-            };
+// ============ WAITING SCREEN ============
+function renderWaiting(){
+  return `<div class="verify-box fade-in" style="border-color:var(--yellow)"><div class="spinner" style="border-top-color:var(--yellow);margin-bottom:16px"></div><div style="font-size:20px;font-weight:700;color:var(--yellow)">Waiting for Approval</div><div style="font-size:13px;color:var(--text2);margin-bottom:16px">You have requested to change your module. A supervisor must approve this on the admin dashboard.</div><button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 My Dashboard</button></div>`;
+}
 
-            const handleScanStart = (decodedText) => {
-                // Ensure QR matches ID or Machine Name
-                if (decodedText === scanTargetTask.id || decodedText === scanTargetTask.machineId) {
-                    update(ref(db, `machines/${scanTargetTask.id}`), {
-                        status: 'In Progress',
-                        startedAt: new Date().toISOString()
-                    });
-                    setShowScanner(false);
-                    setScanTargetTask(null);
-                } else {
-                    alert(`Wrong Machine! You scanned ${decodedText}, but expected ${scanTargetTask.machineId}`);
-                    setShowScanner(false);
-                }
-            };
-
-            const handleSignOff = () => {
-                if(!signOffData.operatorId) return alert("Operator ID is required to close the job.");
-                
-                const now = new Date();
-                const startedAt = new Date(activeTask.startedAt || new Date());
-                const assignedAt = activeTask.assignedAt ? new Date(activeTask.assignedAt) : new Date(activeTask.reportedAt || new Date());
-                const reportedAt = new Date(activeTask.reportedAt || new Date());
-
-                const responseMs = startedAt - assignedAt;
-                const repairMs = now - startedAt;
-                const downtimeMs = now - reportedAt;
-
-                push(ref(db, 'logs'), {
-                    machineId: activeTask.id, // Storing ID for Analytics mapping
-                    action: 'Fixed',
-                    department: currentUser.department,
-                    userId: currentUser.id,
-                    userName: currentUser.name,
-                    operatorSignOff: signOffData.operatorId,
-                    details: signOffData.remarks,
-                    timestamp: now.toISOString(),
-                    repairTime: formatDuration(repairMs),
-                    metrics: { responseMs, repairMs, downtimeMs }
-                });
-
-                // Clear the issue from the machine and set to running
-                update(ref(db, `machines/${activeTask.id}`), { 
-                    status: 'Running', 
-                    assignedTo: null, 
-                    issue: null,
-                    department: null,
-                    priority: null,
-                    aiDiagnostic: null
-                });
-
-                setShowSignOff(false);
-                setSignOffData({ operatorId: "", remarks: "" });
-            };
-
-            const handleEscalate = () => {
-                update(ref(db, `machines/${activeTask.id}`), {
-                    status: 'Escalated',
-                    assignedTo: null,
-                    escalatedBy: currentUser.name,
-                    escalationNote: signOffData.remarks || "Requires senior assistance."
-                });
-                setShowEscalate(false);
-                setSignOffData({ operatorId: "", remarks: "" });
-            };
-
-            const handleReroute = () => {
-                update(ref(db, `machines/${rerouteTicket.id}`), {
-                    department: rerouteDept,
-                    status: 'Pending',
-                    assignedTo: null,
-                    escalatedBy: null,
-                    escalationNote: null
-                });
-                setShowReroute(false);
-                setRerouteTicket(null);
-            };
-
-            // REPLACE MACHINE LOGIC
-            const handleReplaceScan = (decodedText) => {
-                if (replaceFlow.step === 1) {
-                    if (decodedText === activeTask.id || decodedText === activeTask.machineId) {
-                        setReplaceFlow({ active: true, step: 2 });
-                    } else {
-                        alert("Please scan the correct BROKEN machine first.");
-                    }
-                } else if (replaceFlow.step === 2) {
-                    const spare = Object.values(machines).find(m => m.id === decodedText || m.name === decodedText);
-                    if (!spare) return alert("Spare machine not found in database!");
-                    if (spare.id === activeTask.id) return alert("You scanned the broken machine again! Scan the SPARE machine.");
-
-                    const oldMachine = machines[activeTask.id] || activeTask;
-
-                    // Log the swap
-                    push(ref(db, 'logs'), {
-                        machineId: activeTask.id,
-                        action: 'Replaced',
-                        details: `Swapped out. Replaced by ${spare.name}`,
-                        userId: currentUser.id,
-                        userName: currentUser.name,
-                        timestamp: new Date().toISOString()
-                    });
-
-                    // Update Old Machine (Offline)
-                    update(ref(db, `machines/${activeTask.id}`), {
-                        status: 'Offline', 
-                        assignedTo: null, 
-                        issue: 'Requires Workshop Repair (Swapped out)', 
-                        priority: 'Normal',
-                        department: null
-                    });
-
-                    // Update Spare Machine (Running)
-                    update(ref(db, `machines/${spare.id}`), {
-                        status: 'Running', 
-                        lineId: oldMachine.lineId || null
-                    });
-
-                    setActiveTask(null);
-                    setReplaceFlow({ active: false, step: 1 });
-                    alert("Machine successfully replaced! Line is back running.");
-                }
-            };
-
-            // --- RENDER ---
-            if (!currentUser) {
-                return (
-                    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
-                        <Card className="w-full max-w-sm p-8 bg-white border-t-8 border-blue-500 shadow-2xl">
-                            <div className="text-center mb-6">
-                                <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><User className="w-8 h-8 text-blue-600" /></div>
-                                <h1 className="text-2xl font-bold text-slate-800">Worker Portal</h1>
-                                <p className="text-slate-500 text-sm">Please log in to view your tasks.</p>
-                            </div>
-                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm font-bold border border-red-200 text-center">{loginError}</div>}
-                            <form onSubmit={handleLogin} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Username / ID</label>
-                                    <input className="w-full p-3 border border-slate-300 bg-slate-50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Password</label>
-                                    <input type="password" className="w-full p-3 border border-slate-300 bg-slate-50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
-                                </div>
-                                <Button fullWidth className="mt-2 text-lg py-3"><Lock className="w-5 h-5"/> Secure Login</Button>
-                            </form>
-                        </Card>
-                    </div>
-                );
-            }
-
-            return (
-                <div className="min-h-screen bg-slate-100 flex flex-col pb-20 md:pb-0 font-sans">
-                    
-                    {/* SCANNERS AND MODALS */}
-                    {showScanner && <QRScanner onScan={handleScanStart} onClose={() => setShowScanner(false)} title="Scan Machine to Start Repair" />}
-                    
-                    {replaceFlow.active && (
-                        <QRScanner 
-                            onScan={handleReplaceScan} 
-                            onClose={() => setReplaceFlow({ active: false, step: 1 })} 
-                            title={replaceFlow.step === 1 ? "1. Scan BROKEN Machine" : "2. Scan SPARE Machine"} 
-                        />
-                    )}
-                    
-                    <Modal isOpen={showSignOff} onClose={() => setShowSignOff(false)} title="Complete Job & Sign-off">
-                        <div className="space-y-4">
-                            <div className="bg-emerald-50 text-emerald-800 p-3 rounded-lg border border-emerald-200 text-sm font-medium">
-                                Confirm repairs for <span className="font-bold">{activeTask?.machineId}</span>.
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Repair Notes (What did you do?)</label>
-                                <textarea className="w-full p-3 border rounded-lg h-24" placeholder="e.g. Changed looper, adjusted timing..." value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operator Verification ID</label>
-                                <input className="w-full p-3 border rounded-lg bg-yellow-50 focus:ring-yellow-400" placeholder="e.g. OP-1234" value={signOffData.operatorId} onChange={e => setSignOffData({...signOffData, operatorId: e.target.value})} />
-                                <p className="text-[10px] text-slate-400 mt-1">Operator must enter ID to verify machine is running smoothly.</p>
-                            </div>
-                            <Button fullWidth variant="success" onClick={handleSignOff}><CheckCircle className="w-5 h-5"/> Verify & Close Ticket</Button>
-                        </div>
-                    </Modal>
-
-                    <Modal isOpen={showEscalate} onClose={() => setShowEscalate(false)} title="Escalate Ticket">
-                        <div className="space-y-4">
-                            <p className="text-sm text-slate-600">If you cannot fix this issue, or it belongs to another department, escalate it to a Senior.</p>
-                            <textarea className="w-full p-3 border rounded-lg h-24" placeholder="Reason for escalation..." value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
-                            <Button fullWidth variant="danger" onClick={handleEscalate}><AlertOctagon className="w-5 h-5"/> Confirm Escalation</Button>
-                        </div>
-                    </Modal>
-
-                    <Modal isOpen={showReroute} onClose={() => setShowReroute(false)} title="Re-route Ticket (Senior Only)">
-                        <div className="space-y-4">
-                            <p className="text-sm text-slate-600">Re-route <strong>{rerouteTicket?.machineId}</strong> to the correct department queue.</p>
-                            <select className="w-full p-3 border rounded-lg" value={rerouteDept} onChange={e => setRerouteDept(e.target.value)}>
-                                <option value="Mechanical">Mechanical Dept</option>
-                                <option value="Quality">Quality / Measurement Dept</option>
-                                <option value="Technical">Technical / Method Dept</option>
-                                <option value="IE">Industrial Engineering (IE)</option>
-                                <option value="Material">Raw Materials (RM) / Stores</option>
-                            </select>
-                            <Button fullWidth onClick={handleReroute}><ArrowRight className="w-5 h-5"/> Send to {rerouteDept}</Button>
-                        </div>
-                    </Modal>
-
-                    {/* HEADER */}
-                    <header className="bg-slate-900 text-white p-4 sticky top-0 z-20 flex justify-between items-center shadow-md">
-                        <div>
-                            <h1 className="text-xl font-bold flex items-center gap-2"><ClipboardList className="text-blue-400"/> Worker Portal</h1>
-                            <div className="text-xs text-slate-400 font-medium tracking-wide flex items-center gap-2 mt-1">
-                                <span>{currentUser.name}</span>
-                                <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] uppercase font-bold">{currentUser.department}</span>
-                            </div>
-                        </div>
-                        <button onClick={() => setCurrentUser(null)} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"><LogOut className="w-5 h-5"/></button>
-                    </header>
-
-                    {/* MAIN VIEW */}
-                    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-8">
-                        
-                        {/* ACTIVE TASK (TIMER RUNNING) */}
-                        {activeTask && (
-                            <div className="animate-in slide-in-from-top-4 duration-300">
-                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><PlayCircle className="w-4 h-4 text-emerald-500"/> Currently Working On</h3>
-                                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border-2 border-emerald-500">
-                                    <div className="bg-emerald-50 p-4 border-b border-emerald-100 flex justify-between items-start">
-                                        <div>
-                                            <h2 className="text-2xl font-bold text-emerald-900">{activeTask.machineId}</h2>
-                                            <div className="text-sm font-mono text-emerald-700 bg-emerald-100 inline-block px-2 py-1 rounded mt-1">{activeTask.ticketId || '#TKT-LIVE'}</div>
-                                        </div>
-                                        <div className="bg-emerald-200 text-emerald-800 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 animate-pulse shadow-sm border border-emerald-300">
-                                            <Clock className="w-4 h-4"/> IN PROGRESS
-                                        </div>
-                                    </div>
-                                    <div className="p-6">
-                                        <div className="mb-6">
-                                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Reported Issue</h4>
-                                            <p className="text-lg text-slate-800 font-medium bg-slate-50 p-4 rounded-xl border border-slate-200">{activeTask.issueDescription}</p>
-                                            
-                                            {activeTask.aiDiagnostic && (
-                                                <div className="mt-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
-                                                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Activity className="w-3 h-3"/> AI Diagnostic Suggestion</h4>
-                                                    <p className="text-sm text-indigo-900 font-medium italic">"{activeTask.aiDiagnostic}"</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                        
-                                        <div className="border-t pt-6">
-                                            <Button fullWidth size="lg" variant="success" onClick={() => setShowSignOff(true)}>
-                                                <CheckSquare className="w-5 h-5"/> Complete Job & Sign-off
-                                            </Button>
-                                            
-                                            <Button fullWidth size="lg" className="mt-3 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700" onClick={() => setShowEscalate(true)}>
-                                                <AlertOctagon className="w-5 h-5"/> Escalate to Senior
-                                            </Button>
-
-                                            {/* ONLY Mechanical Department can Swap Machines */}
-                                            {currentUser?.department?.toLowerCase() === 'mechanical' && (
-                                                <Button fullWidth size="lg" className="mt-3 bg-slate-800 text-white hover:bg-slate-700 shadow-md" onClick={() => setReplaceFlow({ active: true, step: 1 })}>
-                                                    <RefreshCw className="w-5 h-5"/> Replace / Swap Machine
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* ASSIGNED TO ME (Pending Start) */}
-                        {!activeTask && (
-                            <div>
-                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><User className="w-4 h-4 text-blue-500"/> Assigned To You</h3>
-                                <div className="space-y-4">
-                                    {myTasks.length === 0 ? (
-                                        <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400">
-                                            <CheckCircle className="w-8 h-8 mx-auto mb-2 opacity-50"/>
-                                            <p className="font-medium">No assigned tasks. Grab one from the open pool below.</p>
-                                        </div>
-                                    ) : myTasks.map(task => (
-                                        <Card key={task.id} className="p-5 border-l-4 border-l-blue-500 flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:shadow-md transition-all">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-3 mb-1">
-                                                    <h3 className="font-bold text-lg text-slate-800">{task.machineId}</h3>
-                                                    {task.priority && <Badge status={task.priority} />}
-                                                </div>
-                                                <p className="text-sm text-slate-600 mb-2">{task.issueDescription}</p>
-                                                {task.aiDiagnostic && <p className="text-xs text-indigo-600 font-medium italic border-l-2 border-indigo-300 pl-2">AI: {task.aiDiagnostic}</p>}
-                                            </div>
-                                            <Button onClick={() => triggerScanner(task)} className="bg-slate-900 text-white w-full md:w-auto shadow-md">
-                                                <ScanLine className="w-4 h-4"/> Scan to Start
-                                            </Button>
-                                        </Card>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* ESCALATED TICKETS (For Seniors Only) */}
-                        {isSenior && escalatedTasks.length > 0 && (
-                            <div>
-                                <h3 className="font-bold text-red-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><AlertTriangle className="w-4 h-4"/> Escalated by Juniors</h3>
-                                <div className="space-y-3">
-                                    {escalatedTasks.map(task => (
-                                        <Card key={task.id} className="p-4 bg-red-50 border border-red-200 shadow-sm flex flex-col md:flex-row justify-between gap-4">
-                                            <div>
-                                                <div className="font-bold text-red-900 text-lg mb-1">{task.machineId}</div>
-                                                <div className="text-sm text-red-800 font-medium">{task.issueDescription}</div>
-                                                <div className="mt-2 text-xs bg-white p-2 rounded border border-red-100 text-red-600">
-                                                    <span className="font-bold uppercase tracking-wide">Escalated by {task.escalatedBy}:</span> {task.escalationNote}
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col gap-2 shrink-0">
-                                                <Button size="sm" variant="success" onClick={() => handleClaimTask(task.id)}>Take Over Task</Button>
-                                                <Button size="sm" variant="secondary" onClick={() => { setRerouteTicket(task); setShowReroute(true); }}>Re-route to other Dept</Button>
-                                            </div>
-                                        </Card>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* OPEN POOL (Unassigned Tasks) */}
-                        {!activeTask && (
-                            <div>
-                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 uppercase tracking-wide text-sm"><Activity className="w-4 h-4 text-slate-400"/> Open {currentUser.department} Tickets</h3>
-                                <div className="space-y-3">
-                                    {unassignedTasks.length === 0 ? (
-                                        <div className="p-6 text-center text-slate-400 italic">Queue is empty.</div>
-                                    ) : unassignedTasks.map(task => (
-                                        <Card key={task.id} className="p-4 flex justify-between items-center gap-4 hover:border-slate-300 transition-colors">
-                                            <div>
-                                                <div className="font-bold text-slate-800 mb-1">{task.machineId} <Badge status={task.priority}/></div>
-                                                <div className="text-sm text-slate-600">{task.issueDescription}</div>
-                                            </div>
-                                            <Button variant="outline" onClick={() => handleClaimTask(task.id)} className="shrink-0 font-bold hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
-                                                Claim Task
-                                            </Button>
-                                        </Card>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* MY RECENT HISTORY */}
-                        <div className="pt-8 border-t border-slate-200">
-                            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 uppercase tracking-wide text-sm"><History className="w-4 h-4 text-slate-400"/> My Recent Fixes</h3>
-                            <div className="space-y-3">
-                                {logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed').slice().reverse().slice(0, 5).map((log, i) => (
-                                    <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 text-sm flex justify-between items-center opacity-80 hover:opacity-100 transition-opacity shadow-sm">
-                                        <div>
-                                            <span className="font-bold text-slate-700 mr-2">{log.machineId}</span>
-                                            <span className="text-xs text-slate-400">{new Date(log.timestamp).toLocaleString()}</span>
-                                        </div>
-                                        <div className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
-                                            Repair: {log.repairTime || "N/A"}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            );
-        };
-
-        const root = createRoot(document.getElementById('root'));
-        root.render(<WorkerApp />);
-    </script>
+function bindAll(){bindVerify();bindSubmit();}
+renderW();
+</script>
 </body>
 </html>
