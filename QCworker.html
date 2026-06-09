@@ -194,18 +194,19 @@ window.renderW = function(){
 
 function renderStep(){
   const s=WS.step;
-  if(s==='scan')         return renderScan();
-  if(s==='verify')       return renderVerify();
+  if(s==='scan')           return renderScan();
+  if(s==='verify')         return renderVerify();
   if(s==='worker_machine') return renderWorkerMachine();
-  if(s==='worker_done')  return renderWorkerDone();
-  if(s==='check_home')   return renderCheckHome();
-  if(s==='check_scan')   return renderCheckScan();
-  if(s==='check_form')   return renderCheckForm();
-  if(s==='check_end')    return renderCheckEnd();
-  if(s==='endline_home') return renderEndlineHome();
-  if(s==='endline_form') return renderEndlineForm();
-  if(s==='dashboard')    return renderDash();
-  if(s==='waiting')      return renderWaiting();
+  if(s==='worker_done')    return renderWorkerDone();
+  if(s==='check_home')     return renderCheckHome();
+  if(s==='check_scan')     return renderCheckScan();
+  if(s==='check_form')     return renderCheckForm();
+  if(s==='check_end')      return renderCheckEnd();
+  if(s==='endline_home')   return renderEndlineHome();
+  if(s==='endline_form')   return renderEndlineForm();
+  if(s==='roster_manual')  return renderRosterManual();
+  if(s==='dashboard')      return renderDash();
+  if(s==='waiting')        return renderWaiting();
   return renderScan();
 }
 
@@ -468,29 +469,38 @@ function handleWorkerMachineQR(text){
 function getModuleMachines(){
   const m=WS.scannedModule;
   if(!m)return[];
-  // Get machines from machineRosters (registered by workers today)
   const date=new Date().toISOString().split('T')[0];
   const rKey=`${m.fbKey||m.moduleId}_${date}`;
   const roster=WS.machineRosters.find(r=>r.fbKey===rKey);
-  if(roster?.workers){
+  if(roster?.workers && Object.keys(roster.workers).length>0){
     return Object.values(roster.workers);
   }
-  // Fallback: machines assigned to this module
-  return WS.machines.filter(mc=>mc.moduleId===m.fbKey).map(mc=>({
-    machineId:mc.fbKey,machineName:mc.name,operatorId:'',operation:mc.type||''
-  }));
+  // Fallback: machines assigned to this module via sync
+  // Match by: moduleId (FM module key) OR lineName/moduleName OR fbKey
+  const matched=WS.machines.filter(mc=>
+    mc.moduleId===m.fbKey ||          // FM module key matches QMS module fbKey
+    mc.moduleId===m.moduleId ||       // direct match
+    (mc.moduleName && mc.moduleName===m.name) ||  // name match from sync
+    (mc.lineName   && mc.lineName===m.name)        // lineName alias
+  );
+  if(matched.length>0){
+    return matched.map(mc=>({
+      machineId:mc.fbKey, machineName:mc.name, operatorId:'', operation:'', type:mc.type||''
+    }));
+  }
+  return [];
 }
 
 function renderCheckHome(){
   const machines=getModuleMachines();
   const m=WS.scannedModule;
-  // Count today's completed rounds
   const today=new Date().toISOString().split('T')[0];
   const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today);
   const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
   const nextRound=completedRounds.length+1;
   WS.checkRound=nextRound;
 
+  const noMachines=machines.length===0;
   return`<div class="card card-accent">
     <div style="font-size:18px;font-weight:600">${m?.name||''} — Inline QC</div>
     <div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div>
@@ -501,26 +511,93 @@ function renderCheckHome(){
       ${[1,2,3,4,5].map(n=>`<div class="check-btn ${completedRounds.includes(n)?'done':n===nextRound?'active':''}" onclick="${n===nextRound?`startCheckRound(${n})`:''}">Check ${n}${completedRounds.includes(n)?' ✓':''}</div>`).join('')}
     </div>
   </div>
-  ${machines.length>0?`<div class="card" style="margin-bottom:16px">
-    <div style="font-size:13px;font-weight:600;margin-bottom:10px">🔧 Machines on Line (${machines.length})</div>
+  ${!noMachines?`<div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:600">🔧 Machines on Line (${machines.length})</div>
+      <button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>
+    </div>
     ${machines.map(w=>`<div class="sub-item">
-      <div><div style="font-size:13px;font-weight:600">${w.machineName||w.machineId}</div><div style="font-size:11px;color:var(--text2)">${w.operatorId} • ${w.operation}</div></div>
-      <span class="badge badge-green">Ready</span>
+      <div><div style="font-size:13px;font-weight:600">${w.machineName||w.machineId}</div><div style="font-size:11px;color:var(--text2)">${w.operatorId||'No operator'} • ${w.operation||'—'}</div></div>
+      <span class="badge badge-green">✓</span>
     </div>`).join('')}
-  </div>`:`<div class="card card-yellow">
-    <div style="font-weight:600;margin-bottom:4px">⚠ No Machines Registered</div>
-    <div style="font-size:12px;color:var(--text2)">Workers need to scan their machines first, or admin can set up the machine roster.</div>
+  </div>`:
+  `<div class="card card-yellow" style="margin-bottom:16px">
+    <div style="font-weight:600;margin-bottom:6px">⚠ No Machines Registered Yet</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Workers normally scan their machines first. You can also set up the roster manually right here.</div>
+    <button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Machines Manually</button>
   </div>`}
-  <button class="btn-big btn-primary" onclick="startCheckRound(${nextRound})">▶ Start Check ${nextRound}</button>
+  <button class="btn-big btn-primary" onclick="startCheckRound(${nextRound})" ${noMachines?'disabled style="opacity:.4"':''}>▶ Start Check ${nextRound}</button>
+  <button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ ${noMachines?'Set Up':'Edit'} Machine Roster</button>
   <button class="btn-big btn-ghost" onclick="WS.step='scan';WS.scannedModule=null;renderW()">🔄 Change Module</button>
   <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
 }
 
+window.openManualRoster = function(){
+  // Pre-fill from existing roster or create blank
+  const machines = getModuleMachines();
+  WS._manualRows = machines.length > 0
+    ? machines.map(w=>({machineId:w.machineId||'',machineName:w.machineName||'',operatorId:w.operatorId||'',operation:w.operation||''}))
+    : [{machineId:'',machineName:'',operatorId:'',operation:''}];
+  WS._manualBackStep = WS.step;
+  WS.step='roster_manual';
+  renderW();
+};
+
+function renderRosterManual(){
+  const rows=WS._manualRows||[{machineId:'',machineName:'',operatorId:'',operation:''}];
+  const ops=(WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack','Tacking']);
+  const m=WS.scannedModule;
+  return`<div class="card card-blue">
+    <div style="font-size:18px;font-weight:600;margin-bottom:4px">⚙️ Set Up Machine Roster</div>
+    <div style="font-size:12px;color:var(--text2)">${m?.name||''} — Add each machine and assign its operator</div>
+  </div>
+  <div id="manual-rows" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+    ${rows.map((row,i)=>`
+    <div class="card" style="padding:12px;position:relative" id="mrow-${i}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:600;color:var(--text2)">Machine ${i+1}</div>
+        <button class="btn-sm" style="color:var(--red)" onclick="removeManualRow(${i})">✕ Remove</button>
+      </div>
+      <div class="form-row" style="margin-bottom:8px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px">Machine Name</label>
+          <input class="form-input" placeholder="e.g. M-101" value="${row.machineName||''}" oninput="WS._manualRows[${i}].machineName=this.value" style="padding:10px;font-size:14px">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px">Operator ID</label>
+          <input class="form-input" placeholder="OP-10838" value="${row.operatorId||''}" oninput="WS._manualRows[${i}].operatorId=this.value" style="padding:10px;font-size:14px">
+        </div>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label" style="font-size:11px">Operation</label>
+        <select class="form-input" style="padding:10px;font-size:14px" onchange="WS._manualRows[${i}].operation=this.value">
+          <option value="">— Select Operation —</option>
+          ${ops.map(op=>`<option value="${op}" ${row.operation===op?'selected':''}>${op}</option>`).join('')}
+        </select>
+      </div>
+    </div>`).join('')}
+  </div>
+  <button class="btn-big btn-ghost" onclick="addManualRow()">➕ Add Another Machine</button>
+  <button class="btn-big btn-primary" id="manual-save-btn">💾 Save Roster</button>
+  <button class="btn-big btn-ghost" onclick="WS.step=WS._manualBackStep||'check_home';renderW()">← Cancel</button>`;
+}
+
+window.addManualRow=function(){
+  if(!WS._manualRows)WS._manualRows=[];
+  WS._manualRows.push({machineId:'',machineName:'',operatorId:'',operation:''});
+  renderW();
+};
+window.removeManualRow=function(i){
+  WS._manualRows.splice(i,1);
+  if(WS._manualRows.length===0)WS._manualRows=[{machineId:'',machineName:'',operatorId:'',operation:''}];
+  renderW();
+};
+
 window.startCheckRound = function(roundNum){
   const machines=getModuleMachines();
-  if(machines.length===0){toast('No machines on line yet','error');return;}
+  if(machines.length===0){toast('Set up the machine roster first','error');return;}
   WS.checkRound=roundNum;
-  WS.checkRoundData=[...machines]; // machines to inspect
+  WS.checkRoundData=[...machines];
   WS.checkMachineIdx=0;
   WS.checkRoundResults=[];
   WS.step='check_scan';
@@ -953,7 +1030,45 @@ window.goStartCheck=function(){
   }
 };
 
-// ============ WAITING ============
+// ============ ENDLINE HOME (also add setup button) ============
+function renderEndlineHome(){
+  const machines=getModuleMachines();
+  const m=WS.scannedModule;
+  const today=new Date().toISOString().split('T')[0];
+  const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today&&i.type==='endline');
+  const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
+  const nextRound=completedRounds.length+1;
+  WS.checkRound=nextRound;
+  const noMachines=machines.length===0;
+
+  return`<div class="card card-accent">
+    <div style="font-size:18px;font-weight:600">${m?.name||''} — End Line QC</div>
+    <div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div>
+  </div>
+  <div style="margin-bottom:16px">
+    <div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today's Checks</div>
+    <div class="check-pill">
+      ${[1,2,3,4,5].map(n=>`<div class="check-btn ${completedRounds.includes(n)?'done':n===nextRound?'active':''}" onclick="${n===nextRound?`startEndlineRound(${n})`:''}">Check ${n}${completedRounds.includes(n)?' ✓':''}</div>`).join('')}
+    </div>
+  </div>
+  ${!noMachines?`<div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600">Workers on Line (${machines.length})</div>
+      <button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>
+    </div>
+    ${machines.map(w=>`<div class="sub-item">
+      <div><div style="font-weight:600">${w.operatorId||'No ID'}</div><div style="font-size:11px;color:var(--text2)">${w.operation||'—'} • ${w.machineName||''}</div></div>
+    </div>`).join('')}
+  </div>`:
+  `<div class="card card-yellow" style="margin-bottom:16px">
+    <div style="font-weight:600;margin-bottom:6px">⚠ No Workers Registered Yet</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Add operators and their machines manually to begin checking.</div>
+    <button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Workers Manually</button>
+  </div>`}
+  <button class="btn-big btn-primary" onclick="startEndlineRound(${nextRound})" ${noMachines?'disabled style="opacity:.4"':''}>▶ Start Check ${nextRound}</button>
+  <button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ ${noMachines?'Set Up':'Edit'} Roster</button>
+  <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
+}
 function renderWaiting(){
   return`<div class="card card-yellow" style="text-align:center;padding:32px">
     <div class="spinner" style="border-top-color:var(--yellow);margin:0 auto 16px"></div>
@@ -969,8 +1084,48 @@ function bindStep(){
   if(s==='verify')bindVerify();
   if(s==='worker_machine')bindWorkerMachine();
   if(s==='check_form'||s==='endline_form')bindSubmit();
-  // Endline: init dropdown
   if(s==='endline_form'){setTimeout(()=>elOpChanged(),100);}
+  if(s==='roster_manual')bindManualRoster();
+}
+
+function bindManualRoster(){
+  const btn=document.getElementById('manual-save-btn');if(!btn)return;
+  btn.onclick=async()=>{
+    const rows=WS._manualRows||[];
+    // Validate
+    const valid=rows.filter(r=>r.machineName||r.operatorId);
+    if(valid.length===0){toast('Add at least one machine or operator','error');return;}
+    btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
+    const m=WS.scannedModule;
+    const date=new Date().toISOString().split('T')[0];
+    const rKey=`${m.fbKey||m.moduleId}_${date}`;
+    try{
+      // Build workers object keyed by machineId or index
+      const workers={};
+      valid.forEach((row,i)=>{
+        const key=row.machineId||(row.machineName.replace(/\s+/g,'-').toLowerCase()||`machine-${i+1}`);
+        workers[key]={
+          machineId:key,
+          machineName:row.machineName||key,
+          operatorId:row.operatorId||'',
+          operation:row.operation||'',
+          moduleId:m.fbKey,
+          moduleName:m.name,
+          date,
+          registeredBy:WS.user?.username,
+          registeredAt:new Date().toISOString()
+        };
+      });
+      await window._set(window._ref(window._db,`machineRosters/${rKey}/workers`),workers);
+      await window._update(window._ref(window._db,`machineRosters/${rKey}`),{
+        moduleId:m.fbKey,moduleName:m.name,date,
+        updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
+      });
+      toast('Roster saved — '+valid.length+' machine(s) ✓');
+      WS.step=WS._manualBackStep||'check_home';
+      renderW();
+    }catch(e){toast('Error: '+e.message,'error');btn.disabled=false;btn.innerHTML='💾 Save Roster';}
+  };
 }
 
 window.renderW();
