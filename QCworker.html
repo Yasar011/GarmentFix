@@ -4,50 +4,40 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Brandix QMS — Worker</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, set, get, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-
   const app = initializeApp({
-    apiKey: "AIzaSyA-aIRjMPFkK0hQKWY8-rpcA_5TfMhbRM4",
-    authDomain: "qc--brandex.firebaseapp.com",
-    databaseURL: "https://qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "qc--brandex",
-    storageBucket: "qc--brandex.firebasestorage.app",
-    messagingSenderId: "109990871136",
-    appId: "1:109990871136:web:c0dfa5f0ba78bed77c8305"
+    apiKey:"AIzaSyA-aIRjMPFkK0hQKWY8-rpcA_5TfMhbRM4",
+    authDomain:"qc--brandex.firebaseapp.com",
+    databaseURL:"https://qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:"qc--brandex",storageBucket:"qc--brandex.firebasestorage.app",
+    messagingSenderId:"109990871136",appId:"1:109990871136:web:c0dfa5f0ba78bed77c8305"
   });
   const db = getDatabase(app);
   signInAnonymously(getAuth(app)).catch(()=>{});
-  window._db = db; window._ref = ref; window._set = set; window._get = get;
-  window._push = push; window._onValue = onValue; window._update = update;
+  window._db=db;window._ref=ref;window._set=set;window._get=get;
+  window._push=push;window._onValue=onValue;window._update=update;
 
-  window.dbLogin = async function(username, password) {
-    const snap = await get(ref(db, 'users'));
-    if (!snap.exists()) throw new Error('No users in system');
-    for (const [key, u] of Object.entries(snap.val())) {
-      if ((u.username === username || u.email === username) && u.password === password)
-        return { fbKey: key, ...u };
-    }
+  window.dbLogin = async function(u,p){
+    const s=await get(ref(db,'users'));
+    if(!s.exists()) throw new Error('No users in system');
+    for(const [k,v] of Object.entries(s.val()))
+      if((v.username===u||v.email===u)&&v.password===p) return {fbKey:k,...v};
     throw new Error('Invalid username or password');
   };
 
-  window.loadWorkerData = function() {
-    onValue(ref(db,'modules'), s => { WS.modules = s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
-    onValue(ref(db,'styles'),  s => { WS.styles  = s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
-    onValue(ref(db,'operations'), s => { WS.operations = s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
-    onValue(ref(db,'defects'), s => { WS.defects = s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
-    onValue(ref(db,'machines'), s => { WS.machines = s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
-    onValue(ref(db,'machineRosters'), s => {
-      WS.machineRosters = s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];
-    });
-    onValue(ref(db,'inspections'), s => {
+  window.loadWorkerData = function(){
+    onValue(ref(db,'modules'),  s=>{WS.modules=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'styles'),   s=>{WS.styles=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'operations'),s=>{WS.operations=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'defects'),  s=>{WS.defects=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'machines'), s=>{WS.machines=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'machineRosters'),s=>{WS.machineRosters=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'inspections'),s=>{
       if(s.exists()){
         const today=new Date().toISOString().split('T')[0];
         WS.myInspections=Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v}))
@@ -55,23 +45,13 @@
       } else WS.myInspections=[];
       if(WS.step==='dashboard') renderW();
     });
-    if(WS.user?.fbKey){
-      onValue(ref(db,`users/${WS.user.fbKey}`), s => {
-        if(s.exists()){
-          WS.user={fbKey:WS.user.fbKey,...s.val()};
-          if(!s.val().activeModule&&WS.step==='waiting'){WS.step='scan';renderW();toast('Approved!');}
-        }
-      });
-    }
   };
 
-  window.fbAdd = async (path,data)=>{ const r=push(ref(db,path)); await set(r,{...data,createdAt:new Date().toISOString()}); return r.key; };
-  window.fbUpd = async (path,key,data)=>{ await update(ref(db,`${path}/${key}`),{...data,updatedAt:new Date().toISOString()}); };
-  window.fbAddAlert = async (data)=>{ const r=push(ref(db,'alerts')); await set(r,{...data,createdAt:new Date().toISOString()}); };
+  window.fbAdd=async(path,data)=>{const r=push(ref(db,path));await set(r,{...data,createdAt:new Date().toISOString()});return r.key;};
+  window.fbAddAlert=async(data)=>{const r=push(ref(db,'alerts'));await set(r,{...data,createdAt:new Date().toISOString()});};
 
-  setTimeout(()=>{ if(WS.step==='loading'){WS.step='login';renderW();} }, 2000);
+  setTimeout(()=>{if(WS.step==='loading'){WS.step='login';renderW();}},2000);
 </script>
-
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -81,10 +61,10 @@
   --green:#00d4a8;--blue:#4488ff;--purple:#9966ff;--radius:12px;
   --font:'IBM Plex Sans',sans-serif
 }
-body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
-button{font-family:var(--font);cursor:pointer;border:none;outline:none}
-input,select,textarea{font-family:var(--font);font-size:16px}
-.page{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font-family:var(--font);font-size:16px}
+button{cursor:pointer;border:none;outline:none}
+.page{min-height:100vh;display:flex;flex-direction:column}
 .header{padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
 .logo-sm{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:12px}
 .body{flex:1;padding:16px;overflow-y:auto;max-width:540px;margin:0 auto;width:100%}
@@ -95,18 +75,19 @@ input,select,textarea{font-family:var(--font);font-size:16px}
 .form-input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:14px;border-radius:var(--radius);font-size:16px;transition:border-color .2s}
 .form-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,168,.15)}
 .form-input::placeholder{color:var(--text3)}
-.form-input[readonly]{background:var(--bg2);border-color:transparent;color:var(--text2)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .btn-big{width:100%;padding:16px;border-radius:var(--radius);font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;margin-bottom:10px}
 .btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000}
-.btn-primary:active{transform:scale(.98)}
+.btn-primary:active,.btn-primary:disabled{opacity:.7}
 .btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
 .btn-yellow{background:rgba(212,168,0,.12);color:var(--yellow);border:1px solid rgba(212,168,0,.3)}
 .btn-red{background:rgba(224,85,85,.12);color:var(--red);border:1px solid rgba(224,85,85,.3)}
+.btn-accent{background:rgba(0,212,168,.12);color:var(--accent);border:1px solid rgba(0,212,168,.3)}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
 .card-accent{background:rgba(0,212,168,.05);border-color:rgba(0,212,168,.25)}
 .card-blue{background:rgba(68,136,255,.05);border-color:rgba(68,136,255,.25)}
 .card-yellow{background:rgba(212,168,0,.05);border-color:rgba(212,168,0,.25)}
+.card-red{background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.25)}
 .badge{display:inline-flex;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500}
 .badge-green{background:rgba(0,212,168,.15);color:var(--green)}
 .badge-red{background:rgba(224,85,85,.15);color:var(--red)}
@@ -114,23 +95,25 @@ input,select,textarea{font-family:var(--font);font-size:16px}
 .badge-blue{background:rgba(68,136,255,.15);color:var(--blue)}
 .badge-purple{background:rgba(153,102,255,.15);color:var(--purple)}
 .scan-area{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center}
-#qr-reader,#qr-m,#qr-check{width:100%;max-width:400px;border-radius:12px;overflow:hidden}
+.scan-area-sm{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:12px;min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center}
-.stat-val{font-size:24px;font-weight:700;font-family:'IBM Plex Mono',monospace}
+.stat-val{font-size:24px;font-weight:700}
 .stat-label{font-size:11px;color:var(--text3);margin-top:2px;text-transform:uppercase}
 .sub-item{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
 .module-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
 .module-btn{padding:16px;background:var(--bg3);border:2px solid var(--border);border-radius:12px;text-align:center;cursor:pointer;transition:all .2s}
 .module-btn:active{border-color:var(--accent)}
-.machine-row{display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--bg3);border:2px solid var(--border);border-radius:12px;margin-bottom:8px;transition:border-color .2s}
+.machine-row{display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--bg3);border:2px solid var(--border);border-radius:12px;margin-bottom:8px;transition:border-color .2s;cursor:pointer}
 .machine-row.done{border-color:var(--green)}
 .machine-row.active{border-color:var(--yellow);background:rgba(212,168,0,.05)}
+.machine-row.scanning{border-color:var(--accent);background:rgba(0,212,168,.05);animation:pulse .8s infinite alternate}
+@keyframes pulse{from{border-color:var(--accent)}to{border-color:var(--accent2)}}
 .check-pill{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .check-btn{padding:10px 20px;border-radius:30px;font-size:14px;font-weight:600;border:2px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer}
 .check-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(0,212,168,.08)}
 .check-btn.done{border-color:var(--text3);color:var(--text3);background:transparent}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:14px 24px;border-radius:12px;font-size:14px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5);max-width:90vw;text-align:center}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:14px 24px;border-radius:12px;font-size:14px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5);max-width:90vw;text-align:center;pointer-events:none}
 .toast-success{background:rgba(0,212,168,.95);color:#000}
 .toast-error{background:rgba(224,85,85,.95);color:#fff}
 .err-msg{color:var(--red);font-size:13px;margin-bottom:12px;padding:12px;background:rgba(224,85,85,.08);border-radius:8px;border:1px solid rgba(224,85,85,.2);display:none}
@@ -144,138 +127,140 @@ input,select,textarea{font-family:var(--font);font-size:16px}
 .fade-in{animation:fadeIn .3s ease}
 .spinner{width:20px;height:20px;border:2px solid rgba(0,212,168,.3);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
 .btn-sm{padding:8px 14px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:8px;font-size:13px;cursor:pointer}
+.qr-hint{text-align:center;font-size:12px;color:var(--text3);margin-bottom:12px;padding:8px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)}
+.info-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg3);border-radius:8px;margin-bottom:8px}
 @media(max-width:400px){.stats-row{grid-template-columns:1fr 1fr}.form-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-// ============ STATE ============
+// ==================== STATE ====================
 window.WS = {
   step:'loading', user:null, loading:false,
   scannedModule:null, modules:[], styles:[], operations:[], defects:[],
   machines:[], machineRosters:[], myInspections:[],
-  // Worker-specific
   myMachine:null,
   // Check round state
   checkRound:1, checkMachineIdx:0, checkRoundData:[], checkRoundResults:[],
-  // Event modal
+  _currentCheckMachine:null,
+  // For the scan-to-fill flow
+  _scanMode:null,        // 'worker_reg' | 'inline_pick' | 'endline_pick'
+  _scannedForForm:null,  // machine data resolved from QR for current check form
   showEventModal:false,
-  // Dashboard
-  todayRoundCount:0
+  _manualRows:[], _manualBackStep:'check_home'
 };
-let qrActive = null; // tracks running scanner id
+let qrActive=null;
 
 function toast(m,t='success'){
   document.querySelectorAll('.toast').forEach(e=>e.remove());
-  const d=document.createElement('div');d.className=`toast toast-${t}`;d.textContent=m;
-  document.body.appendChild(d);setTimeout(()=>d.remove(),3000);
+  const d=document.createElement('div');
+  d.className='toast toast-'+t;d.textContent=m;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),3000);
 }
+function isWorker(){const r=(WS.user?.role||'').toLowerCase();return r.includes('worker')||r.includes('operator');}
+function isLineHead(){const r=(WS.user?.role||'').toLowerCase();return r.includes('line head')||r.includes('linehead')||r.includes('line-head');}
+function isEndline(){return (WS.user?.role||'').toLowerCase().includes('end');}
 
-// Role helpers
-function isWorker(){ return WS.user?.role?.toLowerCase().includes('worker')||WS.user?.role?.toLowerCase().includes('operator'); }
-function isEndline(){ return WS.user?.role?.toLowerCase().includes('end'); }
-function isQC(){ return !isWorker(); } // QC = Inline QC or Endline QC
-
-// ============ RENDER ============
+// ==================== RENDER ====================
 window.renderW = function(){
   stopQR();
   const app=document.getElementById('app');
-  const s=WS;
-  if(s.step==='loading'){
-    app.innerHTML=`<div class="login-page"><div style="text-align:center"><div class="spinner" style="width:36px;height:36px;margin:0 auto 16px"></div><div style="color:var(--text2)">Connecting...</div></div></div>`;
+  if(WS.step==='loading'){
+    app.innerHTML='<div class="login-page"><div style="text-align:center"><div class="spinner" style="width:36px;height:36px;margin:0 auto 16px"></div><div style="color:var(--text2)">Connecting...</div></div></div>';
     return;
   }
-  if(s.step==='login'||!s.user){app.innerHTML=renderLogin();bindLogin();return;}
-  app.innerHTML=`<div class="page">${renderHeader()}<div class="body fade-in">${renderStep()}</div></div>`;
+  if(WS.step==='login'||!WS.user){app.innerHTML=renderLogin();bindLogin();return;}
+  app.innerHTML='<div class="page">'+renderHeader()+'<div class="body fade-in">'+renderStep()+'</div></div>';
   bindStep();
   startQRIfNeeded();
 };
 
 function renderStep(){
   const s=WS.step;
-  if(s==='scan')           return renderScan();
-  if(s==='verify')         return renderVerify();
-  if(s==='worker_machine') return renderWorkerMachine();
-  if(s==='worker_done')    return renderWorkerDone();
-  if(s==='check_home')     return renderCheckHome();
-  if(s==='pre_verify')     return renderPreVerify();
-  if(s==='check_scan')     return renderCheckScan();
-  if(s==='check_form')     return renderCheckForm();
-  if(s==='check_end')      return renderCheckEnd();
-  if(s==='endline_home')   return renderEndlineHome();
-  if(s==='endline_form')   return renderEndlineForm();
-  if(s==='roster_manual')  return renderRosterManual();
-  if(s==='dashboard')      return renderDash();
-  if(s==='waiting')        return renderWaiting();
+  if(s==='scan')            return renderScan();
+  if(s==='verify')          return renderVerify();
+  // Line Head: scan machines one by one to build roster
+  if(s==='lh_scan')         return renderLHScan();
+  if(s==='lh_fill')         return renderLHFill();
+  if(s==='lh_roster')       return renderLHRoster();
+  // Inline QC
+  if(s==='check_home')      return renderCheckHome();
+  if(s==='check_scan_pick') return renderCheckScanPick();
+  if(s==='check_form')      return renderCheckForm();
+  if(s==='check_end')       return renderCheckEnd();
+  // Endline QC
+  if(s==='endline_home')    return renderEndlineHome();
+  if(s==='endline_scan_pick') return renderEndlineScanPick();
+  if(s==='endline_form')    return renderEndlineForm();
+  // Shared
+  if(s==='roster_manual')   return renderRosterManual();
+  if(s==='dashboard')       return renderDash();
+  if(s==='waiting')         return renderWaiting();
   return renderScan();
 }
 
 function renderHeader(){
-  const role = WS.user?.role||'';
-  const roleColor = isWorker()?'var(--blue)':isEndline()?'var(--purple)':'var(--accent)';
-  const roleLabel = isWorker()?'Machine Operator':isEndline()?'End Line QC':'Inline QC';
-  return`<div class="header">
-    <div style="display:flex;align-items:center;gap:10px">
-      <div class="logo-sm">BX</div>
-      <div>
-        <div style="font-size:14px;font-weight:600">${WS.user?.name||'Worker'}</div>
-        <div style="font-size:10px;color:${roleColor}">${roleLabel}${WS.scannedModule?' • '+WS.scannedModule.name:''}</div>
-      </div>
-    </div>
-    <div style="display:flex;gap:6px">
-      ${WS.step!=='dashboard'&&WS.step!=='scan'?`<button class="btn-sm" onclick="WS.step='dashboard';renderW()">📊</button>`:''}
-      <button class="btn-sm" onclick="doLogout()">Logout</button>
-    </div>
-  </div>`;
+  const roleColor=isLineHead()?'var(--yellow)':isWorker()?'var(--blue)':isEndline()?'var(--purple)':'var(--accent)';
+  const roleLabel=isLineHead()?'Line Head':isWorker()?'Machine Operator':isEndline()?'End Line QC':'Inline QC';
+  return '<div class="header">'
+    +'<div style="display:flex;align-items:center;gap:10px">'
+    +'<div class="logo-sm">BX</div>'
+    +'<div><div style="font-size:14px;font-weight:600">'+(WS.user?.name||'Worker')+'</div>'
+    +'<div style="font-size:10px;color:'+roleColor+'">'+roleLabel+(WS.scannedModule?' • '+WS.scannedModule.name:'')+'</div></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:6px">'
+    +(WS.step!=='dashboard'&&WS.step!=='scan'?'<button class="btn-sm" onclick="WS.step=\'dashboard\';renderW()">📊</button>':'')
+    +'<button class="btn-sm" onclick="doLogout()">Logout</button>'
+    +'</div></div>';
 }
 
 function doLogout(){
-  WS.user=null;WS.step='login';WS.scannedModule=null;
-  WS.myMachine=null;WS.checkRound=1;WS.checkRoundData=[];
+  WS.user=null;WS.step='login';WS.scannedModule=null;WS.myMachine=null;
+  WS.checkRound=1;WS.checkRoundData=[];
   renderW();
 }
 
-// ============ QR SCANNER MANAGEMENT ============
+// ==================== QR ENGINE ====================
 function stopQR(){
-  if(qrActive){
-    try{qrActive.stop().catch(()=>{});}catch(e){}
-    qrActive=null;
-  }
+  if(qrActive){try{qrActive.stop().catch(()=>{});}catch(e){}qrActive=null;}
 }
 function startQRIfNeeded(){
   const s=WS.step;
-  if(s==='scan')        initQRIn('qr-reader',handleModuleQR);
-  else if(s==='worker_machine') initQRIn('qr-m',handleWorkerMachineQR);
-  else if(s==='pre_verify')     initQRIn('qr-preverify',handlePreVerifyQR);
-  else if(s==='check_scan')     initQRIn('qr-check',handleCheckMachineQR);
+  if(s==='scan')                initQRIn('qr-reader',handleModuleQR);
+  else if(s==='worker_scan_machine') initQRIn('qr-wmachine',handleWorkerMachineQR);
+  else if(s==='check_scan_pick')     initQRIn('qr-inline-pick',handleInlinePickQR);
+  else if(s==='endline_scan_pick')   initQRIn('qr-endline-pick',handleEndlinePickQR);
 }
-function initQRIn(elId, cb){
+function initQRIn(elId,cb){
   const el=document.getElementById(elId);if(!el)return;
   try{
     const sc=new Html5Qrcode(elId);
     sc.start({facingMode:'environment'},{fps:10,qrbox:{width:220,height:220}},(text)=>{
       sc.stop().then(()=>cb(text)).catch(()=>cb(text));
     },()=>{}).catch(()=>{
-      el.innerHTML='<div style="padding:20px;color:var(--text3);text-align:center">📷 Camera unavailable. Use manual option below.</div>';
+      el.innerHTML='<div style="padding:20px;color:var(--text3);text-align:center">📷 Camera unavailable.<br>Use manual options below.</div>';
     });
     qrActive=sc;
   }catch(e){}
 }
 
-// ============ LOGIN ============
+// ==================== LOGIN ====================
 function renderLogin(){
-  return`<div class="login-page"><div class="login-card fade-in">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
-      <div class="logo-sm" style="width:44px;height:44px;font-size:16px;border-radius:12px">BX</div>
-      <div><div style="font-size:18px;font-weight:700">Brandix QMS</div><div style="font-size:12px;color:var(--text2)">Worker / QC Portal</div></div>
-    </div>
-    <div class="err-msg" id="w-err"></div>
-    <div class="form-group"><label class="form-label">Username</label><input class="form-input" id="w-user" placeholder="Your username" autocomplete="username"></div>
-    <div class="form-group"><label class="form-label">Password</label><input class="form-input" id="w-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
-    <button class="btn-big btn-primary" id="w-login-btn">${WS.loading?'<span class="spinner"></span> Signing in...':'Sign In'}</button>
-    <div style="margin-top:12px;text-align:center;font-size:11px;color:var(--text3)">Login with credentials given by your admin</div>
-  </div></div>`;
+  return '<div class="login-page"><div class="login-card fade-in">'
+    +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">'
+    +'<div class="logo-sm" style="width:44px;height:44px;font-size:16px;border-radius:12px">BX</div>'
+    +'<div><div style="font-size:18px;font-weight:700">Brandix QMS</div>'
+    +'<div style="font-size:12px;color:var(--text2)">Worker / QC Portal</div></div></div>'
+    +'<div class="err-msg" id="w-err"></div>'
+    +'<div class="form-group"><label class="form-label">Username</label>'
+    +'<input class="form-input" id="w-user" placeholder="Your username" autocomplete="username"></div>'
+    +'<div class="form-group"><label class="form-label">Password</label>'
+    +'<input class="form-input" id="w-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>'
+    +'<button class="btn-big btn-primary" id="w-login-btn">'+(WS.loading?'<span class="spinner"></span> Signing in...':'Sign In')+'</button>'
+    +'<div style="margin-top:12px;text-align:center;font-size:11px;color:var(--text3)">Login with credentials from your admin</div>'
+    +'</div></div>';
 }
 function bindLogin(){
   const btn=document.getElementById('w-login-btn');if(!btn)return;
@@ -290,9 +275,7 @@ function bindLogin(){
       WS.user=user;WS.loading=false;
       window.loadWorkerData();
       toast('Welcome, '+user.name);
-      // Route based on role
-      if(isWorker()){WS.step='scan';}
-      else {WS.step='dashboard';}
+      WS.step=isWorker()?'scan':'dashboard';
       renderW();
     }catch(e){
       WS.loading=false;renderW();
@@ -301,61 +284,55 @@ function bindLogin(){
     }
   };
   btn.onclick=go;
-  ['w-user','w-pass'].forEach(id=>document.getElementById(id)?.addEventListener('keydown',e=>e.key==='Enter'&&go()));
+  document.getElementById('w-user')?.addEventListener('keydown',e=>e.key==='Enter'&&go());
+  document.getElementById('w-pass')?.addEventListener('keydown',e=>e.key==='Enter'&&go());
 }
 
-// ============ MODULE SCAN (shared) ============
+// ==================== MODULE SCAN ====================
 function renderScan(){
   const mods=WS.modules;
   const title=isWorker()?'Scan Your Line QR':'Scan Module QR';
-  const sub=isWorker()?'Then you will register your machine':'Point camera at module QR code';
-  return`<div style="text-align:center;margin-bottom:16px">
-    <div style="font-size:20px;font-weight:600">${title}</div>
-    <div style="font-size:13px;color:var(--text2)">${sub}</div>
-  </div>
-  <div class="scan-area"><div id="qr-reader"></div></div>
-  <div style="text-align:center;font-size:12px;color:var(--text3);margin-bottom:12px">— OR select module below —</div>
-  <div class="module-grid">
-    ${mods.map(m=>`<div class="module-btn" onclick="pickModule('${m.fbKey}')">
-      <div style="font-size:14px;font-weight:600">${m.name||m.moduleId}</div>
-      <div style="font-size:11px;color:var(--text3)">${m.styleName||'No style'}</div>
-    </div>`).join('')}
-  </div>
-  ${mods.length===0?'<div style="text-align:center;color:var(--text3);padding:20px">No modules. Ask admin to add them.</div>':''}
-  <div style="margin-top:16px"><button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 My Dashboard</button></div>`;
+  return '<div style="text-align:center;margin-bottom:16px">'
+    +'<div style="font-size:20px;font-weight:600">'+title+'</div>'
+    +'<div style="font-size:13px;color:var(--text2)">Point camera at module QR code</div></div>'
+    +'<div class="scan-area"><div id="qr-reader"></div></div>'
+    +'<div class="qr-hint">— OR select module below —</div>'
+    +'<div class="module-grid">'
+    +mods.map(m=>'<div class="module-btn" onclick="pickModule(\''+m.fbKey+'\')"><div style="font-size:14px;font-weight:600">'+(m.name||m.moduleId)+'</div><div style="font-size:11px;color:var(--text3)">'+(m.styleName||'No style')+'</div></div>').join('')
+    +'</div>'
+    +(mods.length===0?'<div style="text-align:center;color:var(--text3);padding:20px">No modules. Ask admin to add them.</div>':'')
+    +'<div style="margin-top:16px"><button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 My Dashboard</button></div>';
 }
-
 function handleModuleQR(text){
   let data;try{data=JSON.parse(text);}catch(e){data={name:text};}
   const mod=WS.modules.find(m=>m.moduleId===data.moduleId||m.name===data.name||m.fbKey===data.fbKey||m.name===text);
   WS.scannedModule=mod||{name:data.name||text,moduleId:data.moduleId||text,styleName:data.styleName||'',buyer:data.buyer||''};
   toast('Module: '+WS.scannedModule.name);
-  if(isWorker()) { WS.step='verify'; renderW(); }
-  else { WS.step='verify'; renderW(); }
+  WS.step='verify';renderW();
 }
-
 window.pickModule=function(k){
   const mod=WS.modules.find(m=>m.fbKey===k);
   if(mod){WS.scannedModule=mod;WS.step='verify';renderW();}
 };
 
-// ============ VERIFY STYLE ============
+// ==================== VERIFY ====================
 function renderVerify(){
   const m=WS.scannedModule;
-  return`<div class="card card-accent" style="text-align:center;padding:24px;margin-bottom:16px">
-    <div style="font-size:32px;margin-bottom:8px">🏭</div>
-    <div style="font-size:22px;font-weight:700;color:var(--accent)">${m?.name||''}</div>
-    <div style="font-size:13px;color:var(--text2)">${m?.buyer?'Buyer: '+m.buyer+' • ':''}${m?.styleName?'Style: '+m.styleName:''}</div>
-  </div>
-  <div class="err-msg" id="v-err"></div>
-  <div class="form-group"><label class="form-label">Style Number / Name</label><input class="form-input" id="v-style" placeholder="e.g. STY-1000 or Polo Shirt" autocomplete="off"></div>
-  <button class="btn-big btn-primary" id="v-btn">✓ Verify & Continue</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='scan';renderW()">← Back</button>`;
+  return '<div class="card card-accent" style="text-align:center;padding:24px;margin-bottom:16px">'
+    +'<div style="font-size:32px;margin-bottom:8px">🏭</div>'
+    +'<div style="font-size:22px;font-weight:700;color:var(--accent)">'+(m?.name||'')+'</div>'
+    +'<div style="font-size:13px;color:var(--text2)">'+(m?.buyer?'Buyer: '+m.buyer+' • ':'')+(m?.styleName?'Style: '+m.styleName:'')+'</div>'
+    +'</div>'
+    +'<div class="err-msg" id="v-err"></div>'
+    +'<div class="form-group"><label class="form-label">Style Number / Name *</label>'
+    +'<input class="form-input" id="v-style" placeholder="e.g. STY-1000 or Polo Shirt" autocomplete="off"></div>'
+    +'<button class="btn-big btn-primary" id="v-btn">✓ Verify & Continue</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';renderW()">← Back</button>';
 }
 function bindVerify(){
   const btn=document.getElementById('v-btn');if(!btn)return;
   btn.onclick=async()=>{
-    const inp=document.getElementById('v-style')?.value.trim().toLowerCase();
+    const inp=(document.getElementById('v-style')?.value||'').trim().toLowerCase();
     const err=document.getElementById('v-err');
     if(!inp){err.style.display='block';err.textContent='Enter style number';return;}
     const m=WS.scannedModule;
@@ -364,134 +341,231 @@ function bindVerify(){
       ||(m.styleId||'').toLowerCase().includes(inp)
       ||WS.styles.some(s=>(s.styleId||'').toLowerCase().includes(inp)||(s.name||'').toLowerCase().includes(inp));
     if(ok){
-      await window._update(window._ref(window._db,'users/'+WS.user.fbKey),{activeModule:JSON.stringify(m),changeRequest:false});
+      await window._update(window._ref(window._db,'users/'+WS.user.fbKey),{activeModule:JSON.stringify(m)});
       toast('Verified ✓');
-      if(isWorker()) { WS.step='worker_machine'; renderW(); }
-      else if(isEndline()) { WS.step='endline_home'; renderW(); }
-      else { WS.step='check_home'; renderW(); }
+      if(isLineHead())      WS.step='lh_scan';
+      else if(isEndline())  WS.step='endline_home';
+      else                  WS.step='check_home';
+      renderW();
     } else {
-      err.style.display='block';err.textContent=`Style mismatch. Expected: ${m?.styleName||m?.styleId||'unknown'}`;
+      err.style.display='block';
+      err.textContent='Style mismatch. Expected: '+(m?.styleName||m?.styleId||'unknown');
     }
   };
   document.getElementById('v-style')?.addEventListener('keydown',e=>e.key==='Enter'&&btn.click());
 }
 
-// ============================================================
-// WORKER FLOW — Operator scans their machine and registers
-// ============================================================
-function renderWorkerMachine(){
-  const m=WS.myMachine;
-  return`<div class="card card-blue" style="margin-bottom:16px">
-    <div style="font-size:18px;font-weight:600;margin-bottom:4px">🔧 Register Your Machine</div>
-    <div style="font-size:12px;color:var(--text2)">Scan your machine QR code, then enter your operator details</div>
-  </div>
-  ${m?`<div class="card card-accent" style="margin-bottom:16px;text-align:center">
-    <div style="font-size:13px;color:var(--text3)">Machine Scanned</div>
-    <div style="font-size:20px;font-weight:700;margin:4px 0">${m.name}</div>
-    <div style="font-size:12px;color:var(--text2)">${m.type||''}</div>
-    <button class="btn-sm" style="margin-top:8px" onclick="WS.myMachine=null;renderW()">Rescan ↺</button>
-  </div>
-  <div class="form-group"><label class="form-label">Your Operator ID *</label><input class="form-input" id="wm-opid" placeholder="e.g. OP-10838" value="${WS._pendingOpId||''}"></div>
-  <div class="form-group"><label class="form-label">Operation *</label><select class="form-input" id="wm-op">
-    <option value="">— Select Operation —</option>
-    ${(WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack']).map(op=>`<option value="${op}">${op}</option>`).join('')}
-  </select></div>
-  <button class="btn-big btn-primary" id="wm-save">💾 Save Machine Assignment</button>`:
-  `<div class="scan-area"><div id="qr-m"></div></div>
-  <div style="text-align:center;font-size:12px;color:var(--text3);margin-bottom:12px">— OR type machine ID below —</div>
-  <div class="form-group"><input class="form-input" id="wm-manual" placeholder="Machine name or ID" autocomplete="off"></div>
-  <button class="btn-big btn-ghost" id="wm-manual-btn">Confirm Machine</button>`}
-  <button class="btn-big btn-ghost" onclick="WS.step='verify';renderW()">← Back</button>`;
-}
-function bindWorkerMachine(){
-  if(!WS.myMachine){
-    const mb=document.getElementById('wm-manual-btn');
-    if(mb) mb.onclick=()=>{
-      const v=document.getElementById('wm-manual')?.value.trim();
-      if(!v)return;
-      const mach=WS.machines.find(m=>m.name===v||m.fbKey===v);
-      WS.myMachine=mach||{fbKey:'manual_'+Date.now(),name:v,type:'Unknown'};
-      renderW();
-    };
-    return;
-  }
-  const saveBtn=document.getElementById('wm-save');
-  if(!saveBtn)return;
-  saveBtn.onclick=async()=>{
-    const opId=document.getElementById('wm-opid')?.value.trim();
-    const op=document.getElementById('wm-op')?.value;
-    if(!opId){toast('Enter your Operator ID','error');return;}
-    if(!op){toast('Select your Operation','error');return;}
-    WS._pendingOpId=opId;
-    const m=WS.scannedModule;
-    const date=new Date().toISOString().split('T')[0];
-    const rKey=`${m.fbKey||m.moduleId}_${date}`;
-    saveBtn.disabled=true;saveBtn.innerHTML='<span class="spinner"></span> Saving...';
-    try{
-      // Save machine assignment to machineRosters
-      const assign={machineId:WS.myMachine.fbKey,machineName:WS.myMachine.name,operatorId:opId,operation:op,
-        moduleId:m.fbKey,moduleName:m.name,date,registeredBy:WS.user?.username,registeredAt:new Date().toISOString()};
-      await window._set(window._ref(window._db,`machineRosters/${rKey}/workers/${WS.myMachine.fbKey}`),assign);
-      toast('Machine registered ✓');
-      WS.step='worker_done';renderW();
-    }catch(e){toast('Error: '+e.message,'error');saveBtn.disabled=false;saveBtn.innerHTML='💾 Save Machine Assignment';}
-  };
-}
-function renderWorkerDone(){
-  const m=WS.myMachine;
-  return`<div class="card card-accent" style="text-align:center;padding:32px;margin-bottom:16px">
-    <div style="font-size:48px;margin-bottom:12px">✅</div>
-    <div style="font-size:20px;font-weight:700;color:var(--accent)">Machine Registered</div>
-    <div style="font-size:14px;color:var(--text2);margin-top:8px">Machine: ${m?.name||''}</div>
-    <div style="font-size:12px;color:var(--text3)">Shift in progress — QC will inspect your work</div>
-  </div>
-  <button class="btn-big btn-ghost" onclick="WS.myMachine=null;WS.step='worker_machine';renderW()">🔄 Change Machine</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
-}
-function handleWorkerMachineQR(text){
-  const machId=text.trim();
-  const mach=WS.machines.find(m=>m.fbKey===machId||m.name===machId);
-  if(mach){
-    if(mach.moduleId&&mach.moduleId!==WS.scannedModule?.fbKey){
-      window.fbAdd('machineEvents',{machineId:machId,type:'Transfer',
-        details:`Machine ${mach.name} registered in module ${WS.scannedModule?.name} (registered to ${mach.moduleId})`,
-        loggedBy:WS.user?.username});
-      toast('⚠ Machine from different module — logged & allowed','error');
-    } else toast(mach.name+' scanned ✓');
-    WS.myMachine=mach;renderW();
-  } else {
-    WS.myMachine={fbKey:machId,name:'Machine '+machId.slice(-4),type:'Unknown'};
-    toast('Machine QR scanned (not in registry)');renderW();
-  }
+// ====================================================================================
+// LINE HEAD FLOW
+// She scans each machine QR → enters operator ID + operation → builds full line roster
+// ====================================================================================
+
+// State for line head session
+// WS._lhEntries = [{machineId, machineName, operatorId, operation, saved}]
+// WS._lhCurrentMachine = {fbKey, name, type}
+
+function renderLHScan(){
+  const m=WS.scannedModule;
+  const entries=WS._lhEntries||[];
+  const saved=entries.filter(e=>e.saved);
+
+  return '<div class="card card-yellow" style="margin-bottom:12px">'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">👷 Line Setup — '+( m?.name||'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">Scan each machine QR on the line then assign its operator</div>'
+    +'</div>'
+
+    // Progress strip
+    +(saved.length>0
+      ?'<div class="card" style="margin-bottom:12px;padding:12px">'
+       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+       +'<div style="font-size:13px;font-weight:600;color:var(--accent)">✓ '+saved.length+' machine'+(saved.length>1?'s':'')+' added</div>'
+       +'<button class="btn-sm" onclick="WS.step=\'lh_roster\';renderW()">View All →</button>'
+       +'</div>'
+       +saved.map(e=>'<div class="sub-item" style="padding:8px 12px">'
+         +'<div><div style="font-size:13px;font-weight:600">'+e.machineName+'</div>'
+         +'<div style="font-size:11px;color:var(--text2)">'+e.operatorId+' • '+e.operation+'</div></div>'
+         +'<span class="badge badge-green">✓</span>'
+         +'</div>').join('')
+       +'</div>'
+      :'')
+
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--yellow)">📷 Scan Next Machine QR</div>'
+    +'<div class="scan-area"><div id="qr-lh-scan"></div></div>'
+    +'<div class="qr-hint">— OR enter machine name / ID manually —</div>'
+    +'<div style="display:flex;gap:8px;margin-bottom:12px">'
+    +'<input class="form-input" id="lh-manual-input" placeholder="Machine name or ID" style="flex:1">'
+    +'<button class="btn-sm" id="lh-manual-btn" style="white-space:nowrap;padding:12px 16px;background:var(--accent);color:#000;border:none;border-radius:12px;font-weight:600">Confirm</button>'
+    +'</div>'
+
+    +(saved.length>0
+      ?'<button class="btn-big btn-primary" onclick="WS.step=\'lh_roster\';renderW()">✅ Done — View Full Roster ('+saved.length+')</button>'
+      :'')
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
-// ============================================================
-// INLINE QC FLOW — Check Rounds by scanning each machine
-// ============================================================
-function getModuleMachines(){
+function handleLHScanQR(text){
+  const machId=text.trim();
+  const mach=WS.machines.find(m=>m.fbKey===machId||m.name===machId||m.machineId===machId);
+  WS._lhCurrentMachine=mach||{fbKey:machId,name:'Machine '+machId.slice(-4),type:'Unknown'};
+  toast(WS._lhCurrentMachine.name+' scanned ✓');
+  WS.step='lh_fill';renderW();
+}
+
+function renderLHFill(){
+  const mach=WS._lhCurrentMachine;
+  const ops=WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack','Tacking'];
+  // pre-fill if already in entries (editing)
+  const existing=(WS._lhEntries||[]).find(e=>e.machineId===mach?.fbKey);
+
+  return '<div class="card card-accent" style="margin-bottom:16px;text-align:center;padding:20px">'
+    +'<div style="font-size:13px;color:var(--text3)">✅ Machine Scanned</div>'
+    +'<div style="font-size:22px;font-weight:700;margin:4px 0">'+(mach?.name||'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(mach?.type||'Unknown type')+'</div>'
+    +'<button class="btn-sm" style="margin-top:8px" onclick="WS._lhCurrentMachine=null;WS.step=\'lh_scan\';renderW()">← Rescan</button>'
+    +'</div>'
+
+    +'<div class="card">'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:16px;color:var(--text)">👤 Assign Operator for this Machine</div>'
+    +'<div class="form-group"><label class="form-label">Operator ID *</label>'
+    +'<input class="form-input" id="lh-opid" placeholder="e.g. OP-10838" value="'+(existing?.operatorId||'')+'"></div>'
+    +'<div class="form-group"><label class="form-label">Operation *</label>'
+    +'<select class="form-input" id="lh-op">'
+    +'<option value="">— Select Operation —</option>'
+    +ops.map(op=>'<option value="'+op+'"'+(existing?.operation===op?' selected':'')+'>'+op+'</option>').join('')
+    +'</select></div>'
+    +'<button class="btn-big btn-primary" id="lh-save-btn">➕ Add to Roster & Scan Next</button>'
+    +'</div>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'lh_scan\';renderW()">← Back</button>';
+}
+
+function bindLHFill(){
+  const btn=document.getElementById('lh-save-btn');if(!btn)return;
+  btn.onclick=async()=>{
+    const opId=(document.getElementById('lh-opid')?.value||'').trim();
+    const op=document.getElementById('lh-op')?.value;
+    if(!opId){toast('Enter Operator ID','error');return;}
+    if(!op){toast('Select Operation','error');return;}
+    const mach=WS._lhCurrentMachine;
+    if(!WS._lhEntries)WS._lhEntries=[];
+    // remove old entry for same machine if editing
+    WS._lhEntries=WS._lhEntries.filter(e=>e.machineId!==mach.fbKey);
+    WS._lhEntries.push({
+      machineId:mach.fbKey,machineName:mach.name,
+      operatorId:opId,operation:op,saved:true
+    });
+    toast(mach.name+' → '+opId+' saved ✓');
+    WS._lhCurrentMachine=null;
+    WS.step='lh_scan';renderW();
+  };
+  document.getElementById('lh-opid')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('lh-op')?.focus();});
+}
+
+function renderLHRoster(){
   const m=WS.scannedModule;
-  if(!m)return[];
+  const entries=WS._lhEntries||[];
+  const ops=WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack','Tacking'];
+
+  return '<div class="card card-yellow" style="margin-bottom:12px">'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:2px">📋 Full Line Roster — '+(m?.name||'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">Review, edit, then save to Firebase</div>'
+    +'</div>'
+
+    +'<div id="lh-roster-rows" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">'
+    +entries.map((e,i)=>'<div class="card" style="padding:12px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+      +'<div style="font-size:13px;font-weight:700">'+e.machineName+'</div>'
+      +'<button class="btn-sm" style="color:var(--red)" onclick="lhRemoveEntry('+i+')">✕</button>'
+      +'</div>'
+      +'<div class="form-row" style="margin-bottom:8px">'
+      +'<div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operator ID</label>'
+      +'<input class="form-input" style="padding:10px;font-size:14px" value="'+e.operatorId+'" oninput="WS._lhEntries['+i+'].operatorId=this.value"></div>'
+      +'<div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operation</label>'
+      +'<select class="form-input" style="padding:10px;font-size:14px" onchange="WS._lhEntries['+i+'].operation=this.value">'
+      +ops.map(op=>'<option value="'+op+'"'+(e.operation===op?' selected':'')+'>'+op+'</option>').join('')
+      +'</select></div>'
+      +'</div>'
+      +'</div>').join('')
+    +(entries.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No machines added yet</div>':'')
+    +'</div>'
+
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'lh_scan\';renderW()">➕ Scan More Machines</button>'
+    +(entries.length>0?'<button class="btn-big btn-primary" id="lh-roster-save">💾 Save Roster to Firebase</button>':'')
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+window.lhRemoveEntry=function(i){
+  WS._lhEntries.splice(i,1);renderW();
+};
+
+function bindLHRoster(){
+  const btn=document.getElementById('lh-roster-save');if(!btn)return;
+  btn.onclick=async()=>{
+    const entries=WS._lhEntries||[];
+    if(entries.length===0){toast('Add at least one machine','error');return;}
+    btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
+    const m=WS.scannedModule;
+    const date=new Date().toISOString().split('T')[0];
+    const rKey=(m.fbKey||m.moduleId)+'_'+date;
+    try{
+      const workers={};
+      entries.forEach(e=>{
+        workers[e.machineId]={
+          machineId:e.machineId,machineName:e.machineName,
+          operatorId:e.operatorId,operation:e.operation,
+          moduleId:m.fbKey,moduleName:m.name,
+          date,registeredBy:WS.user?.username,registeredAt:new Date().toISOString()
+        };
+      });
+      await window._set(window._ref(window._db,'machineRosters/'+rKey+'/workers'),workers);
+      await window._update(window._ref(window._db,'machineRosters/'+rKey),{
+        moduleId:m.fbKey,moduleName:m.name,date,
+        updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
+      });
+      toast('✅ Roster saved — '+entries.length+' machines registered!');
+      WS.step='lh_done';renderW();
+    }catch(e){toast('Error: '+e.message,'error');btn.disabled=false;btn.innerHTML='💾 Save Roster to Firebase';}
+  };
+}
+
+function renderLHDone(){
+  const entries=WS._lhEntries||[];
+  const m=WS.scannedModule;
+  return '<div class="card card-accent" style="text-align:center;padding:32px;margin-bottom:16px">'
+    +'<div style="font-size:52px;margin-bottom:12px">✅</div>'
+    +'<div style="font-size:20px;font-weight:700;color:var(--accent)">Line Roster Saved!</div>'
+    +'<div style="font-size:14px;color:var(--text2);margin-top:6px">'+(m?.name||'')+' — '+entries.length+' machines registered</div>'
+    +'<div style="font-size:12px;color:var(--text3);margin-top:4px">QC inspectors can now start their check rounds</div>'
+    +'</div>'
+    +'<div class="card" style="margin-bottom:12px">'
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:10px">Registered Machines</div>'
+    +entries.map(e=>'<div class="sub-item" style="padding:8px 12px">'
+      +'<div><div style="font-size:13px;font-weight:600">'+e.machineName+'</div>'
+      +'<div style="font-size:11px;color:var(--text2)">'+e.operatorId+' • '+e.operation+'</div></div>'
+      +'<span class="badge badge-green">✓</span>'
+      +'</div>').join('')
+    +'</div>'
+    +'<button class="btn-big btn-ghost" onclick="WS._lhEntries=[];WS.step=\'lh_scan\';renderW()">🔄 New Line Setup</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+// ==================== GET MACHINES ====================
+function getModuleMachines(){
+  const m=WS.scannedModule;if(!m)return[];
   const date=new Date().toISOString().split('T')[0];
-  const rKey=`${m.fbKey||m.moduleId}_${date}`;
+  const rKey=(m.fbKey||m.moduleId)+'_'+date;
   const roster=WS.machineRosters.find(r=>r.fbKey===rKey);
-  if(roster?.workers && Object.keys(roster.workers).length>0){
-    return Object.values(roster.workers);
-  }
-  // Fallback: machines assigned to this module via sync
-  // Match by: moduleId (FM module key) OR lineName/moduleName OR fbKey
+  if(roster?.workers&&Object.keys(roster.workers).length>0) return Object.values(roster.workers);
   const matched=WS.machines.filter(mc=>
-    mc.moduleId===m.fbKey ||          // FM module key matches QMS module fbKey
-    mc.moduleId===m.moduleId ||       // direct match
-    (mc.moduleName && mc.moduleName===m.name) ||  // name match from sync
-    (mc.lineName   && mc.lineName===m.name)        // lineName alias
+    mc.moduleId===m.fbKey||mc.moduleId===m.moduleId||
+    (mc.moduleName&&mc.moduleName===m.name)||(mc.lineName&&mc.lineName===m.name)
   );
-  if(matched.length>0){
-    return matched.map(mc=>({
-      machineId:mc.fbKey, machineName:mc.name, operatorId:'', operation:'', type:mc.type||''
-    }));
-  }
+  if(matched.length>0) return matched.map(mc=>({machineId:mc.fbKey,machineName:mc.name,operatorId:'',operation:'',type:mc.type||''}));
   return [];
 }
+
+// ====================================================================================
+// INLINE QC FLOW: Check Home → Scan Machine QR → Auto-fill Form → Save → Next
+// ====================================================================================
 
 function renderCheckHome(){
   const machines=getModuleMachines();
@@ -501,87 +575,445 @@ function renderCheckHome(){
   const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
   const nextRound=completedRounds.length+1;
   WS.checkRound=nextRound;
-
   const noMachines=machines.length===0;
-  return`<div class="card card-accent">
-    <div style="font-size:18px;font-weight:600">${m?.name||''} — Inline QC</div>
-    <div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div>
-  </div>
-  <div style="margin-bottom:16px">
-    <div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today's Checks</div>
-    <div class="check-pill">
-      ${[1,2,3,4,5].map(n=>`<div class="check-btn ${completedRounds.includes(n)?'done':n===nextRound?'active':''}" onclick="${n===nextRound?`startCheckRound(${n})`:''}">Check ${n}${completedRounds.includes(n)?' ✓':''}</div>`).join('')}
-    </div>
-  </div>
-  ${!noMachines?`<div class="card" style="margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-size:13px;font-weight:600">🔧 Machines on Line (${machines.length})</div>
-      <button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>
-    </div>
-    ${machines.map(w=>`<div class="sub-item">
-      <div><div style="font-size:13px;font-weight:600">${w.machineName||w.machineId}</div><div style="font-size:11px;color:var(--text2)">${w.operatorId||'No operator'} • ${w.operation||'—'}</div></div>
-      <span class="badge badge-green">✓</span>
-    </div>`).join('')}
-  </div>`:
-  `<div class="card card-yellow" style="margin-bottom:16px">
-    <div style="font-weight:600;margin-bottom:6px">⚠ No Machines Registered Yet</div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Workers normally scan their machines first. You can also set up the roster manually right here.</div>
-    <button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Machines Manually</button>
-  </div>`}
-  <button class="btn-big btn-primary" onclick="startCheckRound(${nextRound})" ${noMachines?'disabled style="opacity:.4"':''}>▶ Start Check ${nextRound}</button>
-  <button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ ${noMachines?'Set Up':'Edit'} Machine Roster</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='scan';WS.scannedModule=null;renderW()">🔄 Change Module</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
+
+  return '<div class="card card-accent">'
+    +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — Inline QC</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+'</div>'
+    +'</div>'
+    +'<div style="margin-bottom:16px">'
+    +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Checks</div>'
+    +'<div class="check-pill">'
+    +[1,2,3,4,5].map(n=>'<div class="check-btn '+(completedRounds.includes(n)?'done':n===nextRound?'active':'')+'" onclick="'+(n===nextRound?'startCheckRound('+n+')':'')+'">'+'Check '+n+(completedRounds.includes(n)?' ✓':'')+'</div>').join('')
+    +'</div></div>'
+    +(!noMachines
+      ?'<div class="card" style="margin-bottom:16px">'
+       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+       +'<div style="font-size:13px;font-weight:600">🔧 Machines on Line ('+machines.length+')</div>'
+       +'<button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>'
+       +'</div>'
+       +machines.map(w=>'<div class="sub-item"><div><div style="font-size:13px;font-weight:600">'+(w.machineName||w.machineId)+'</div><div style="font-size:11px;color:var(--text2)">'+(w.operatorId||'No operator')+' • '+(w.operation||'—')+'</div></div><span class="badge badge-green">✓</span></div>').join('')
+       +'</div>'
+      :'<div class="card card-yellow" style="margin-bottom:16px">'
+       +'<div style="font-weight:600;margin-bottom:6px">⚠ No Machines Registered Yet</div>'
+       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Workers scan their machine QR first, or set up the roster manually here.</div>'
+       +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Machines Manually</button>'
+       +'</div>')
+    +'<button class="btn-big btn-primary" onclick="startCheckRound('+nextRound+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
+    +'▶ Start Check '+nextRound+'</button>'
+    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Machine Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
-window.openManualRoster = function(){
-  // Pre-fill from existing roster or create blank
-  const machines = getModuleMachines();
-  WS._manualRows = machines.length > 0
-    ? machines.map(w=>({machineId:w.machineId||'',machineName:w.machineName||'',operatorId:w.operatorId||'',operation:w.operation||''}))
-    : [{machineId:'',machineName:'',operatorId:'',operation:''}];
-  WS._manualBackStep = WS.step;
-  WS.step='roster_manual';
-  renderW();
+window.startCheckRound=function(roundNum){
+  const machines=getModuleMachines();
+  if(machines.length===0){toast('Set up machine roster first — tap ⚙️ below','error');return;}
+  WS.checkRound=roundNum;WS.checkRoundData=[...machines];
+  WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+  WS.step='check_scan_pick';renderW();
+};
+
+// ---- NEW: Inline Scan-to-Pick screen ----
+function renderCheckScanPick(){
+  const machines=WS.checkRoundData;
+  const done=WS.checkRoundResults;
+  const remaining=machines.filter(w=>!done.some(d=>d.machineId===w.machineId));
+  const pct=machines.length>0?Math.round((done.length/machines.length)*100):0;
+
+  return '<div class="card card-accent">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    +'<div style="font-weight:600">Check '+WS.checkRound+' — Inline QC</div>'
+    +'<span class="badge badge-blue">'+done.length+'/'+machines.length+'</span></div>'
+    +'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div>'
+    +'<div style="font-size:12px;color:var(--text2)">Scan each machine QR to open its inspection form</div></div>'
+
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--accent)">📷 Scan Machine QR</div>'
+    +'<div class="scan-area-sm"><div id="qr-inline-pick"></div></div>'
+    +'<div class="qr-hint">— OR tap machine below to select manually —</div>'
+
+    +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
+    +machines.map(w=>{
+      const isDone=done.some(d=>d.machineId===w.machineId);
+      return '<div class="machine-row '+(isDone?'done':'')+'" onclick="'+(isDone?'':'selectInlineMachine(\''+w.machineId+'\')')+'">'
+        +'<div><div style="font-size:14px;font-weight:600">'+(w.machineName||w.machineId)+'</div>'
+        +'<div style="font-size:11px;color:var(--text2)">'+(w.operatorId||'No operator')+' • '+(w.operation||'—')+'</div></div>'
+        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-blue">Tap</span>')
+        +'</div>';
+    }).join('')
+    +'</div>'
+
+    +(remaining.length===0
+      ?'<button class="btn-big btn-primary" onclick="WS.step=\'check_end\';renderW()">✅ All Done — Finish Check '+WS.checkRound+'</button>'
+      :'')
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'check_home\';renderW()">← Back to Module</button>';
+}
+
+function handleInlinePickQR(text){
+  const machId=text.trim();
+  const mach=WS.machines.find(m=>m.fbKey===machId||m.name===machId);
+  // check if it's in roster
+  const rosterMach=WS.checkRoundData.find(w=>w.machineId===machId||(mach&&w.machineId===mach.fbKey));
+  if(rosterMach){
+    // already done?
+    if(WS.checkRoundResults.some(d=>d.machineId===rosterMach.machineId)){
+      toast('Already inspected — tap again to re-inspect','error');
+      setTimeout(()=>startQRIfNeeded(),500);return;
+    }
+    selectInlineMachine(rosterMach.machineId);
+  } else {
+    // machine not in roster — add it
+    if(mach&&mach.moduleId!==WS.scannedModule?.fbKey){
+      window.fbAdd('machineEvents',{machineId:machId,type:'Transfer',
+        details:'Machine '+(mach?.name||machId)+' scanned in check but not in roster',
+        loggedBy:WS.user?.username,moduleId:WS.scannedModule?.fbKey});
+      toast('⚠ Machine not in roster — added for this check','error');
+    } else toast('Machine scanned — added to check');
+    const tempMach={machineId:machId,machineName:mach?.name||'Machine '+machId.slice(-4),operatorId:'',operation:'',type:mach?.type||''};
+    WS.checkRoundData.push(tempMach);
+    selectInlineMachine(machId);
+  }
+}
+
+window.selectInlineMachine=function(machineId){
+  const idx=WS.checkRoundData.findIndex(w=>w.machineId===machineId);
+  if(idx>=0){
+    WS.checkMachineIdx=idx;
+    WS._currentCheckMachine=WS.checkRoundData[idx];
+    WS.step='check_form';renderW();
+  }
+};
+
+// ---- Inline form ----
+function renderCheckForm(){
+  const w=WS._currentCheckMachine||WS.checkRoundData[WS.checkMachineIdx];
+  const m=WS.scannedModule;
+  const done=WS.checkRoundResults;
+  const remaining=WS.checkRoundData.filter(x=>!done.some(d=>d.machineId===x.machineId)&&x.machineId!==w?.machineId);
+  const myDefs=WS.defects.filter(d=>d.type==='Inline'||d.type==='Both');
+
+  return '<div class="card card-blue" style="margin-bottom:16px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center">'
+    +'<div><div style="font-size:12px;color:var(--text3)">CHECK '+WS.checkRound+' — INLINE</div>'
+    +'<div style="font-size:18px;font-weight:700;margin:2px 0">'+(w?.machineName||w?.machineId||'')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:12px;color:var(--text2)">'+(w?.operatorId||'No Operator')+'</div>'
+    +'<div style="font-size:11px;color:var(--text3)">'+(w?.operation||'')+'</div></div>'
+    +'</div></div>'
+
+    +'<div class="card"><form id="wf" onsubmit="return false">'
+    +'<input type="hidden" name="module" value="'+(m?.name||'')+'">'
+    +'<input type="hidden" name="style" value="'+(m?.styleName||'')+'">'
+    +'<input type="hidden" name="machineId" value="'+(w?.machineId||'')+'">'
+    +'<input type="hidden" name="machineName" value="'+(w?.machineName||'')+'">'
+    +'<input type="hidden" name="operatorId" value="'+(w?.operatorId||'')+'">'
+    +'<input type="hidden" name="operation" value="'+(w?.operation||'')+'">'
+    +'<input type="hidden" name="checkRound" value="'+WS.checkRound+'">'
+    +'<div class="info-row">'
+    +'<div><div style="font-size:11px;color:var(--text3)">OPERATOR</div><div style="font-weight:600">'+(w?.operatorId||'—')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:11px;color:var(--text3)">OPERATION</div><div style="font-weight:600">'+(w?.operation||'—')+'</div></div>'
+    +'</div>'
+    +'<div class="form-row">'
+    +'<div class="form-group"><label class="form-label">Checked Qty *</label>'
+    +'<input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div>'
+    +'<div class="form-group"><label class="form-label">Defect Qty</label>'
+    +'<input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div>'
+    +'</div>'
+    +'<div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">DHU</div>'
+    +'<div id="dhu-val" style="font-size:28px;font-weight:700"></div></div>'
+    +'<div class="form-group"><label class="form-label">Defect Type</label>'
+    +'<select class="form-input" name="defectType"><option value="">— No Defect —</option>'
+    +myDefs.map(d=>'<option value="'+d.name+'">'+(d.defectId?d.defectId+' - ':'')+d.name+'</option>').join('')
+    +'</select></div>'
+    +'<div class="form-group"><label class="form-label">Comments</label>'
+    +'<textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div>'
+    +'<button class="btn-big btn-primary" type="button" id="sub-btn">'
+    +(remaining.length>0?'✓ Save & Scan Next Machine':'✓ Save & Finish Check '+WS.checkRound)+'</button>'
+    +'</form></div>'
+    +(WS.showEventModal?renderEventModal():'')
+    +'<button class="btn-big btn-yellow" onclick="WS.showEventModal=true;renderW()">⚡ Log Machine Event</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'check_scan_pick\';renderW()">← Back to Machines</button>';
+}
+
+// ====================================================================================
+// ENDLINE QC FLOW: Endline Home → Scan Machine/Operator QR → Auto-fill Form → Save
+// ====================================================================================
+
+function renderEndlineHome(){
+  const machines=getModuleMachines();
+  const m=WS.scannedModule;
+  const today=new Date().toISOString().split('T')[0];
+  const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today&&i.type==='endline');
+  const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
+  const nextRound=completedRounds.length+1;
+  WS.checkRound=nextRound;
+  const noMachines=machines.length===0;
+
+  return '<div class="card card-accent">'
+    +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — End Line QC</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+'</div>'
+    +'</div>'
+    +'<div style="margin-bottom:16px">'
+    +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Checks</div>'
+    +'<div class="check-pill">'
+    +[1,2,3,4,5].map(n=>'<div class="check-btn '+(completedRounds.includes(n)?'done':n===nextRound?'active':'')+'" onclick="'+(n===nextRound?'startEndlineRound('+n+')':'')+'">'+'Check '+n+(completedRounds.includes(n)?' ✓':'')+'</div>').join('')
+    +'</div></div>'
+    +(!noMachines
+      ?'<div class="card" style="margin-bottom:16px">'
+       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+       +'<div style="font-size:13px;font-weight:600">Workers on Line ('+machines.length+')</div>'
+       +'<button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>'
+       +'</div>'
+       +machines.map(w=>'<div class="sub-item"><div><div style="font-weight:600">'+(w.operatorId||'No ID')+'</div><div style="font-size:11px;color:var(--text2)">'+(w.operation||'—')+' • '+(w.machineName||'')+'</div></div></div>').join('')
+       +'</div>'
+      :'<div class="card card-yellow" style="margin-bottom:16px">'
+       +'<div style="font-weight:600;margin-bottom:6px">⚠ No Workers Registered Yet</div>'
+       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Workers scan their machine QR at start of shift to register. Or add manually.</div>'
+       +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Workers Manually</button>'
+       +'</div>')
+    +'<button class="btn-big btn-primary" onclick="startEndlineRound('+nextRound+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
+    +'▶ Start Check '+nextRound+'</button>'
+    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+window.startEndlineRound=function(roundNum){
+  const machines=getModuleMachines();
+  if(machines.length===0){toast('Set up roster first — tap ⚙️ below','error');return;}
+  WS.checkRound=roundNum;WS.checkRoundData=[...machines];
+  WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+  WS.step='endline_scan_pick';renderW();
+};
+
+// ---- NEW: Endline Scan-to-Pick screen ----
+function renderEndlineScanPick(){
+  const machines=WS.checkRoundData;
+  const done=WS.checkRoundResults;
+  const pct=machines.length>0?Math.round((done.length/machines.length)*100):0;
+
+  return '<div class="card" style="background:rgba(153,102,255,.05);border-color:rgba(153,102,255,.3);margin-bottom:12px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    +'<div style="font-weight:600">Check '+WS.checkRound+' — End Line QC</div>'
+    +'<span class="badge badge-purple">'+done.length+'/'+machines.length+'</span></div>'
+    +'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div>'
+    +'<div style="font-size:12px;color:var(--text2)">Scan operator\'s machine QR to open their form</div></div>'
+
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--purple)">📷 Scan Machine QR</div>'
+    +'<div class="scan-area-sm"><div id="qr-endline-pick"></div></div>'
+    +'<div class="qr-hint">— OR tap operator below to select manually —</div>'
+
+    +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
+    +machines.map((w,i)=>{
+      const isDone=done.some(d=>d.operatorId===w.operatorId&&d.machineId===w.machineId);
+      return '<div class="machine-row '+(isDone?'done':'')+'" onclick="'+(isDone?'':'selectEndlineWorker(\''+w.machineId+'\')')+'">'
+        +'<div><div style="font-size:14px;font-weight:600">'+(w.operatorId||'No ID')+'</div>'
+        +'<div style="font-size:11px;color:var(--text2)">'+(w.operation||'—')+' • '+(w.machineName||'')+'</div></div>'
+        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-purple">Tap</span>')
+        +'</div>';
+    }).join('')
+    +'</div>'
+
+    +(done.length===machines.length&&machines.length>0
+      ?'<button class="btn-big btn-primary" onclick="WS.step=\'check_end\';renderW()">✅ All Done — Finish Check '+WS.checkRound+'</button>'
+      :'')
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'endline_home\';renderW()">← Back</button>';
+}
+
+function handleEndlinePickQR(text){
+  const machId=text.trim();
+  const mach=WS.machines.find(m=>m.fbKey===machId||m.name===machId);
+  const rosterMach=WS.checkRoundData.find(w=>w.machineId===machId||(mach&&w.machineId===mach.fbKey));
+  if(rosterMach){
+    const isDone=WS.checkRoundResults.some(d=>d.operatorId===rosterMach.operatorId&&d.machineId===rosterMach.machineId);
+    if(isDone){toast('Already inspected this operator','error');setTimeout(()=>startQRIfNeeded(),500);return;}
+    selectEndlineWorker(rosterMach.machineId);
+  } else {
+    const tempMach={machineId:machId,machineName:mach?.name||'Machine '+machId.slice(-4),operatorId:'',operation:'',type:mach?.type||''};
+    WS.checkRoundData.push(tempMach);
+    toast('Machine scanned — added to check');
+    selectEndlineWorker(machId);
+  }
+}
+
+window.selectEndlineWorker=function(machineId){
+  const idx=WS.checkRoundData.findIndex(w=>w.machineId===machineId);
+  if(idx>=0){
+    WS.checkMachineIdx=idx;
+    WS._currentCheckMachine=WS.checkRoundData[idx];
+    WS.step='endline_form';renderW();
+  }
+};
+
+// ---- Endline form (pre-filled from roster) ----
+function renderEndlineForm(){
+  const machines=WS.checkRoundData;
+  const idx=WS.checkMachineIdx;
+  const w=WS._currentCheckMachine||machines[idx];
+  const total=machines.length;
+  const m=WS.scannedModule;
+  const myDefs=WS.defects.filter(d=>d.type==='Endline'||d.type==='Both');
+  const done=WS.checkRoundResults;
+  const remaining=machines.filter(x=>!done.some(d=>d.operatorId===x.operatorId&&d.machineId===x.machineId)&&x.machineId!==w?.machineId);
+
+  return '<div class="card" style="background:rgba(153,102,255,.05);border-color:rgba(153,102,255,.3);margin-bottom:16px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    +'<div style="font-weight:600">End Line — Check '+WS.checkRound+'</div>'
+    +'<span class="badge badge-purple">'+(idx+1)+'/'+total+' workers</span></div>'
+    +'<div class="progress-bar"><div class="progress-fill" style="width:'+Math.round((idx/total)*100)+'%"></div></div>'
+    +'</div>'
+    +'<div class="card"><form id="wf" onsubmit="return false">'
+    +'<input type="hidden" name="module" value="'+(m?.name||'')+'">'
+    +'<input type="hidden" name="style" value="'+(m?.styleName||'')+'">'
+    +'<input type="hidden" name="checkRound" value="'+WS.checkRound+'">'
+    +'<input type="hidden" name="machineId" value="'+(w?.machineId||'')+'">'
+    +'<input type="hidden" name="operatorId" value="'+(w?.operatorId||'')+'">'
+    +'<input type="hidden" name="operation" value="'+(w?.operation||'')+'">'
+    // Info row — pre-filled from roster scan
+    +'<div class="info-row" style="margin-bottom:16px">'
+    +'<div><div style="font-size:11px;color:var(--text3)">OPERATOR</div><div style="font-size:16px;font-weight:700">'+(w?.operatorId||'—')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:11px;color:var(--text3)">MACHINE</div><div style="font-size:14px;font-weight:600">'+(w?.machineName||'—')+'</div>'
+    +'<div style="font-size:11px;color:var(--text2)">'+(w?.operation||'—')+'</div></div>'
+    +'</div>'
+    // If operator unknown, let inspector fill it
+    +((!w?.operatorId)
+      ?'<div class="form-group"><label class="form-label">Operator ID</label>'
+       +'<input class="form-input" id="f-opId-manual" placeholder="Enter operator ID" value=""></div>'
+       +'<div class="form-group"><label class="form-label">Operation</label>'
+       +'<input class="form-input" id="f-op-manual" placeholder="Enter operation"></div>'
+      :'')
+    +'<div class="form-row">'
+    +'<div class="form-group"><label class="form-label">Checked Qty *</label>'
+    +'<input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div>'
+    +'<div class="form-group"><label class="form-label">Defect Qty</label>'
+    +'<input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div>'
+    +'</div>'
+    +'<div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">DHU</div>'
+    +'<div id="dhu-val" style="font-size:28px;font-weight:700"></div></div>'
+    +'<div class="form-group"><label class="form-label">Defect Type</label>'
+    +'<select class="form-input" name="defectType"><option value="">— No Defect —</option>'
+    +myDefs.map(d=>'<option value="'+d.name+'">'+(d.defectId?d.defectId+' - ':'')+d.name+'</option>').join('')
+    +'</select></div>'
+    +'<div class="form-group"><label class="form-label">Comments</label>'
+    +'<textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div>'
+    +'<button class="btn-big btn-primary" type="button" id="sub-btn">'
+    +(remaining.length>0?'✓ Save & Scan Next Operator':'✓ Save & Finish Check '+WS.checkRound)+'</button>'
+    +'</form></div>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'endline_scan_pick\';renderW()">← Back to Operators</button>';
+}
+
+// ==================== EVENT MODAL ====================
+function renderEventModal(){
+  const machines=WS.checkRoundData||[];
+  return '<div class="modal-overlay" onclick="if(event.target===this){WS.showEventModal=false;renderW();}">'
+    +'<div class="modal-sheet">'
+    +'<div style="font-size:18px;font-weight:600;margin-bottom:4px">⚡ Log Machine Event</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:20px">Record mid-check events</div>'
+    +'<div class="form-group"><label class="form-label">Event Type</label>'
+    +'<select class="form-input" id="ev-type">'
+    +'<option value="OperatorChange">👤 Operator Change</option>'
+    +'<option value="Breakdown">💥 Machine Breakdown</option>'
+    +'<option value="Swap">🔄 Machine Swap</option>'
+    +'<option value="ModelChange">🏷 Model / Style Change</option>'
+    +'</select></div>'
+    +'<div class="form-group"><label class="form-label">Machine</label>'
+    +'<select class="form-input" id="ev-mach">'
+    +machines.map(w=>'<option value="'+w.machineId+'">'+(w.machineName||w.machineId)+'</option>').join('')
+    +'</select></div>'
+    +'<div class="form-group"><label class="form-label">Reason</label>'
+    +'<select class="form-input" id="ev-reason">'
+    +'<option>Absent</option><option>Break Relief</option><option>Transferred</option>'
+    +'<option>Training</option><option>Machine Fault</option><option>Other</option>'
+    +'</select></div>'
+    +'<div class="form-group"><label class="form-label">Notes</label>'
+    +'<textarea class="form-input" id="ev-notes" rows="2" placeholder="Additional details..."></textarea></div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn-big btn-ghost" style="margin:0;flex:1" onclick="WS.showEventModal=false;renderW()">Cancel</button>'
+    +'<button class="btn-big btn-primary" style="margin:0;flex:2" onclick="submitMachineEvent()">Log Event</button>'
+    +'</div></div></div>';
+}
+
+window.submitMachineEvent=async function(){
+  const type=document.getElementById('ev-type')?.value;
+  const machId=document.getElementById('ev-mach')?.value;
+  const reason=document.getElementById('ev-reason')?.value;
+  const notes=document.getElementById('ev-notes')?.value;
+  const w=(WS.checkRoundData||[]).find(x=>x.machineId===machId);
+  try{
+    await window.fbAdd('machineEvents',{machineId:machId,machineName:w?.machineName||machId,
+      type,reason,details:notes||reason,loggedBy:WS.user?.username,
+      moduleId:WS.scannedModule?.fbKey,moduleName:WS.scannedModule?.name});
+    WS.showEventModal=false;renderW();toast('Event logged: '+type);
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+
+// ==================== CHECK END ====================
+function renderCheckEnd(){
+  const results=WS.checkRoundResults||[];
+  const tc=results.reduce((a,r)=>a+(parseInt(r.checkedQty)||0),0);
+  const td=results.reduce((a,r)=>a+(parseInt(r.defectQty)||0),0);
+  const dhu=tc?((td/tc)*100).toFixed(1):'0.0';
+  const isEl=isEndline();
+  return '<div class="card card-accent" style="text-align:center;padding:24px;margin-bottom:16px">'
+    +'<div style="font-size:40px;margin-bottom:8px">✅</div>'
+    +'<div style="font-size:20px;font-weight:700;color:var(--accent)">Check '+WS.checkRound+' Complete!</div>'
+    +'<div style="font-size:13px;color:var(--text2)">'+results.length+' '+(isEl?'operators':'machines')+' inspected</div></div>'
+    +'<div class="stats-row" style="margin-bottom:16px">'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--blue)">'+tc+'</div><div class="stat-label">Checked</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--red)">'+td+'</div><div class="stat-label">Defects</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)')+'">'+dhu+'%</div><div class="stat-label">DHU</div></div>'
+    +'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
+    +results.map(r=>'<div class="sub-item">'
+      +'<div><div style="font-size:13px;font-weight:600">'+(r.machineName||r.machineId||'')+'</div>'
+      +'<div style="font-size:11px;color:var(--text2)">'+(r.operatorId||'')+' • '+(r.operation||'')+'</div></div>'
+      +'<div style="text-align:right">'
+      +'<div style="color:'+((parseInt(r.defectQty)||0)>0?'var(--red)':'var(--green)')+';font-weight:600">'+(r.defectQty||0)+' def</div>'
+      +'<div style="font-size:11px;color:var(--text3)">'+(r.checkedQty||0)+' chkd</div>'
+      +'</div></div>').join('')
+    +'</div>'
+    +'<button class="btn-big btn-primary" onclick="WS.checkRound++;WS.checkRoundResults=[];WS._currentCheckMachine=null;WS.step=isEndline()?\'endline_scan_pick\':\'check_scan_pick\';renderW()">▶ Start Next Check</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=isEndline()?\'endline_home\':\'check_home\';renderW()">← Back to Module</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+// ==================== MANUAL ROSTER ====================
+window.openManualRoster=function(){
+  const machines=getModuleMachines();
+  WS._manualRows=machines.length>0
+    ?machines.map(w=>({machineId:w.machineId||'',machineName:w.machineName||'',operatorId:w.operatorId||'',operation:w.operation||''}))
+    :[{machineId:'',machineName:'',operatorId:'',operation:''}];
+  WS._manualBackStep=WS.step;
+  WS.step='roster_manual';renderW();
 };
 
 function renderRosterManual(){
   const rows=WS._manualRows||[{machineId:'',machineName:'',operatorId:'',operation:''}];
-  const ops=(WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack','Tacking']);
+  const ops=WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack','Tacking'];
   const m=WS.scannedModule;
-  return`<div class="card card-blue">
-    <div style="font-size:18px;font-weight:600;margin-bottom:4px">⚙️ Set Up Machine Roster</div>
-    <div style="font-size:12px;color:var(--text2)">${m?.name||''} — Add each machine and assign its operator</div>
-  </div>
-  <div id="manual-rows" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
-    ${rows.map((row,i)=>`
-    <div class="card" style="padding:12px;position:relative" id="mrow-${i}">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div style="font-size:13px;font-weight:600;color:var(--text2)">Machine ${i+1}</div>
-        <button class="btn-sm" style="color:var(--red)" onclick="removeManualRow(${i})">✕ Remove</button>
-      </div>
-      <div class="form-row" style="margin-bottom:8px">
-        <div class="form-group" style="margin:0">
-          <label class="form-label" style="font-size:11px">Machine Name</label>
-          <input class="form-input" placeholder="e.g. M-101" value="${row.machineName||''}" oninput="WS._manualRows[${i}].machineName=this.value" style="padding:10px;font-size:14px">
-        </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label" style="font-size:11px">Operator ID</label>
-          <input class="form-input" placeholder="OP-10838" value="${row.operatorId||''}" oninput="WS._manualRows[${i}].operatorId=this.value" style="padding:10px;font-size:14px">
-        </div>
-      </div>
-      <div class="form-group" style="margin:0">
-        <label class="form-label" style="font-size:11px">Operation</label>
-        <select class="form-input" style="padding:10px;font-size:14px" onchange="WS._manualRows[${i}].operation=this.value">
-          <option value="">— Select Operation —</option>
-          ${ops.map(op=>`<option value="${op}" ${row.operation===op?'selected':''}>${op}</option>`).join('')}
-        </select>
-      </div>
-    </div>`).join('')}
-  </div>
-  <button class="btn-big btn-ghost" onclick="addManualRow()">➕ Add Another Machine</button>
-  <button class="btn-big btn-primary" id="manual-save-btn">💾 Save Roster</button>
-  <button class="btn-big btn-ghost" onclick="WS.step=WS._manualBackStep||'check_home';renderW()">← Cancel</button>`;
+  return '<div class="card card-blue">'
+    +'<div style="font-size:18px;font-weight:600;margin-bottom:4px">⚙️ Set Up Machine Roster</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.name||'')+' — Add each machine and assign its operator</div>'
+    +'</div>'
+    +'<div id="manual-rows" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">'
+    +rows.map((row,i)=>'<div class="card" style="padding:12px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+      +'<div style="font-size:13px;font-weight:600;color:var(--text2)">Machine '+(i+1)+'</div>'
+      +'<button class="btn-sm" style="color:var(--red)" onclick="removeManualRow('+i+')">✕ Remove</button>'
+      +'</div>'
+      +'<div class="form-row" style="margin-bottom:8px">'
+      +'<div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Machine Name</label>'
+      +'<input class="form-input" placeholder="e.g. M-101" value="'+(row.machineName||'')+'" oninput="WS._manualRows['+i+'].machineName=this.value" style="padding:10px;font-size:14px"></div>'
+      +'<div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operator ID</label>'
+      +'<input class="form-input" placeholder="OP-10838" value="'+(row.operatorId||'')+'" oninput="WS._manualRows['+i+'].operatorId=this.value" style="padding:10px;font-size:14px"></div>'
+      +'</div>'
+      +'<div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operation</label>'
+      +'<select class="form-input" style="padding:10px;font-size:14px" onchange="WS._manualRows['+i+'].operation=this.value">'
+      +'<option value="">— Select Operation —</option>'
+      +ops.map(op=>'<option value="'+op+'"'+(row.operation===op?' selected':'')+'>'+op+'</option>').join('')
+      +'</select></div></div>').join('')
+    +'</div>'
+    +'<button class="btn-big btn-ghost" onclick="addManualRow()">➕ Add Another Machine</button>'
+    +'<button class="btn-big btn-primary" id="manual-save-btn">💾 Save Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=WS._manualBackStep||\'check_home\';renderW()">← Cancel</button>';
 }
 
 window.addManualRow=function(){
@@ -595,453 +1027,7 @@ window.removeManualRow=function(i){
   renderW();
 };
 
-// ============================================================
-// PRE-VERIFY — QC scans machines to confirm roster before check
-// ============================================================
-function renderPreVerify(){
-  const machines = WS.checkRoundData || [];
-  const verified = WS.preVerified || {};
-  const m = WS.scannedModule;
-  const verCount = Object.keys(verified).length;
-  const total = machines.length;
-  const allDone = verCount >= total;
-  const pct = total > 0 ? Math.round((verCount/total)*100) : 0;
-
-  return`<div class="card card-blue">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-weight:600;font-size:16px">📷 Verify Machines on Line</div>
-      <span class="badge badge-blue">${verCount}/${total}</span>
-    </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-    <div style="font-size:12px;color:var(--text2)">Scan each machine QR code to confirm it's present — Check ${WS.checkRound}</div>
-  </div>
-
-  <div class="scan-area" style="min-height:200px">
-    <div id="qr-preverify"></div>
-  </div>
-  <div style="text-align:center;font-size:12px;color:var(--text3);margin-bottom:12px">— Scan QR or tap below to confirm manually —</div>
-
-  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-    ${machines.map(w=>{
-      const v = verified[w.machineId];
-      return`<div class="machine-row ${v?'done':''}" onclick="preVerifyManual('${w.machineId}')">
-        <div>
-          <div style="font-size:14px;font-weight:600">${w.machineName||w.machineId}</div>
-          <div style="font-size:11px;color:var(--text2)">${w.operatorId||'No operator'} • ${w.operation||'—'}</div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          ${v?`<span class="badge badge-green">✓ Confirmed</span>
-               ${v.method==='qr'?'<span style="font-size:10px;color:var(--text3)">📷</span>':'<span style="font-size:10px;color:var(--text3)">tap</span>'}` :
-          `<span class="badge" style="background:var(--bg3);color:var(--text3)">Not Yet</span>`}
-        </div>
-      </div>`;
-    }).join('')}
-  </div>
-
-  <button class="btn-big btn-primary" onclick="startCheckAfterVerify()">
-    ${allDone?'▶ All Confirmed — Start Check '+WS.checkRound:'Skip Remaining & Start Check '+WS.checkRound}
-  </button>
-  <button class="btn-big btn-ghost" onclick="WS.step=isEndline()?'endline_home':'check_home';renderW()">← Back</button>`;
-}
-
-function handlePreVerifyQR(text){
-  const machId = text.trim();
-  const w = (WS.checkRoundData||[]).find(x=>x.machineId===machId||(WS.machines&&WS.machines.find(m=>m.fbKey===machId&&(m.fbKey===x.machineId||m.name===x.machineName))));
-  if(!WS.preVerified) WS.preVerified={};
-  if(w){
-    // Check if this machine's module matches current module (log if not)
-    const reg = WS.machines?.find(m=>m.fbKey===machId);
-    if(reg && reg.moduleId && reg.moduleId!==WS.scannedModule?.fbKey && reg.moduleName!==WS.scannedModule?.name){
-      window.fbAdd('machineEvents',{machineId:machId,type:'Transfer',
-        details:`Machine ${w.machineName} scanned in ${WS.scannedModule?.name} but belongs to module ${reg.moduleName||reg.moduleId}`,
-        loggedBy:WS.user?.username,moduleId:WS.scannedModule?.fbKey});
-      toast('⚠ Machine from different module — logged & allowed','error');
-    } else {
-      toast(w.machineName+' ✓ Confirmed');
-    }
-    WS.preVerified[w.machineId]={method:'qr',time:new Date().toISOString()};
-    renderW();
-    setTimeout(()=>startQRIfNeeded(),400); // restart scanner for next machine
-  } else {
-    // Not in roster — add it and flag
-    const reg = WS.machines?.find(m=>m.fbKey===machId);
-    const name = reg?.name||'Machine '+machId.slice(-4);
-    const newEntry={machineId:machId,machineName:name,operatorId:'',operation:'',type:reg?.type||''};
-    if(!WS.checkRoundData) WS.checkRoundData=[];
-    if(!WS.checkRoundData.find(x=>x.machineId===machId)){
-      WS.checkRoundData.push(newEntry);
-      window.fbAdd('machineEvents',{machineId:machId,type:'Transfer',
-        details:`Machine ${name} scanned during pre-verify but not in today's roster`,
-        loggedBy:WS.user?.username,moduleId:WS.scannedModule?.fbKey});
-      toast('⚠ '+name+' added to check (not in roster)','error');
-    }
-    WS.preVerified[machId]={method:'qr',time:new Date().toISOString()};
-    renderW();
-    setTimeout(()=>startQRIfNeeded(),400);
-  }
-}
-
-window.preVerifyManual = function(machineId){
-  if(!WS.preVerified) WS.preVerified={};
-  if(WS.preVerified[machineId]) return; // already confirmed
-  WS.preVerified[machineId]={method:'tap',time:new Date().toISOString()};
-  const w=(WS.checkRoundData||[]).find(x=>x.machineId===machineId);
-  toast((w?.machineName||machineId)+' confirmed (manual)');
-  renderW();
-  setTimeout(()=>startQRIfNeeded(),400); // keep scanner running
-};
-
-window.startCheckAfterVerify = function(){
-  // Log any unconfirmed machines
-  const unverified=(WS.checkRoundData||[]).filter(w=>!WS.preVerified?.[w.machineId]);
-  if(unverified.length>0){
-    unverified.forEach(w=>{
-      window.fbAdd('machineEvents',{machineId:w.machineId,type:'NotVerified',
-        details:`Machine ${w.machineName} not scanned at check ${WS.checkRound} start`,
-        loggedBy:WS.user?.username,moduleId:WS.scannedModule?.fbKey});
-    });
-  }
-  // Proceed to check round
-  WS.checkMachineIdx=0;
-  WS.checkRoundResults=[];
-  if(isEndline()){
-    WS._currentCheckMachine=WS.checkRoundData[0];
-    WS.step='endline_form';
-  } else {
-    WS.step='check_scan';
-  }
-  renderW();
-};
-
-window.startCheckRound = function(roundNum){
-  const machines=getModuleMachines();
-  if(machines.length===0){toast('Set up the machine roster first — tap ⚙️ below','error');return;}
-  WS.checkRound=roundNum;
-  WS.checkRoundData=[...machines];
-  WS.checkMachineIdx=0;
-  WS.checkRoundResults=[];
-  WS.preVerified={};   // reset verification for this round
-  WS.step='pre_verify'; // always go through verification scan
-  renderW();
-};
-
-function renderCheckScan(){
-  const machines=WS.checkRoundData;
-  const idx=WS.checkMachineIdx;
-  const total=machines.length;
-  const pct=Math.round((idx/total)*100);
-  const current=machines[idx];
-  const done=WS.checkRoundResults;
-
-  return`<div class="card card-accent">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-weight:600">Check ${WS.checkRound} — Machine ${idx+1}/${total}</div>
-      <span class="badge badge-blue">${pct}%</span>
-    </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-    <div style="font-size:12px;color:var(--text2)">Scan the QR of each machine to fill data</div>
-  </div>
-  <div class="scan-area" style="min-height:200px"><div id="qr-check"></div></div>
-  <div style="text-align:center;font-size:12px;color:var(--text3);margin-bottom:12px">— OR tap machine below to select —</div>
-  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-    ${machines.map((w,i)=>{
-      const isDone=done.some(d=>d.machineId===w.machineId);
-      const isNow=i===idx;
-      return`<div class="machine-row ${isDone?'done':isNow?'active':''}" onclick="selectMachineForCheck('${w.machineId}')">
-        <div>
-          <div style="font-size:14px;font-weight:600">${w.machineName||w.machineId}</div>
-          <div style="font-size:11px;color:var(--text2)">${w.operatorId} • ${w.operation}</div>
-        </div>
-        ${isDone?'<span class="badge badge-green">✓ Done</span>':isNow?'<span class="badge badge-yellow">← Now</span>':'<span style="color:var(--text3);font-size:12px">Pending</span>'}
-      </div>`;
-    }).join('')}
-  </div>
-  <button class="btn-big btn-ghost" onclick="WS.step='check_home';renderW()">← Back</button>`;
-}
-
-function handleCheckMachineQR(text){
-  const machId=text.trim();
-  const mach=WS.machines.find(m=>m.fbKey===machId||m.name===machId);
-  const rosterMach=WS.checkRoundData.find(w=>w.machineId===machId||(mach&&w.machineId===mach.fbKey));
-  if(rosterMach){
-    selectMachineForCheck(rosterMach.machineId);
-  } else {
-    // Machine not in roster — log and allow
-    if(mach&&mach.moduleId!==WS.scannedModule?.fbKey){
-      window.fbAdd('machineEvents',{machineId:machId,type:'Transfer',
-        details:`Machine ${mach?.name||machId} scanned in check round but not registered to this module`,
-        loggedBy:WS.user?.username,moduleId:WS.scannedModule?.fbKey});
-      toast('⚠ Machine not in roster — logged','error');
-    }
-    // Add it to the round data temporarily
-    const tempMach={machineId:machId,machineName:mach?.name||'Machine '+machId.slice(-4),operatorId:'',operation:''};
-    WS.checkRoundData.push(tempMach);
-    WS.checkMachineIdx=WS.checkRoundData.length-1;
-    renderW();
-    setTimeout(()=>selectMachineForCheck(machId),300);
-  }
-}
-
-window.selectMachineForCheck=function(machineId){
-  const idx=WS.checkRoundData.findIndex(w=>w.machineId===machineId);
-  if(idx>=0){
-    WS.checkMachineIdx=idx;
-    WS._currentCheckMachine=WS.checkRoundData[idx];
-    WS.step='check_form';
-    renderW();
-  }
-};
-
-function renderCheckForm(){
-  const w=WS._currentCheckMachine||WS.checkRoundData[WS.checkMachineIdx];
-  const m=WS.scannedModule;
-  const myDefs=WS.defects.filter(d=>d.type==='Inline'||d.type==='Both');
-  const total=WS.checkRoundData.length;
-  const idx=WS.checkMachineIdx;
-
-  return`<div class="card card-blue" style="margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <div style="font-size:12px;color:var(--text3)">CHECK ${WS.checkRound} — ${idx+1}/${total}</div>
-        <div style="font-size:18px;font-weight:700;margin:2px 0">${w?.machineName||w?.machineId||''}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:12px;color:var(--text2)">${w?.operatorId||'No Operator'}</div>
-        <div style="font-size:11px;color:var(--text3)">${w?.operation||''}</div>
-      </div>
-    </div>
-  </div>
-  <div class="card">
-    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">QC Entry</div>
-    <form id="wf" onsubmit="return false">
-      <input type="hidden" name="module" value="${m?.name||''}">
-      <input type="hidden" name="style" value="${m?.styleName||''}">
-      <input type="hidden" name="machineId" value="${w?.machineId||''}">
-      <input type="hidden" name="machineName" value="${w?.machineName||''}">
-      <input type="hidden" name="operatorId" value="${w?.operatorId||''}">
-      <input type="hidden" name="operation" value="${w?.operation||''}">
-      <input type="hidden" name="checkRound" value="${WS.checkRound}">
-      <div style="padding:12px;background:var(--bg3);border-radius:10px;margin-bottom:16px">
-        <div style="font-size:12px;color:var(--text3)">OPERATOR / OPERATION</div>
-        <div style="font-size:15px;font-weight:600">${w?.operatorId||'—'}</div>
-        <div style="font-size:13px;color:var(--text2)">${w?.operation||'—'}</div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Checked Qty *</label><input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div>
-        <div class="form-group"><label class="form-label">Defect Qty</label><input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div>
-      </div>
-      <div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">DHU</div><div id="dhu-val" style="font-size:28px;font-weight:700;font-family:'IBM Plex Mono',monospace"></div></div>
-      <div class="form-group"><label class="form-label">Defect Type</label>
-        <select class="form-input" name="defectType">
-          <option value="">— No Defect —</option>
-          ${myDefs.map(d=>`<option value="${d.name}">${d.defectId?d.defectId+' - ':''}${d.name}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Comments</label><textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div>
-      <button class="btn-big btn-primary" type="button" id="sub-btn">
-        ${idx+1<total?'✓ Save & Next Machine':'✓ Save & End Check '+WS.checkRound}
-      </button>
-    </form>
-  </div>
-  ${WS.showEventModal?renderEventModal():''}
-  <button class="btn-big btn-yellow" onclick="WS.showEventModal=true;renderW()">⚡ Log Machine Event</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='check_scan';renderW()">← Back to Machines</button>`;
-}
-
-// ============================================================
-// END LINE QC FLOW — check rounds using operator dropdown
-// ============================================================
-function renderEndlineHome(){
-  const machines=getModuleMachines();
-  const m=WS.scannedModule;
-  const today=new Date().toISOString().split('T')[0];
-  const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today&&i.type==='endline');
-  const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
-  const nextRound=completedRounds.length+1;
-  WS.checkRound=nextRound;
-
-  return`<div class="card card-accent">
-    <div style="font-size:18px;font-weight:600">${m?.name||''} — End Line QC</div>
-    <div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div>
-  </div>
-  <div style="margin-bottom:16px">
-    <div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today's Checks</div>
-    <div class="check-pill">
-      ${[1,2,3,4,5].map(n=>`<div class="check-btn ${completedRounds.includes(n)?'done':n===nextRound?'active':''}" onclick="${n===nextRound?`startEndlineRound(${n})`:''}">Check ${n}${completedRounds.includes(n)?' ✓':''}</div>`).join('')}
-    </div>
-  </div>
-  ${machines.length>0?`<div class="card" style="margin-bottom:16px">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Workers on Line</div>
-    ${machines.map(w=>`<div class="sub-item">
-      <div><div style="font-weight:600">${w.operatorId}</div><div style="font-size:11px;color:var(--text2)">${w.operation} • ${w.machineName||''}</div></div>
-    </div>`).join('')}
-  </div>`:'<div class="card card-yellow"><div style="font-weight:600">⚠ No workers registered yet</div></div>'}
-  <button class="btn-big btn-primary" onclick="startEndlineRound(${nextRound})">▶ Start Check ${nextRound}</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
-}
-
-window.startEndlineRound=function(roundNum){
-  const machines=getModuleMachines();
-  if(machines.length===0){toast('Set up the roster first — tap ⚙️ below','error');return;}
-  WS.checkRound=roundNum;
-  WS.checkRoundData=[...machines];
-  WS.checkMachineIdx=0;
-  WS.checkRoundResults=[];
-  WS.preVerified={};   // reset for new round
-  WS.step='pre_verify'; // QC scans machines to confirm, then endline_form
-  renderW();
-
-function renderEndlineForm(){
-  const machines=WS.checkRoundData;
-  const idx=WS.checkMachineIdx;
-  const total=machines.length;
-  const m=WS.scannedModule;
-  const myDefs=WS.defects.filter(d=>d.type==='Endline'||d.type==='Both');
-  const done=WS.checkRoundResults;
-
-  return`<div class="card card-accent">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-weight:600">End Line — Check ${WS.checkRound}</div>
-      <span class="badge badge-purple">${idx+1}/${total} workers</span>
-    </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:${Math.round((idx/total)*100)}%"></div></div>
-  </div>
-  <div class="card">
-    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Inspection Entry</div>
-    <form id="wf" onsubmit="return false">
-      <input type="hidden" name="module" value="${m?.name||''}">
-      <input type="hidden" name="style" value="${m?.styleName||''}">
-      <input type="hidden" name="checkRound" value="${WS.checkRound}">
-      <div class="form-group"><label class="form-label">Operator *</label>
-        <select class="form-input" name="operatorId" id="f-opId" onchange="elOpChanged()">
-          <option value="">— Select Operator —</option>
-          ${machines.map((w,i)=>{
-            const isDone=done.some(d=>d.operatorId===w.operatorId);
-            return`<option value="${w.operatorId}" data-op="${w.operation}" data-mid="${w.machineId||''}" data-mname="${w.machineName||''}" ${isDone?'disabled':''} ${i===idx&&!isDone?'selected':''}>
-              ${isDone?'✓ ':''}${w.operatorId} — ${w.operation} (${w.machineName||''})
-            </option>`;
-          }).join('')}
-        </select>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Operation</label><input class="form-input" name="operation" id="f-opName" readonly placeholder="Auto-fills"></div>
-        <div class="form-group"><label class="form-label">Machine</label><input class="form-input" name="machineId" id="f-machId" readonly placeholder="Auto-fills"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Checked Qty *</label><input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div>
-        <div class="form-group"><label class="form-label">Defect Qty</label><input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div>
-      </div>
-      <div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">DHU</div><div id="dhu-val" style="font-size:28px;font-weight:700;font-family:'IBM Plex Mono',monospace"></div></div>
-      <div class="form-group"><label class="form-label">Defect Type</label>
-        <select class="form-input" name="defectType">
-          <option value="">— No Defect —</option>
-          ${myDefs.map(d=>`<option value="${d.name}">${d.defectId?d.defectId+' - ':''}${d.name}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Comments</label><textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div>
-      <button class="btn-big btn-primary" type="button" id="sub-btn">
-        ${idx+1<total?'✓ Save & Next Operator':'✓ Save & End Check '+WS.checkRound}
-      </button>
-    </form>
-  </div>
-  <button class="btn-big btn-ghost" onclick="WS.step='endline_home';renderW()">← Back</button>`;
-}
-
-window.elOpChanged=function(){
-  const s=document.getElementById('f-opId');
-  const o=s?.options[s?.selectedIndex];
-  if(!o)return;
-  const op=document.getElementById('f-opName');
-  const mid=document.getElementById('f-machId');
-  if(op)op.value=o.getAttribute('data-op')||'';
-  if(mid)mid.value=o.getAttribute('data-mname')||o.getAttribute('data-mid')||'';
-};
-
-// ============ MACHINE EVENT MODAL ============
-function renderEventModal(){
-  const machines=WS.checkRoundData||[];
-  return`<div class="modal-overlay" onclick="if(event.target===this){WS.showEventModal=false;renderW();}">
-    <div class="modal-sheet">
-      <div style="font-size:18px;font-weight:600;margin-bottom:4px">⚡ Log Machine Event</div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:20px">Record mid-check events</div>
-      <div class="form-group"><label class="form-label">Event Type</label>
-        <select class="form-input" id="ev-type">
-          <option value="OperatorChange">👤 Operator Change</option>
-          <option value="Breakdown">💥 Machine Breakdown</option>
-          <option value="Swap">🔄 Machine Swap</option>
-          <option value="ModelChange">🏷 Model / Style Change</option>
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Machine</label>
-        <select class="form-input" id="ev-mach">
-          ${machines.map(w=>`<option value="${w.machineId}">${w.machineName||w.machineId}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Reason</label>
-        <select class="form-input" id="ev-reason">
-          <option>Absent</option><option>Break Relief</option><option>Transferred</option>
-          <option>Training</option><option>Machine Fault</option><option>Other</option>
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Notes</label><textarea class="form-input" id="ev-notes" rows="2" placeholder="Additional details..."></textarea></div>
-      <div style="display:flex;gap:10px">
-        <button class="btn-big btn-ghost" style="margin:0;flex:1" onclick="WS.showEventModal=false;renderW()">Cancel</button>
-        <button class="btn-big btn-primary" style="margin:0;flex:2" onclick="submitMachineEvent()">Log Event</button>
-      </div>
-    </div>
-  </div>`;
-}
-
-window.submitMachineEvent=async function(){
-  const type=document.getElementById('ev-type')?.value;
-  const machId=document.getElementById('ev-mach')?.value;
-  const reason=document.getElementById('ev-reason')?.value;
-  const notes=document.getElementById('ev-notes')?.value;
-  const w=WS.checkRoundData?.find(x=>x.machineId===machId);
-  try{
-    await window.fbAdd('machineEvents',{
-      machineId:machId,machineName:w?.machineName||machId,
-      type,reason,details:notes||reason,loggedBy:WS.user?.username,
-      moduleId:WS.scannedModule?.fbKey,moduleName:WS.scannedModule?.name
-    });
-    WS.showEventModal=false;renderW();toast('Event logged: '+type);
-  }catch(e){toast('Error: '+e.message,'error');}
-};
-
-// ============ CHECK END SCREEN ============
-function renderCheckEnd(){
-  const results=WS.checkRoundResults||[];
-  const tc=results.reduce((a,r)=>a+(parseInt(r.checkedQty)||0),0);
-  const td=results.reduce((a,r)=>a+(parseInt(r.defectQty)||0),0);
-  const dhu=tc?((td/tc)*100).toFixed(1):'0.0';
-  return`<div class="card card-accent" style="text-align:center;padding:24px;margin-bottom:16px">
-    <div style="font-size:40px;margin-bottom:8px">✅</div>
-    <div style="font-size:20px;font-weight:700;color:var(--accent)">Check ${WS.checkRound} Complete!</div>
-    <div style="font-size:13px;color:var(--text2)">${results.length} machines inspected</div>
-  </div>
-  <div class="stats-row" style="margin-bottom:16px">
-    <div class="stat-card"><div class="stat-val" style="color:var(--blue)">${tc}</div><div class="stat-label">Checked</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--red)">${td}</div><div class="stat-label">Defects</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:${parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'}">${dhu}%</div><div class="stat-label">DHU</div></div>
-  </div>
-  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-    ${results.map(r=>`<div class="sub-item">
-      <div>
-        <div style="font-size:13px;font-weight:600">${r.machineName||r.machineId||''}</div>
-        <div style="font-size:11px;color:var(--text2)">${r.operatorId||''} • ${r.operation||''}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-family:'IBM Plex Mono',monospace;color:${(parseInt(r.defectQty)||0)>0?'var(--red)':'var(--green)'};font-weight:600">${r.defectQty||0} def</div>
-        <div style="font-size:11px;color:var(--text3)">${r.checkedQty||0} chkd</div>
-      </div>
-    </div>`).join('')}
-  </div>
-  <button class="btn-big btn-primary" onclick="WS.checkRound++;WS.step=isEndline()?'endline_home':'check_home';renderW()">▶ Start Next Check</button>
-  <button class="btn-big btn-ghost" onclick="WS.step=isEndline()?'endline_home':'check_home';renderW()">← Back to Module</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
-}
-
-// ============ DHU CALC ============
+// ==================== DHU CALC ====================
 window.calcDHU=function(){
   const f=document.getElementById('wf');if(!f)return;
   const c=parseInt(f.checkedQty?.value)||0,d=parseInt(f.defectQty?.value)||0;
@@ -1054,61 +1040,92 @@ window.calcDHU=function(){
   } else box.style.display='none';
 };
 
-// ============ BIND SUBMIT (shared for check_form + endline_form) ============
+// ==================== SUBMIT (Inline + Endline) ====================
 function bindSubmit(){
   const btn=document.getElementById('sub-btn');if(!btn)return;
   btn.onclick=async()=>{
     const f=document.getElementById('wf');if(!f)return;
-    const fd=new FormData(f);const data=Object.fromEntries(fd.entries());
-    // For endline: fill from dropdown
+    const fd=new FormData(f);
+    const data=Object.fromEntries(fd.entries());
+
+    // If endline form had manual operator fill
     if(WS.step==='endline_form'){
-      const sel=document.getElementById('f-opId');
-      const o=sel?.options[sel?.selectedIndex];
-      if(!data.operatorId&&o){data.operatorId=o.value;data.operation=o.getAttribute('data-op')||'';}
+      const manOp=document.getElementById('f-opId-manual');
+      const manOpName=document.getElementById('f-op-manual');
+      if(manOp&&manOp.value.trim()){data.operatorId=manOp.value.trim();}
+      if(manOpName&&manOpName.value.trim()){data.operation=manOpName.value.trim();}
     }
+
     if(!data.checkedQty||parseInt(data.checkedQty)<1){toast('Enter Checked Qty','error');return;}
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
     try{
       const inspType=isEndline()?'endline':'inline';
-      const id='INS-'+Date.now();
       await window.fbAdd('inspections',{
-        id,type:inspType,
+        id:'INS-'+Date.now(),type:inspType,
         date:new Date().toISOString().split('T')[0],
         time:new Date().toTimeString().slice(0,5),
-        ...data,
-        submittedBy:WS.user?.username||WS.user?.name,
-        inspector:WS.user?.name
+        shift:WS.scannedModule?.shift||'',
+        ...data,submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
       });
-      // Auto-alert
       const c=parseInt(data.checkedQty)||0,d=parseInt(data.defectQty)||0;
       if(c>0&&(d/c)*100>5){
         await window.fbAddAlert({
-          title:`High DHU ${((d/c)*100).toFixed(1)}% — ${data.module} Check${data.checkRound}`,
-          message:`${data.defectType||'Defects'} on ${data.operation} by ${data.operatorId} (${data.machineName||data.machineId||''})`,
+          title:'High DHU '+((d/c)*100).toFixed(1)+'% — '+data.module+' Check'+data.checkRound,
+          message:(data.defectType||'Defects')+' on '+data.operation+' by '+data.operatorId+' ('+(data.machineName||data.machineId||'')+')',
           level:(d/c)*100>8?'critical':'high',module:data.module,read:false,createdBy:'qc-auto'
         });
       }
-      // Store result for summary
-      WS.checkRoundResults.push({...data,id});
+      WS.checkRoundResults.push({...data,id:'INS-'+Date.now()});
       toast('Saved ✓');
-      // Move to next machine
-      const total=WS.checkRoundData.length;
-      const nextIdx=WS.checkRoundData.findIndex((w,i)=>i>WS.checkMachineIdx&&!WS.checkRoundResults.some(r=>r.machineId===w.machineId||r.operatorId===w.operatorId));
-      if(nextIdx>=0){
-        WS.checkMachineIdx=nextIdx;
-        WS._currentCheckMachine=WS.checkRoundData[nextIdx];
-        btn.disabled=false;
-        if(WS.step==='endline_form'){renderW();}
-        else{WS.step='check_scan';renderW();}
+      WS.showEventModal=false;
+
+      // After saving, go back to scan-pick screen for next machine
+      const remaining = WS.checkRoundData.filter(w=>{
+        if(isEndline()) return !WS.checkRoundResults.some(d=>d.operatorId===w.operatorId&&d.machineId===w.machineId);
+        return !WS.checkRoundResults.some(d=>d.machineId===w.machineId);
+      });
+
+      if(remaining.length>0){
+        WS.step=isEndline()?'endline_scan_pick':'check_scan_pick';
       } else {
-        // All done — go to summary
-        WS.step='check_end';renderW();
+        WS.step='check_end';
       }
+      btn.disabled=false;
+      renderW();
     }catch(e){toast('Failed: '+e.message,'error');btn.disabled=false;btn.innerHTML='✓ Save';}
   };
 }
 
-// ============ DASHBOARD ============
+function bindManualRoster(){
+  const btn=document.getElementById('manual-save-btn');if(!btn)return;
+  btn.onclick=async()=>{
+    const rows=WS._manualRows||[];
+    const valid=rows.filter(r=>r.machineName||r.operatorId);
+    if(valid.length===0){toast('Add at least one machine or operator','error');return;}
+    btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
+    const m=WS.scannedModule;
+    const date=new Date().toISOString().split('T')[0];
+    const rKey=(m.fbKey||m.moduleId)+'_'+date;
+    try{
+      const workers={};
+      valid.forEach((row,i)=>{
+        const key=row.machineId||(row.machineName.replace(/\s+/g,'-').toLowerCase()||'machine-'+(i+1));
+        workers[key]={machineId:key,machineName:row.machineName||key,operatorId:row.operatorId||'',
+          operation:row.operation||'',moduleId:m.fbKey,moduleName:m.name,
+          date,registeredBy:WS.user?.username,registeredAt:new Date().toISOString()};
+      });
+      await window._set(window._ref(window._db,'machineRosters/'+rKey+'/workers'),workers);
+      await window._update(window._ref(window._db,'machineRosters/'+rKey),{
+        moduleId:m.fbKey,moduleName:m.name,date,
+        updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
+      });
+      toast('Roster saved — '+valid.length+' machine(s) ✓');
+      WS.step=WS._manualBackStep||'check_home';renderW();
+    }catch(e){toast('Error: '+e.message,'error');btn.disabled=false;btn.innerHTML='💾 Save Roster';}
+  };
+}
+
+// ==================== DASHBOARD ====================
 function renderDash(){
   const ins=WS.myInspections;
   const today=new Date().toISOString().split('T')[0];
@@ -1116,140 +1133,74 @@ function renderDash(){
   const td=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
   const dhu=tc?((td/tc)*100).toFixed(1):'0.0';
   const rounds=[...new Set(ins.map(i=>i.checkRound).filter(Boolean))];
-  const roleAction=isWorker()?`<button class="btn-big btn-primary" onclick="WS.step='scan';renderW()">🔧 Register My Machine</button>`:
-    isEndline()?`<button class="btn-big btn-primary" onclick="goStartCheck()">📋 Start Check Round</button>`:
-    `<button class="btn-big btn-primary" onclick="goStartCheck()">📷 Start Check Round</button>`;
-  return`<div style="margin-bottom:16px">
-    <div style="font-size:18px;font-weight:600">Today's Summary</div>
-    <div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'short',year:'numeric'})}</div>
-  </div>
-  <div class="stats-row">
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent)">${ins.length}</div><div class="stat-label">Records</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--red)">${td}</div><div class="stat-label">Defects</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:${parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'}">${dhu}%</div><div class="stat-label">DHU</div></div>
-  </div>
-  ${rounds.length>0?`<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">Completed Checks Today</div><div class="check-pill">${rounds.map(n=>`<div class="check-btn done">Check ${n} ✓</div>`).join('')}</div></div>`:''}
-  ${roleAction}
-  <div style="font-size:13px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent</div>
-  ${ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No records today</div>':
-  ins.slice().reverse().slice(0,8).map(i=>`<div class="sub-item">
-    <div>
-      <div style="font-size:13px;font-weight:500">${i.operatorId||''} ${i.machineName?'• '+i.machineName:''}</div>
-      <div style="font-size:11px;color:var(--text3)">${i.module||''} • Check${i.checkRound||''} • ${i.time||''}</div>
-    </div>
-    <div style="font-family:'IBM Plex Mono',monospace;color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'};font-weight:600">${i.defectQty||0}</div>
-  </div>`).join('')}`;
+  const roleAction=isWorker()
+    ?'<button class="btn-big btn-primary" onclick="WS.step=\'worker_scan_machine\';renderW()">🔧 Register My Machine</button>'
+    :isEndline()
+      ?'<button class="btn-big btn-primary" onclick="goStartCheck()">📋 Start Check Round</button>'
+      :'<button class="btn-big btn-primary" onclick="goStartCheck()">📷 Start Check Round</button>';
+
+  return '<div style="margin-bottom:16px">'
+    +'<div style="font-size:18px;font-weight:600">Today\'s Summary</div>'
+    +'<div style="font-size:12px;color:var(--text3)">'+new Date().toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'short',year:'numeric'})+'</div>'
+    +'</div>'
+    +'<div class="stats-row">'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+ins.length+'</div><div class="stat-label">Records</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--red)">'+td+'</div><div class="stat-label">Defects</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)')+'">'+dhu+'%</div><div class="stat-label">DHU</div></div>'
+    +'</div>'
+    +(rounds.length>0?'<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">Completed Checks Today</div><div class="check-pill">'+rounds.map(n=>'<div class="check-btn done">Check '+n+' ✓</div>').join('')+'</div></div>':'')
+    +roleAction
+    +'<div style="font-size:13px;color:var(--text2);margin-bottom:8px;margin-top:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent</div>'
+    +(ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No records today</div>'
+    :ins.slice().reverse().slice(0,8).map(i=>'<div class="sub-item">'
+      +'<div><div style="font-size:13px;font-weight:500">'+(i.operatorId||'')+' '+(i.machineName?'• '+i.machineName:'')+'</div>'
+      +'<div style="font-size:11px;color:var(--text3)">'+(i.module||'')+' • Check'+(i.checkRound||'')+' • '+(i.time||'')+'</div></div>'
+      +'<div style="color:'+((parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)')+';font-weight:600">'+(i.defectQty||0)+'</div>'
+      +'</div>').join(''));
 }
 
 window.goStartCheck=function(){
-  if(WS.scannedModule){
-    if(isEndline()) WS.step='endline_home';
-    else WS.step='check_home';
-    renderW();
-  } else {
-    WS.step='scan';renderW();
-  }
+  if(WS.scannedModule){WS.step=isEndline()?'endline_home':'check_home';}
+  else WS.step='scan';
+  renderW();
 };
 
-// ============ ENDLINE HOME (also add setup button) ============
-function renderEndlineHome(){
-  const machines=getModuleMachines();
-  const m=WS.scannedModule;
-  const today=new Date().toISOString().split('T')[0];
-  const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today&&i.type==='endline');
-  const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
-  const nextRound=completedRounds.length+1;
-  WS.checkRound=nextRound;
-  const noMachines=machines.length===0;
-
-  return`<div class="card card-accent">
-    <div style="font-size:18px;font-weight:600">${m?.name||''} — End Line QC</div>
-    <div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div>
-  </div>
-  <div style="margin-bottom:16px">
-    <div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today's Checks</div>
-    <div class="check-pill">
-      ${[1,2,3,4,5].map(n=>`<div class="check-btn ${completedRounds.includes(n)?'done':n===nextRound?'active':''}" onclick="${n===nextRound?`startEndlineRound(${n})`:''}">Check ${n}${completedRounds.includes(n)?' ✓':''}</div>`).join('')}
-    </div>
-  </div>
-  ${!noMachines?`<div class="card" style="margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-size:13px;font-weight:600">Workers on Line (${machines.length})</div>
-      <button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>
-    </div>
-    ${machines.map(w=>`<div class="sub-item">
-      <div><div style="font-weight:600">${w.operatorId||'No ID'}</div><div style="font-size:11px;color:var(--text2)">${w.operation||'—'} • ${w.machineName||''}</div></div>
-    </div>`).join('')}
-  </div>`:
-  `<div class="card card-yellow" style="margin-bottom:16px">
-    <div style="font-weight:600;margin-bottom:6px">⚠ No Workers Registered Yet</div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Add operators and their machines manually to begin checking.</div>
-    <button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Workers Manually</button>
-  </div>`}
-  <button class="btn-big btn-primary" onclick="startEndlineRound(${nextRound})" ${noMachines?'disabled style="opacity:.4"':''}>▶ Start Check ${nextRound}</button>
-  <button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ ${noMachines?'Set Up':'Edit'} Roster</button>
-  <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 Dashboard</button>`;
-}
+// ==================== WAITING ====================
 function renderWaiting(){
-  return`<div class="card card-yellow" style="text-align:center;padding:32px">
-    <div class="spinner" style="border-top-color:var(--yellow);margin:0 auto 16px"></div>
-    <div style="font-size:18px;font-weight:700;color:var(--yellow)">Waiting for Approval</div>
-    <div style="font-size:13px;color:var(--text2)">A supervisor needs to approve your request.</div>
-  </div>
-  <button class="btn-big btn-ghost" onclick="WS.step='dashboard';renderW()">📊 My Dashboard</button>`;
+  return '<div class="card card-yellow" style="text-align:center;padding:32px">'
+    +'<div class="spinner" style="border-top-color:var(--yellow);margin:0 auto 16px"></div>'
+    +'<div style="font-size:18px;font-weight:700;color:var(--yellow)">Waiting for Approval</div>'
+    +'<div style="font-size:13px;color:var(--text2)">A supervisor needs to approve your request.</div>'
+    +'</div>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 My Dashboard</button>';
 }
 
-// ============ BIND ALL ============
+// ==================== BIND ALL ====================
 function bindStep(){
   const s=WS.step;
-  if(s==='verify')bindVerify();
-  if(s==='worker_machine')bindWorkerMachine();
-  if(s==='check_form'||s==='endline_form')bindSubmit();
-  if(s==='endline_form'){setTimeout(()=>elOpChanged(),100);}
-  if(s==='roster_manual')bindManualRoster();
+  if(s==='verify')            bindVerify();
+  if(s==='worker_scan_machine') bindWorkerScanManual();
+  if(s==='worker_fill')       bindWorkerFill();
+  if(s==='check_form'||s==='endline_form') bindSubmit();
+  if(s==='roster_manual')     bindManualRoster();
 }
 
-function bindManualRoster(){
-  const btn=document.getElementById('manual-save-btn');if(!btn)return;
-  btn.onclick=async()=>{
-    const rows=WS._manualRows||[];
-    // Validate
-    const valid=rows.filter(r=>r.machineName||r.operatorId);
-    if(valid.length===0){toast('Add at least one machine or operator','error');return;}
-    btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
-    const m=WS.scannedModule;
-    const date=new Date().toISOString().split('T')[0];
-    const rKey=`${m.fbKey||m.moduleId}_${date}`;
-    try{
-      // Build workers object keyed by machineId or index
-      const workers={};
-      valid.forEach((row,i)=>{
-        const key=row.machineId||(row.machineName.replace(/\s+/g,'-').toLowerCase()||`machine-${i+1}`);
-        workers[key]={
-          machineId:key,
-          machineName:row.machineName||key,
-          operatorId:row.operatorId||'',
-          operation:row.operation||'',
-          moduleId:m.fbKey,
-          moduleName:m.name,
-          date,
-          registeredBy:WS.user?.username,
-          registeredAt:new Date().toISOString()
-        };
-      });
-      await window._set(window._ref(window._db,`machineRosters/${rKey}/workers`),workers);
-      await window._update(window._ref(window._db,`machineRosters/${rKey}`),{
-        moduleId:m.fbKey,moduleName:m.name,date,
-        updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
-      });
-      toast('Roster saved — '+valid.length+' machine(s) ✓');
-      WS.step=WS._manualBackStep||'check_home';
-      renderW();
-    }catch(e){toast('Error: '+e.message,'error');btn.disabled=false;btn.innerHTML='💾 Save Roster';}
+// bind manual input on worker scan screen
+function bindWorkerScanManual(){
+  const mb=document.getElementById('wm-manual-btn');
+  if(mb)mb.onclick=()=>{
+    const v=(document.getElementById('wm-manual')?.value||'').trim();
+    if(!v){toast('Enter a machine name','error');return;}
+    const mach=WS.machines.find(m=>m.name===v||m.fbKey===v);
+    WS.myMachine=mach||{fbKey:'manual_'+Date.now(),name:v,type:'Unknown'};
+    WS.step='worker_fill';renderW();
   };
+  document.getElementById('wm-manual')?.addEventListener('keydown',e=>{
+    if(e.key==='Enter')document.getElementById('wm-manual-btn')?.click();
+  });
 }
 
-window.renderW();
+renderW();
 </script>
 </body>
 </html>
