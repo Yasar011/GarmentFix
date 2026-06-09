@@ -11,7 +11,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, set, get, push, onValue, child } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getDatabase, ref, set, get, push, onValue, child, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   const app = initializeApp({
@@ -28,7 +28,7 @@
   signInAnonymously(auth).catch(e => console.error("Anon Auth Error:", e));
   window._db = db;
   window._ref = ref; window._set = set; window._get = get;
-  window._push = push; window._onValue = onValue; window._child = child;
+  window._push = push; window._onValue = onValue; window._child = child; window._update = update;
   window._dbReady = true;
 
   // DB login - check username/password in users table
@@ -53,6 +53,20 @@
     });
     onValue(ref(db, 'operations'), s => {
       window.WS.operations = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+    });
+    onValue(ref(db, 'rosters'), s => {
+      window.WS.rosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+      if (['check_roster', 'form'].includes(window.WS.step)) window.renderW();
+    });
+    onValue(ref(db, 'machines'), s => {
+      window.WS.machines = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+    });
+    onValue(ref(db, 'machineRosters'), s => {
+      window.WS.machineRosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+    });
+    onValue(ref(db, 'defects'), s => {
+      window.WS.defects = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : [];
+      if (window.WS.step === 'form') window.renderW();
     });
     onValue(ref(db, 'inspections'), s => {
       if (s.exists()) {
@@ -158,10 +172,9 @@ input,select,textarea{font-family:var(--font);font-size:16px}
 <body>
 <div id="app"></div>
 <script>
-const DEFECTS=['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Shade Variation','Uneven Stitch','Needle Mark','Incorrect SPI','Loose Thread','Missing Button','Seam Pucker','Run-Off','Pleat','Uncut Thread','Stain','Wrong Measurement'];
 const DEFAULT_OPS=['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Yoke Join','Back Panel Join','Front Panel Join','Tacking','Bartack','Topstitch','Overlock','Flatlock'];
 
-window.WS = { step:'loading', user:null, loading:false, scannedModule:null, modules:[], styles:[], operations:[], myInspections:[], lastSub:null };
+window.WS = { step:'loading', user:null, loading:false, scannedModule:null, modules:[], styles:[], operations:[], defects:[], myInspections:[], rosters:[], activeRoster:null, lastSub:null, machines:[], machineRosters:[], verifiedMachines:{}, machineAssignments:{}, activeMachineRoster:null, showEventModal:false };
 let qrScanner = null;
 
 function toast(m,t='success'){document.querySelectorAll('.toast').forEach(e=>e.remove());const d=document.createElement('div');d.className=`toast toast-${t}`;d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),3000);}
@@ -175,6 +188,11 @@ window.renderW = function() {
   app.innerHTML=`<div class="page">${renderHeader()}<div class="body fade-in">${
     s.step==='scan'?renderScan():
     s.step==='verify'?renderVerify():
+    s.step==='check_roster'?renderCheckRoster():
+    s.step==='roster_setup'?renderRosterSetup():
+    s.step==='roster_build'?renderRosterBuild():
+    s.step==='machine_verify'?renderMachineVerify():
+    s.step==='machine_assign'?renderMachineAssign():
     s.step==='form'?renderForm():
     s.step==='success'?renderSuccess():
     s.step==='dashboard'?renderDash():
@@ -182,6 +200,7 @@ window.renderW = function() {
   }</div></div>`;
   bindAll();
   if(s.step==='scan')initQR();
+  if(s.step==='machine_verify')initMachineQR();
 };
 
 function renderHeader(){
@@ -252,7 +271,7 @@ window.goInsp=function(){
   if(WS.user?.changeRequest) WS.step='waiting';
   else if(WS.user?.activeModule) {
     try { WS.scannedModule = JSON.parse(WS.user.activeModule); } catch(e){}
-    WS.step='form';
+    WS.step='check_roster';
   } else WS.step='scan';
   renderW();
 };
@@ -276,20 +295,290 @@ function bindVerify(){
     const m=WS.scannedModule;
     const ok=(m?.styleName||'').toLowerCase().includes(inp)||(m?.styleId||'').toLowerCase().includes(inp)||inp.includes((m?.styleName||'').toLowerCase())||inp.includes((m?.styleId||'').toLowerCase())||WS.styles.some(s=>(s.styleId||'').toLowerCase().includes(inp)||(s.name||'').toLowerCase().includes(inp));
     if(ok||!m?.styleName){
-      await window._update(window._ref(window._db, 'users/'+WS.user.fbKey), { activeModule: JSON.stringify(m), changeRequest: false });
-      WS.step='form';renderW();toast('Verified ✓');
+      try {
+        await window._update(window._ref(window._db, 'users/'+WS.user.fbKey), { activeModule: JSON.stringify(m), changeRequest: false });
+        WS.step='check_roster';renderW();toast('Verified ✓');
+      } catch (e) {
+        err.style.display='block';err.textContent='Error saving state: '+e.message;
+      }
     }
     else{err.style.display='block';err.textContent=`Style mismatch. Expected: ${m?.styleName||m?.styleId||'unknown'}`;}
   };
   document.getElementById('v-style')?.addEventListener('keydown',e=>{if(e.key==='Enter')btn.click();});
 }
 
+// ============ ROSTERS ============
+function renderCheckRoster(){
+  const m=WS.scannedModule;
+  if (!m) return '';
+  const date = new Date().toISOString().split('T')[0];
+  const shifts = ['A', 'B'];
+  
+  return `<div class="card"><div style="font-size:18px;font-weight:600;margin-bottom:12px">Select Shift Roster</div><div style="color:var(--text2);margin-bottom:16px">Choose your shift to load or create today's roster for ${m.name||m.moduleId}.</div><div style="display:flex;flex-direction:column;gap:12px">${shifts.map(sh => {
+    const rKey = `${m.fbKey||m.moduleId}_${date}_${sh}`;
+    const r = WS.rosters.find(x => x.fbKey === rKey);
+    if(r) {
+      if(r.status === 'Approved' || r.status === 'Pending Approval') {
+         return `<button class="btn-big btn-ghost" disabled>Shift ${sh} — ${r.status}</button>`;
+      }
+      return `<button class="btn-big btn-primary" onclick="window.pickRoster('${rKey}')">Shift ${sh} — ${r.workers?.length||0} Workers (Active)</button>`;
+    }
+    else return `<button class="btn-big btn-ghost" onclick="window.setupRoster('${sh}')">Shift ${sh} — No Roster (Create)</button>`;
+  }).join('')}</div><button class="btn-big btn-ghost" style="margin-top:16px" onclick="goScan()">← Back</button></div>`;
+}
+
+window.pickRoster = function(k){
+  WS.activeRoster = WS.rosters.find(r=>r.fbKey===k);
+  WS.step = 'form';
+  renderW();
+};
+
+window.setupRoster = function(sh){
+  WS.pendingRoster = { shift: sh, session: '1', count: 5 };
+  WS.step = 'roster_setup';
+  renderW();
+};
+
+function renderRosterSetup(){
+  const p=WS.pendingRoster;
+  return `<div class="card"><div style="font-size:18px;font-weight:600;margin-bottom:12px">Create Shift ${p.shift} Roster</div><form id="rsf" onsubmit="return false"><div class="form-group"><label class="form-label">Session</label><select class="form-input" name="session" required><option>1</option><option>2</option><option>Both</option></select></div><div class="form-group"><label class="form-label">Number of Workers</label><input class="form-input" name="count" type="number" min="1" max="50" value="${p.count}" required></div><button class="btn-big btn-primary" onclick="window.startRosterBuild()">Next →</button><button class="btn-big btn-ghost" style="margin-top:10px" onclick="WS.step='check_roster';renderW()">← Cancel</button></form></div>`;
+}
+
+window.startRosterBuild = function(){
+  const f = document.getElementById('rsf');
+  if(!f)return;
+  WS.pendingRoster.session = f.session.value;
+  WS.pendingRoster.count = parseInt(f.count.value)||1;
+  WS.pendingRoster.workers = Array(WS.pendingRoster.count).fill({operatorId:'', operation:''});
+  WS.step = 'roster_build';
+  renderW();
+};
+
+function renderRosterBuild(){
+  const p=WS.pendingRoster;
+  const ops=WS.operations.length?WS.operations.map(o=>o.name):DEFAULT_OPS;
+  let rows = p.workers.map((w,i)=>`<div class="form-row" style="margin-bottom:8px;align-items:center;padding:12px;background:var(--bg2);border-radius:8px"><div style="font-weight:600;width:24px;color:var(--text3)">${i+1}</div><div class="form-group" style="margin-bottom:0;flex:1"><input class="form-input" name="opId_${i}" value="${w.operatorId||''}" placeholder="Operator ID" required></div><div class="form-group" style="margin-bottom:0;flex:1"><select class="form-input" name="opName_${i}" required><option value="">— Operation —</option>${ops.map(o=>`<option value="${o}" ${w.operation===o?'selected':''}>${o}</option>`).join('')}</select></div></div>`).join('');
+  return `<div class="card"><div style="font-size:18px;font-weight:600;margin-bottom:4px">Assign Workers</div><div style="font-size:12px;color:var(--text2);margin-bottom:16px">Shift ${p.shift} • Session ${p.session}</div><form id="rbf" onsubmit="return false">${rows}<button class="btn-big btn-primary" style="margin-top:16px" onclick="window.saveRoster()">✓ Save Roster</button><button class="btn-big btn-ghost" style="margin-top:10px" onclick="WS.step='roster_setup';renderW()">← Back</button></form></div>`;
+}
+
+window.saveRoster = async function(){
+  const f=document.getElementById('rbf');if(!f)return;
+  const p=WS.pendingRoster;
+  const date=new Date().toISOString().split('T')[0];
+  const m=WS.scannedModule;
+  const rKey = `${m.fbKey||m.moduleId}_${date}_${p.shift}`;
+  
+  let workers = [];
+  for(let i=0;i<p.count;i++){
+    const id=f['opId_'+i]?.value.trim();
+    const op=f['opName_'+i]?.value;
+    if(id&&op) workers.push({operatorId:id, operation:op});
+  }
+  if(workers.length !== p.count){toast(`Please fill all ${p.count} workers or change the count.`,'error');return;}
+  
+  const data = { moduleId: m.fbKey||m.moduleId, date, shift: p.shift, session: p.session, workers, createdBy: WS.user?.username||WS.user?.name, status: 'Active' };
+  
+  try {
+    await window._set(window._ref(window._db, 'rosters/'+rKey), data);
+    WS.activeRoster = { fbKey: rKey, ...data };
+    WS.step = 'form';
+    renderW();
+    toast('Roster Saved');
+  } catch(e) { toast('Error saving roster','error'); }
+};
+
+window.editRoster = function(){
+  if(!WS.activeRoster)return;
+  WS.pendingRoster = { ...WS.activeRoster, count: WS.activeRoster.workers.length };
+  WS.step = 'roster_build';
+  renderW();
+};
+
+// ============ MACHINE VERIFY ============
+function renderMachineVerify(){
+  const m = WS.scannedModule;
+  const date = new Date().toISOString().split('T')[0];
+  const modMachines = WS.machines.filter(mc => mc.moduleId === m?.fbKey || mc.lineName === m?.name || mc.fbKey in WS.verifiedMachines);
+  const verified = WS.verifiedMachines;
+  const verCount = Object.keys(verified).length;
+  return`<div class="card" style="background:rgba(68,136,255,.05);border-color:rgba(68,136,255,.3)"><div style="font-size:18px;font-weight:600;margin-bottom:4px">🏭 Verify Machines</div><div style="font-size:12px;color:var(--text2)">${m?.name||''} — Scan each machine QR to confirm it's on line</div></div>
+  <div class="scan-area" style="min-height:180px"><div id="qr-reader-m"></div></div>
+  <div style="font-size:12px;color:var(--text3);text-align:center;margin-bottom:12px">— OR tap machine below to confirm manually —</div>
+  ${modMachines.length===0?`<div class="card" style="text-align:center;color:var(--text3)">No machines assigned to this module yet. Contact admin to sync machines.</div>`:
+  `<div style="display:flex;flex-direction:column;gap:8px">${modMachines.map(mc=>{
+    const v = verified[mc.fbKey];
+    return`<div class="sub-item" style="border-color:${v?'var(--green)':'var(--border)'}">
+      <div><div style="font-size:14px;font-weight:600">${mc.name}</div><div style="font-size:11px;color:var(--text2)">${mc.type||''}</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${v?`<span class="badge badge-green">✓ Confirmed</span>`:''}
+        <button class="btn-logout" onclick="confirmMachine('${mc.fbKey}','${mc.name}','match')">${v?'✓':'Confirm'}</button>
+      </div>
+    </div>`;
+  }).join('')}</div>`}
+  <div style="margin-top:16px;display:flex;gap:10px">
+    <button class="btn-big btn-ghost" style="flex:1" onclick="WS.step='check_roster';renderW()">← Back</button>
+    <button class="btn-big btn-primary" style="flex:2" onclick="WS.step='machine_assign';renderW()">Assign Operators →</button>
+  </div>`;
+}
+
+window.confirmMachine = function(machId, machName, result){
+  WS.verifiedMachines[machId] = { machId, machName, result, time: new Date().toISOString() };
+  renderW();
+  toast(machName + ' confirmed ✓');
+};
+
+function initMachineQR(){
+  const el = document.getElementById('qr-reader-m'); if(!el) return;
+  try{
+    const scanner = new Html5Qrcode('qr-reader-m');
+    scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:200,height:200}},(text)=>{
+      scanner.stop().then(()=>handleMachineQR(text)).catch(()=>{});
+    },()=>{}).catch(()=>{el.innerHTML='<div style="padding:16px;color:var(--text3);text-align:center">📷 Use manual confirm above</div>';});
+  }catch(e){}
+}
+
+function handleMachineQR(text){
+  // The machine QR encodes the Firebase machine ID
+  const machId = text.trim();
+  const mach = WS.machines.find(m => m.fbKey === machId || m.name === machId);
+  if(mach){
+    // Check if this machine belongs to current module
+    if(mach.moduleId && mach.moduleId !== WS.scannedModule?.fbKey){
+      // Different module — log transfer event, allow
+      const evData = {machineId:machId,type:'Transfer',details:`Machine ${mach.name} scanned in module ${WS.scannedModule?.name} but registered to module ${mach.moduleId}`,loggedBy:WS.user?.username,moduleId:WS.scannedModule?.fbKey};
+      window.fbAdd('machineEvents', evData);
+      toast('⚠ Machine from different module — logged & allowed', 'error');
+    } else {
+      toast(mach.name + ' verified ✓');
+    }
+    confirmMachine(mach.fbKey, mach.name, mach.moduleId===WS.scannedModule?.fbKey?'match':'transfer');
+  } else {
+    toast('Machine not found in registry: '+machId, 'error');
+  }
+}
+
+// ============ MACHINE ASSIGN ============
+function renderMachineAssign(){
+  const m = WS.scannedModule;
+  const verified = Object.values(WS.verifiedMachines);
+  const assigns = WS.machineAssignments;
+  const ops = WS.operations;
+  return`<div class="card" style="background:rgba(0,212,168,.05);border-color:rgba(0,212,168,.2)"><div style="font-size:18px;font-weight:600;margin-bottom:4px">👷 Assign Operators</div><div style="font-size:12px;color:var(--text2)">Assign operator ID and operation to each verified machine</div></div>
+  <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${verified.map((v,i)=>{
+    const a = assigns[v.machId]||{};
+    return`<div class="card" style="padding:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">${v.machName}</div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operator ID</label><input class="form-input" placeholder="OP-10838" value="${a.operatorId||''}" oninput="WS.machineAssignments['${v.machId}']=WS.machineAssignments['${v.machId}']||{};WS.machineAssignments['${v.machId}'].operatorId=this.value" style="padding:10px;font-size:14px"></div>
+        <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operation</label><select class="form-input" style="padding:10px;font-size:14px" onchange="WS.machineAssignments['${v.machId}']=WS.machineAssignments['${v.machId}']||{};WS.machineAssignments['${v.machId}'].operation=this.value"><option value="${a.operation||''}">-- Select --</option>${ops.map(o=>`<option value="${o.name}" ${a.operation===o.name?'selected':''}>${o.name}</option>`).join('')}</select></div>
+      </div>
+    </div>`;
+  }).join('')}</div>
+  <button class="btn-big btn-primary" onclick="saveMachineRoster()">💾 Save Roster & Begin Inspection</button>
+  <button class="btn-big btn-ghost" style="margin-top:10px" onclick="WS.step='machine_verify';renderW()">← Back</button>`;
+}
+
+window.saveMachineRoster = async function(){
+  const m = WS.scannedModule;
+  const date = new Date().toISOString().split('T')[0];
+  const verified = Object.values(WS.verifiedMachines);
+  const assigns = WS.machineAssignments;
+  // Build workers array for compatibility with existing roster system
+  const workers = verified.map(v=>({ machineId:v.machId, machineName:v.machName, operatorId:(assigns[v.machId]?.operatorId||''), operation:(assigns[v.machId]?.operation||'') })).filter(w=>w.operatorId);
+  if(workers.length===0){toast('Assign at least one operator','error');return;}
+  const rKey = `${m.fbKey||m.moduleId}_${date}_M`;
+  try{
+    await window._set(window._ref(window._db,'machineRosters/'+rKey),{moduleId:m.fbKey,moduleName:m.name,date,workers,verifiedMachines:WS.verifiedMachines,status:'Active',createdBy:WS.user?.username,createdAt:new Date().toISOString()});
+    // Also create a compatible roster entry
+    await window._set(window._ref(window._db,'rosters/'+rKey),{moduleId:m.fbKey||m.moduleId,moduleName:m.name,date,shift:'M',session:'1',count:workers.length,workers,status:'Active',createdBy:WS.user?.username,createdAt:new Date().toISOString()});
+    WS.activeRoster = {fbKey:rKey,shift:'M',session:'1',workers,date};
+    WS.activeMachineRoster = rKey;
+    WS.step='form';
+    renderW();
+    toast('Machine roster saved. Start inspecting!');
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+
 // ============ INSPECTION FORM ============
 function renderForm(){
   const m=WS.scannedModule;
-  const ops=WS.operations.length?WS.operations.map(o=>o.name):DEFAULT_OPS;
-  return`<div class="card" style="background:rgba(0,212,168,.05);border-color:rgba(0,212,168,.2)"><div style="display:flex;justify-content:space-between"><div><div style="font-size:16px;font-weight:600">${m?.name||''}</div><div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div></div><span class="badge badge-green">✓ Verified</span></div></div><div class="card"><div style="font-size:13px;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Inspection Entry</div><form id="wf" onsubmit="return false"><input type="hidden" name="module" value="${m?.name||m?.moduleId||''}"><input type="hidden" name="style" value="${m?.styleName||m?.styleId||''}"><div class="form-row"><div class="form-group"><label class="form-label">Shift *</label><select class="form-input" name="shift" required><option value="A" ${new Date().getHours()<14?'selected':''}>A</option><option value="B" ${new Date().getHours()>=14?'selected':''}>B</option></select></div><div class="form-group"><label class="form-label">Session / Section *</label><select class="form-input" name="session" required><option>1</option><option>2</option><option>Both</option></select></div></div><div class="form-group"><label class="form-label">Operator ID *</label><input class="form-input" name="operatorId" placeholder="e.g. OP-10838" required></div><div class="form-group"><label class="form-label">Operation *</label><select class="form-input" name="operation" required><option value="">— Select —</option>${ops.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></div><div class="form-row"><div class="form-group"><label class="form-label">Checked Qty *</label><input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div><div class="form-group"><label class="form-label">Defect Qty</label><input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div></div><div id="dhu-box" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;text-align:center"><div style="font-size:12px;color:var(--text2)">DHU</div><div id="dhu-val" style="font-size:28px;font-weight:700;font-family:'IBM Plex Mono',monospace"></div></div><div class="form-group"><label class="form-label">Defect Type</label><select class="form-input" name="defectType"><option value="">— No Defect —</option>${DEFECTS.map(d=>`<option value="${d}">${d}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Comments</label><textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div><button class="btn-big btn-primary" type="button" id="sub-btn">✓ Submit</button></form></div><button class="btn-big btn-ghost" style="margin-top:4px" onclick="requestChange()">🔒 Request Module Change</button>`;
+  const r=WS.activeRoster;
+  if(!r) { WS.step='check_roster'; setTimeout(()=>renderW(),10); return ''; }
+  const isEndline = WS.user?.role?.includes('End');
+  let myDefs = WS.defects;
+  if(isEndline) myDefs = myDefs.filter(d => d.type === 'Endline' || d.type === 'Both');
+  else myDefs = myDefs.filter(d => d.type === 'Inline' || d.type === 'Both');
+  const workers = r.workers || [];
+  const eventModal = WS.showEventModal?renderEventModal():'';
+  return`${eventModal}<div class="card" style="background:rgba(0,212,168,.05);border-color:rgba(0,212,168,.2)"><div style="display:flex;justify-content:space-between"><div><div style="font-size:16px;font-weight:600">${m?.name||''}</div><div style="font-size:12px;color:var(--text2)">${m?.styleName||''} ${m?.buyer?'• '+m.buyer:''}</div></div><div><span class="badge badge-green">✓ Shift ${r.shift}</span> <button class="btn btn-ghost btn-sm" onclick="editRoster()" style="margin-left:4px">✏️ Edit</button></div></div></div>
+  <div class="card"><div style="font-size:13px;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Inspection Entry</div><form id="wf" onsubmit="return false"><input type="hidden" name="module" value="${m?.name||m?.moduleId||''}"><input type="hidden" name="style" value="${m?.styleName||m?.styleId||''}"><input type="hidden" name="shift" value="${r.shift}"><input type="hidden" name="session" value="${r.session}">
+  <div class="form-group"><label class="form-label">Operator *</label><select class="form-input" name="operatorId" id="f-opId" required onchange="window.opChanged()"><option value="">— Select Worker —</option>${workers.map(w=>`<option value="${w.operatorId}" data-op="${w.operation}" data-mid="${w.machineId||''}">🔧 ${w.machineName||''} — ${w.operatorId} (${w.operation})</option>`).join('')}</select></div>
+  <div class="form-row"><div class="form-group"><label class="form-label">Operation</label><input class="form-input" name="operation" id="f-opName" readonly style="background:var(--bg2);color:var(--text2);border-color:transparent" placeholder="Auto-fills from roster"></div><div class="form-group"><label class="form-label">Machine</label><input class="form-input" name="machineId" id="f-machId" readonly style="background:var(--bg2);color:var(--text2);border-color:transparent" placeholder="Auto-fills"></div></div>
+  <div class="form-row"><div class="form-group"><label class="form-label">Checked Qty *</label><input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div><div class="form-group"><label class="form-label">Defect Qty</label><input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div></div>
+  <div id="dhu-box" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;text-align:center"><div style="font-size:12px;color:var(--text2)">DHU</div><div id="dhu-val" style="font-size:28px;font-weight:700;font-family:'IBM Plex Mono',monospace"></div></div>
+  <div class="form-group"><label class="form-label">Defect Type</label><select class="form-input" name="defectType"><option value="">— No Defect —</option>${myDefs.map(d=>`<option value="${d.name}">${d.defectId?d.defectId+' - ':''}${d.name}</option>`).join('')}</select></div>
+  <div class="form-group"><label class="form-label">Comments</label><textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div>
+  <button class="btn-big btn-primary" type="button" id="sub-btn">✓ Submit</button></form></div>
+  <button class="btn-big" style="margin-top:10px;background:rgba(212,168,0,.1);color:var(--yellow);border:1px solid rgba(212,168,0,.3)" onclick="WS.showEventModal=true;renderW()">⚡ Log Machine Event</button>
+  <button class="btn-big btn-ghost" style="margin-top:8px" onclick="requestChange()">🔒 Request Module Change</button>
+  <button class="btn-big" style="margin-top:8px;background:rgba(224,85,85,.1);color:var(--red);border:1px solid rgba(224,85,85,.3)" onclick="endShift()">🛑 End Shift</button>`;
 }
+
+// ============ MACHINE EVENT MODAL ============
+function renderEventModal(){
+  const machines = Object.values(WS.verifiedMachines);
+  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:flex;align-items:flex-end;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto">
+    <div style="font-size:18px;font-weight:600;margin-bottom:4px">⚡ Log Machine Event</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:20px">Select event type and affected machine</div>
+    <div class="form-group"><label class="form-label">Event Type</label><select class="form-input" id="ev-type"><option value="OperatorChange">👤 Operator Change</option><option value="Breakdown">💥 Machine Breakdown</option><option value="Swap">🔄 Machine Swap</option><option value="ModelChange">🏷 Model/Style Change</option></select></div>
+    <div class="form-group"><label class="form-label">Machine</label><select class="form-input" id="ev-mach">${machines.map(v=>`<option value="${v.machId}">${v.machName}</option>`).join('')}</select></div>
+    <div class="form-group" id="ev-reason-grp"><label class="form-label">Reason / Details</label><select class="form-input" id="ev-reason"><option>Absent</option><option>Break Relief</option><option>Transferred</option><option>Training</option><option>Machine Fault</option><option>Other</option></select></div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-input" id="ev-notes" rows="2" placeholder="Additional details..."></textarea></div>
+    <div style="display:flex;gap:10px;margin-top:8px"><button class="btn-big btn-ghost" style="flex:1" onclick="WS.showEventModal=false;renderW()">Cancel</button><button class="btn-big btn-primary" style="flex:2" onclick="submitMachineEvent()">Log Event</button></div>
+  </div></div>`;
+}
+
+window.submitMachineEvent = async function(){
+  const type = document.getElementById('ev-type')?.value;
+  const machId = document.getElementById('ev-mach')?.value;
+  const reason = document.getElementById('ev-reason')?.value;
+  const notes = document.getElementById('ev-notes')?.value;
+  const mach = Object.values(WS.verifiedMachines).find(v=>v.machId===machId);
+  try{
+    await window.fbAdd('machineEvents',{machineId:machId,machineName:mach?.machName||machId,type,reason,details:notes||reason,loggedBy:WS.user?.username,moduleId:WS.scannedModule?.fbKey,moduleName:WS.scannedModule?.name});
+    WS.showEventModal=false;
+    renderW();
+    toast('Event logged: '+type);
+    // Trigger AI analysis after event
+    if(window.runAIAnalysis) setTimeout(()=>window.runAIAnalysis(),2000);
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+
+window.opChanged = function(){
+  const s=document.getElementById('f-opId');
+  const n=document.getElementById('f-opName');
+  const mid=document.getElementById('f-machId');
+  if(!s||!n)return;
+  const o = s.options[s.selectedIndex];
+  n.value = o ? (o.getAttribute('data-op')||'') : '';
+  if(mid) mid.value = o ? (o.getAttribute('data-mid')||'') : '';
+};
+
+window.endShift = async function(){
+  if(!confirm("Are you sure you want to end this shift? It will be sent to the supervisor for approval and locked.")) return;
+  const rKey = WS.activeRoster.fbKey;
+  try {
+    await window._update(window._ref(window._db, 'rosters/'+rKey), { status: 'Pending Approval' });
+    await window._update(window._ref(window._db, 'users/'+WS.user.fbKey), { activeModule: null });
+    WS.activeRoster = null;
+    WS.scannedModule = null;
+    WS.step = 'dashboard';
+    renderW();
+    toast('Shift ended and sent for approval.');
+  } catch(e) {
+    toast('Error ending shift: '+e.message, 'error');
+  }
+};
 
 window.calcDHU=function(){const f=document.getElementById('wf');if(!f)return;const c=parseInt(f.checkedQty?.value)||0,d=parseInt(f.defectQty?.value)||0;const el=document.getElementById('dhu-box'),v=document.getElementById('dhu-val');if(c>0){const dhu=((d/c)*100).toFixed(1);el.style.display='block';v.textContent=dhu+'%';v.style.color=dhu>5?'var(--red)':dhu>3?'var(--yellow)':'var(--green)';}else{el.style.display='none';}};
 
@@ -304,7 +593,11 @@ function bindSubmit(){
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Submitting...';
     try{
       const id='INS-'+Date.now();
-      await window.fbAdd('inspections',{id,type:'inline',date:new Date().toISOString().split('T')[0],time:new Date().toTimeString().slice(0,5),...data,submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name});
+      const inspType = WS.user?.role?.includes('End') ? 'endline' : 'inline';
+      const machId = document.getElementById('f-machId')?.value||'';
+      await window.fbAdd('inspections',{id,type:inspType,date:new Date().toISOString().split('T')[0],time:new Date().toTimeString().slice(0,5),...data,machineId:machId,submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name});
+      // Trigger AI analysis after submission
+      if(window.runAIAnalysis) setTimeout(()=>window.runAIAnalysis(),3000);
       const c=parseInt(data.checkedQty)||0,d=parseInt(data.defectQty)||0;
       if(c>0&&(d/c)*100>5){
         await window.fbAddAlert({title:`High DHU ${((d/c)*100).toFixed(1)}% — ${data.module}`,message:`${data.defectType||'Defects'} on ${data.operation} by ${data.operatorId}`,level:(d/c)*100>8?'critical':'high',module:data.module,read:false,createdBy:'worker-auto'});
@@ -334,6 +627,22 @@ function renderWaiting(){
 }
 
 function bindAll(){bindVerify();bindSubmit();}
+// Redirect check_roster → machine_verify if machines exist
+const _origCheckRoster = window.renderW;
+window.pickShiftAndVerify = function(shift, session){
+  // Store shift selection then go to machine verify
+  WS.selectedShift = shift;
+  WS.selectedSession = session;
+  const hasMachines = WS.machines.filter(mc => mc.moduleId === WS.scannedModule?.fbKey).length > 0;
+  WS.verifiedMachines = {};
+  WS.machineAssignments = {};
+  if(hasMachines){
+    WS.step = 'machine_verify';
+  } else {
+    WS.step = 'roster_setup';
+  }
+  renderW();
+};
 renderW();
 </script>
 </body>
