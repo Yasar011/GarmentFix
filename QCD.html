@@ -34,6 +34,19 @@
   window._db = db; window._ref = ref; window._set = set; window._get = get;
   window._push = push; window._onValue = onValue; window._remove = remove; window._update = update;
 
+  // Second Firebase app — Factory Manager (read-only sync)
+  const fmApp = initializeApp({
+    apiKey: "AIzaSyBUbE6WtnWnHQsCul_5bDDPHz78jlaHCxs",
+    authDomain: "apparel-maintenance.firebaseapp.com",
+    databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com",
+    projectId: "apparel-maintenance"
+  }, 'fm');
+  import { getDatabase as getDB2 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getAuth as getAuth2, signInAnonymously as anonSign2 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  const fmDb = getDB2(fmApp);
+  anonSign2(getAuth2(fmApp)).catch(()=>{});
+  window._fmDb = fmDb;
+
   // DB-based login
   window.dbLogin = async function(username, password) {
     const snap = await get(ref(db, 'users'));
@@ -55,6 +68,10 @@
     onValue(ref(db,'alerts'), s => { window.D.alerts = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; window.D.notifs = window.D.alerts.filter(a=>!a.read).length; if(['alerts','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'operations'), s => { window.D.operations = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='operations') window.render(); });
     onValue(ref(db,'defects'), s => { window.D.defects = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='defects') window.render(); });
+    onValue(ref(db,'rosters'), s => { window.D.rosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='supervisor') window.render(); });
+    onValue(ref(db,'machines'), s => { window.D.machines = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='machines') window.render(); });
+    onValue(ref(db,'machineEvents'), s => { window.D.machineEvents = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['machines','supervisor'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'aiTickets'), s => { window.D.aiTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='supervisor') window.render(); });
   };
 
   window.fbAdd = async (p,d) => { const r=push(ref(db,p));await set(r,{...d,createdAt:new Date().toISOString()});return r.key; };
@@ -152,15 +169,16 @@ td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}tr:las
 </style>
 </head>
 <body>
+<input type="file" id="csv-file" accept=".csv" style="display:none" onchange="window.handleCSV(event)">
 <div id="app"><div class="login-wrap"><div style="text-align:center"><div class="spinner" style="width:36px;height:36px;margin:0 auto 16px"></div><div style="color:var(--text2)">Connecting...</div></div></div></div>
 
 <script>
 // ICONS (compact)
-const I={grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',layout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',cpu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8"/><path d="M8 2v2M16 2v2M8 20v2M16 20v2M2 8h2M2 16h2M20 8h2M20 16h2"/></svg>',file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>',tag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/></svg>',settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',logout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>',warning:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',qr:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v7h-3M20 18h-3"/></svg>',check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 6L9 17l-5-5"/></svg>',wrench:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',refresh:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>',pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M10 13h4M10 17h4M8 13h.01M8 17h.01"/></svg>',excel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M8 13l3 4M11 13l-3 4M14 13v4M16 13v4"/></svg>'};
+const I={grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',layout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',cpu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8"/><path d="M8 2v2M16 2v2M8 20v2M16 20v2M2 8h2M2 16h2M20 8h2M20 16h2"/></svg>',file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>',tag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/></svg>',settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',logout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>',warning:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',qr:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v7h-3M20 18h-3"/></svg>',check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 6L9 17l-5-5"/></svg>',wrench:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',refresh:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>',pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M10 13h4M10 17h4M8 13h.01M8 17h.01"/></svg>',excel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M8 13l3 4M11 13l-3 4M14 13v4M16 13v4"/></svg>',machine:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>',ticket:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 9a3 3 0 110 6v2a2 2 0 002 2h16a2 2 0 002-2v-2a3 3 0 110-6V7a2 2 0 00-2-2H4a2 2 0 00-2 2v2z"/></svg>',eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'};
 function ic(n,s=18){return`<span style="width:${s}px;height:${s}px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${I[n]||I.file}</span>`;}
 
 // STATE
-window.D={page:'loading',user:null,loginLoading:false,collapsed:false,showModal:null,modalData:null,sq:'',notifs:0,inspections:[],modules:[],styles:[],users:[],alerts:[],operations:[]};
+window.D={page:'loading',user:null,loginLoading:false,collapsed:false,showModal:null,modalData:null,sq:'',notifs:0,inspections:[],modules:[],styles:[],users:[],alerts:[],operations:[],defects:[],rosters:[],machines:[],machineEvents:[],aiTickets:[]};
 
 const BUYERS=['H&M','Zara','Gap','Next','M&S','Primark','ASOS','Nike','Adidas','Uniqlo'];
 const DEFECTS=['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Shade Variation','Uneven Stitch','Needle Mark','Incorrect SPI','Loose Thread','Missing Button','Seam Pucker','Run-Off','Pleat','Uncut Thread'];
@@ -178,6 +196,17 @@ window.nav=function(p){D.page=p;D.showModal=null;D.sq='';render();};
 window.toggleSB=function(){D.collapsed=!D.collapsed;document.getElementById('sb')?.classList.toggle('collapsed');};
 window.showModal=function(t,d=null){D.showModal=t;D.modalData=d;render();};
 window.closeModal=function(){D.showModal=null;D.modalData=null;render();};
+
+// Show/hide Line Head extra fields in modal
+window.toggleLineField=function(prefix){
+  const sel=document.getElementById(prefix+'-role-sel');
+  const lg=document.getElementById(prefix+'-line-group');
+  const sg=document.getElementById(prefix+'-shift-group');
+  if(!sel||!lg||!sg)return;
+  const isLH=sel.value==='Line Head';
+  lg.style.display=isLH?'block':'none';
+  sg.style.display=isLH?'block':'none';
+};
 window.logout=function(){D.user=null;D.page='login';render();};
 
 let charts={};function dc(){Object.values(charts).forEach(c=>{try{c.destroy()}catch(e){}});charts={};}
@@ -239,14 +268,14 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
   return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon">BX</div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">Brandix QMS</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
-  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',supervisor:'Supervisor','ai-analysis':'AI Analysis',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
+  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
   return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
 }
 
@@ -256,6 +285,7 @@ function renderPg(){
   if(p==='modules')return pgMods();
   if(p==='alerts')return pgAlerts();
   if(p==='inspections')return pgInsp();
+  if(p==='machines')return pgMachines();
   if(p==='supervisor')return pgSuper();
   if(p==='ai-analysis')return pgAI();
   if(p==='reports')return pgReports();
@@ -286,7 +316,7 @@ function pgStyles(){
   const running=D.styles.filter(s=>s.status==='Running');
   const planned=D.styles.filter(s=>s.status==='Planned');
   const completed=D.styles.filter(s=>s.status==='Completed');
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><button class="btn btn-primary" onclick="showModal('addStyle')">${ic('plus',14)} Add Style</button><div style="display:flex;gap:8px"><span class="badge badge-green">${running.length} Running</span><span class="badge badge-yellow">${planned.length} Planned</span><span class="badge badge-blue">${completed.length} Completed</span></div></div>${D.styles.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No styles. Add styles first.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Style ID</th><th>Name</th><th>Buyer</th><th>Color</th><th>Status</th><th>Target DHU</th><th>Completed Date</th><th></th></tr></thead><tbody>${D.styles.map(s=>`<tr><td style="font-family:var(--mono);font-size:12px">${s.styleId||''}</td><td style="font-weight:500">${s.name||''}</td><td>${s.buyer||''}</td><td><span class="chip">${s.color||''}</span></td><td><span class="badge badge-${s.status==='Running'?'green':s.status==='Completed'?'blue':'yellow'}">${s.status||''}</span></td><td style="font-family:var(--mono)">${s.targetDhu||''}%</td><td style="font-size:12px">${s.completedDate?fd(s.completedDate):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editStyle',${JSON.stringify(s).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>${s.status!=='Completed'?`<button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="completeStyle('${s.fbKey}')">✓ Complete</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('styles','${s.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="showModal('addStyle')">${ic('plus',14)} Add Style</button><button class="btn btn-ghost" onclick="triggerCSV('styles')">📄 Import CSV</button></div><div style="display:flex;gap:8px"><span class="badge badge-green">${running.length} Running</span><span class="badge badge-yellow">${planned.length} Planned</span><span class="badge badge-blue">${completed.length} Completed</span></div></div>${D.styles.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No styles. Add styles first.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Style ID</th><th>Name</th><th>Buyer</th><th>Color</th><th>Status</th><th>Target DHU</th><th>Completed Date</th><th></th></tr></thead><tbody>${D.styles.map(s=>`<tr><td style="font-family:var(--mono);font-size:12px">${s.styleId||''}</td><td style="font-weight:500">${s.name||''}</td><td>${s.buyer||''}</td><td><span class="chip">${s.color||''}</span></td><td><span class="badge badge-${s.status==='Running'?'green':s.status==='Completed'?'blue':'yellow'}">${s.status||''}</span></td><td style="font-family:var(--mono)">${s.targetDhu||''}%</td><td style="font-size:12px">${s.completedDate?fd(s.completedDate):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editStyle',${JSON.stringify(s).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>${s.status!=='Completed'?`<button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="completeStyle('${s.fbKey}')">✓ Complete</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('styles','${s.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;
 }
 
 window.completeStyle = async function(key){
@@ -384,15 +414,288 @@ function pgInsp(){
   return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search..." value="${D.sq}" oninput="D.sq=this.value;render()"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td>${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('inspections','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
 }
 
-function pgSuper(){const ins=D.inspections;const mm={};ins.forEach(i=>{if(i.module){if(!mm[i.module])mm[i.module]={c:0,d:0,n:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;mm[i.module].n++;}});return`<div style="display:flex;flex-direction:column;gap:20px"><div class="grid-4">${kpi(ins.length,'Inspections','','var(--accent)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),'Checked','','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','','var(--red)')}${kpi(dhu(ins)+'%','DHU','','var(--yellow)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Module</th><th>Inspections</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Status</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.c?((d.d/d.c)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${m}</td><td>${d.n}</td><td>${d.c}</td><td style="color:var(--red)">${d.d}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;}
+function pgSuper(){
+  const ins=D.inspections;const mm={};
+  ins.forEach(i=>{if(i.module){if(!mm[i.module])mm[i.module]={c:0,d:0,n:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;mm[i.module].n++;}});
+  const pendingRosters = D.rosters.filter(r => r.status === 'Pending Approval');
+  let pendingHtml = '';
+  if (pendingRosters.length > 0) {
+    pendingHtml = `<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Shift Approvals (${pendingRosters.length})</span></div><div class="table-wrap"><table><thead><tr><th>Module</th><th>Date</th><th>Shift</th><th>Workers</th><th>Submitted By</th><th>Action</th></tr></thead><tbody>${pendingRosters.map(r=>`<tr><td style="font-weight:600">${r.moduleId||''}</td><td>${r.date||''}</td><td><span class="badge badge-purple">Shift ${r.shift}</span></td><td>${r.workers?.length||0}</td><td>${r.createdBy||''}</td><td><button class="btn btn-primary btn-sm" onclick="approveShift('${r.fbKey}')">✓ Approve</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+  const tickets = (D.aiTickets||[]).filter(t=>t.status==='Open');
+  let ticketHtml = '';
+  if(tickets.length>0){
+    ticketHtml = `<div class="card" style="border-color:var(--red)"><div class="card-header"><span class="card-title" style="color:var(--red)">🤖 AI Insights (${tickets.length})</span></div><div style="display:flex;flex-direction:column;gap:8px">${tickets.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${t.title}</div><div style="font-size:11px;color:var(--text2)">${t.description}</div></div><button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Acknowledge</button></div>`).join('')}</div></div>`;
+  }
+  return`<div style="display:flex;flex-direction:column;gap:20px">${pendingHtml}${ticketHtml}<div class="grid-4">${kpi(ins.length,'Inspections','','var(--accent)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),'Checked','','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','','var(--red)')}${kpi(dhu(ins)+'%','DHU','','var(--yellow)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Module</th><th>Inspections</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Status</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.c?((d.d/d.c)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${m}</td><td>${d.n}</td><td>${d.c}</td><td style="color:var(--red)">${d.d}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
+}
+
+window.approveShift = async function(k){
+  if(!confirm('Approve this shift and lock data?')) return;
+  try{
+    await window.fbUpd('rosters',k,{status:'Approved'});
+    toast('Shift Approved','success');
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+
+// ======================== MACHINES ========================
+function pgMachines(){
+  const machines = D.machines||[];
+  const events   = D.machineEvents||[];
+  const qmsMods  = D.modules||[];
+  const fmMods   = D.fmModules||[];
+
+  function resolveModuleName(m){
+    if(m.moduleName) return m.moduleName;
+    if(m.lineName)   return m.lineName;
+    const qms = qmsMods.find(x=>x.fbKey===m.moduleId);
+    if(qms) return qms.name;
+    const fm  = fmMods.find(x=>x.fbKey===m.moduleId);
+    if(fm) return fm.name;
+    if(m.moduleId==='yard') return 'Machine Yard';
+    return m.moduleId||'—';
+  }
+  function resolveLocation(m){
+    const parts=[];
+    if(m.buildingName) parts.push(m.buildingName);
+    if(m.sectionName)  parts.push(m.sectionName);
+    const mod=resolveModuleName(m);
+    if(mod&&mod!=='—') parts.push(mod);
+    return parts.join(' › ');
+  }
+
+  const groups={};
+  machines.forEach(m=>{
+    const loc=resolveLocation(m)||'Unassigned';
+    if(!groups[loc])groups[loc]=[];
+    groups[loc].push(m);
+  });
+
+  const recentEvents = events.slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,8);
+  return`<div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-primary" onclick="syncMachines()">${ic('refresh',14)} Sync from Factory App</button>
+      <span style="font-size:12px;color:var(--text3)">${machines.length} machines</span>
+    </div>
+    ${machines.length===0
+      ?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)"><div style="font-size:32px;margin-bottom:12px">&#127981;</div><div style="font-weight:600">No machines yet</div><div style="font-size:12px;margin-top:8px">Click Sync from Factory App to import.</div></div>`
+      :`<div class="card" style="padding:0;overflow:hidden">
+          <div class="card-header" style="padding:16px;display:flex;justify-content:space-between;align-items:center"><span class="card-title">Machine Registry</span><span style="font-size:12px;color:var(--text3)">${Object.keys(groups).length} locations</span></div>
+          <div class="table-wrap"><table><thead><tr><th>#</th><th>Machine Name</th><th>Type</th><th>Module</th><th>Location</th><th>Last Event</th><th></th></tr></thead>
+          <tbody>${Object.entries(groups).map(([loc,ms])=>`
+            <tr style="background:var(--bg,#f8fafc)"><td colspan="7" style="padding:5px 12px;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">&#128205; ${loc} <span style="font-weight:400;color:var(--text3)">(${ms.length})</span></td></tr>
+            ${ms.map((m,i)=>{
+              const lastEv=events.filter(e=>e.machineId===m.fbKey).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))[0];
+              const modName=resolveModuleName(m);
+              return`<tr><td style="font-size:11px;color:var(--text3)">${i+1}</td><td style="font-weight:600">${m.name||'—'}</td><td style="font-size:11px;color:var(--text2)">${m.type||'—'}</td><td><span class="badge badge-blue">${modName}</span></td><td style="font-size:11px;color:var(--text3)">${m.sectionName||''}${m.buildingName?' • '+m.buildingName:''}</td><td style="font-size:11px;color:var(--text3)">${lastEv?lastEv.type+' — '+ta(lastEv.createdAt):'No events'}</td><td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-sm" onclick="showModal('editMachine',${JSON.stringify(m).replace(/"/g,'&quot;')})">${ic('edit',14)}</button><button class="btn-icon" style="color:var(--red)" onclick="del('machines','${m.fbKey}')">${ic('trash',14)}</button></div></td></tr>`;
+            }).join('')}
+          `).join('')}
+          </tbody></table></div></div>`}
+    ${recentEvents.length>0?`<div class="card"><div class="card-header"><span class="card-title">Recent Machine Events</span></div><div class="table-wrap"><table><thead><tr><th>Event</th><th>Machine</th><th>Module</th><th>Details</th><th>By</th><th>Time</th></tr></thead><tbody>${recentEvents.map(e=>{
+      const mach=machines.find(m=>m.fbKey===e.machineId);
+      const loc=mach?resolveModuleName(mach):(e.moduleName||'—');
+      return`<tr><td><span class="badge badge-${e.type==='Breakdown'?'red':e.type==='Swap'?'yellow':e.type==='OperatorChange'?'blue':e.type==='Transfer'?'purple':'green'}">${e.type}</span></td><td style="font-weight:500">${mach?.name||e.machineId||'?'}</td><td style="font-size:11px;color:var(--text2)">${loc}</td><td style="font-size:12px">${e.details||''}</td><td style="font-size:11px;color:var(--text3)">${e.loggedBy||''}</td><td style="font-size:11px;color:var(--text3)">${ta(e.createdAt)}</td></tr>`;
+    }).join('')}</tbody></table></div></div>`:''}
+  </div>`;
+}
+
+window.syncMachines = async function(){
+  const btn = document.querySelector('[onclick="syncMachines()"]');
+  if(btn){btn.disabled=true;btn.textContent='⟳ Syncing...';}
+  try {
+    const fmDb = window._fmDb;
+    if(!fmDb){toast('Factory app not connected','error');if(btn){btn.disabled=false;btn.innerHTML=ic('refresh',14)+' Sync from Factory App';}return;}
+    const { ref:fmRef, get:fmGet } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+
+    // Factory Manager schema: buildings → sections (buildingId) → modules (sectionId) → machines (moduleId)
+    const [mSnap, modSnap, secSnap, bSnap] = await Promise.all([
+      fmGet(fmRef(fmDb,'machines')),
+      fmGet(fmRef(fmDb,'modules')),
+      fmGet(fmRef(fmDb,'sections')),
+      fmGet(fmRef(fmDb,'buildings'))
+    ]);
+
+    if(!mSnap.exists()){toast('No machines in Factory App. Add them in Factory Manager first.','error');if(btn){btn.disabled=false;btn.innerHTML=ic('refresh',14)+' Sync from Factory App';}return;}
+
+    // Build lookup maps
+    const fmModules  = modSnap.exists() ? Object.entries(modSnap.val()).map(([k,v])=>({id:k,...v})) : [];
+    const fmSections = secSnap.exists() ? Object.entries(secSnap.val()).map(([k,v])=>({id:k,...v})) : [];
+    const fmBuildings= bSnap.exists()   ? Object.entries(bSnap.val()).map(([k,v])=>({id:k,...v})) : [];
+
+    const fmMachines = Object.entries(mSnap.val()).map(([k,v])=>({id:k,...v}));
+
+    // Sync: write each machine into QMS machines collection using the FM machine key as the record key
+    // This ensures QR codes (which encode FM machine ID) match perfectly
+    let count=0;
+    for(const fm of fmMachines){
+      const fmMod     = fmModules.find(m=>m.id===fm.moduleId);
+      const fmSection = fmSections.find(s=>s.id===fmMod?.sectionId);
+      const fmBuilding= fmBuildings.find(b=>b.id===fmSection?.buildingId);
+
+      const machData = {
+        name:         fm.name           || 'Unknown Machine',
+        type:         fm.type           || '',
+        brand:        fm.brand          || '',
+        model:        fm.model          || '',
+        serial:       fm.serial         || '',
+        year:         fm.year           || '',
+        price:        fm.price          || '',
+        status:       fm.status         || 'Running',
+        moduleId:     fm.moduleId       || 'yard',          // FM module key — used for matching worker scans
+        moduleName:   fmMod?.name       || '',              // Friendly name
+        sectionName:  fmSection?.name   || '',
+        buildingName: fmBuilding?.name  || '',
+        lineName:     fmMod?.name       || '',              // alias for worker.html compatibility
+        pmInterval:   fm.interval       || 30,
+        lastPM:       fm.lastMaintenance|| null,
+        syncedFrom:   'factory-manager',
+        syncedAt:     new Date().toISOString()
+      };
+
+      // Use FM machine ID as the key so QR codes match
+      await window._set(window._ref(window._db, 'machines/'+fm.id), machData);
+      count++;
+    }
+
+    // Also sync modules so QMS module screen shows line names matching FM
+    for(const mod of fmModules){
+      const sec = fmSections.find(s=>s.id===mod.sectionId);
+      const bld = fmBuildings.find(b=>b.id===sec?.buildingId);
+      await window._set(window._ref(window._db,'fmModules/'+mod.id),{
+        fbKey:mod.id, name:mod.name, sectionId:mod.sectionId, sectionName:sec?.name||'',
+        buildingId:sec?.buildingId||'', buildingName:bld?.name||'', syncedAt:new Date().toISOString()
+      });
+    }
+
+    toast(`✓ Synced ${count} machines from Factory App!`);
+    if(btn){btn.disabled=false;btn.innerHTML=ic('refresh',14)+' Sync from Factory App';}
+  }catch(e){
+    toast('Sync error: '+e.message,'error');
+    if(btn){btn.disabled=false;btn.innerHTML=ic('refresh',14)+' Sync from Factory App';}
+  }
+};
+
+// ======================== AI TICKET ENGINE ========================
+window.runAIAnalysis = async function(){
+  const ins = D.inspections;
+  if(ins.length < 3) return;
+  const tickets = D.aiTickets||[];
+  const existingIds = new Set(tickets.map(t=>t.refId));
+  const today = new Date().toISOString().split('T')[0];
+  const omMap={};
+  ins.filter(i=>i.machineId&&i.operatorId).forEach(i=>{
+    const key=`${i.operatorId}_${i.machineId}`;
+    if(!omMap[key])omMap[key]=[];
+    const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0;
+    if(c>0)omMap[key].push((d/c)*100);
+  });
+  for(const [key,dhus] of Object.entries(omMap)){
+    if(dhus.length>=3 && dhus.slice(-3).every(d=>d>5)){
+      const [opId,machId]=key.split('_');
+      const refId=`op_risk_${key}_${today}`;
+      if(!existingIds.has(refId)){
+        const mach = (D.machines||[]).find(m=>m.fbKey===machId);
+        await window.fbAdd('aiTickets',{refId,type:'OperatorRisk',level:'high',status:'Open',operatorId:opId,machineId:machId,machineName:mach?.name||machId,title:`High DHU: Operator ${opId} on ${mach?.name||machId}`,description:`Operator ${opId} has exceeded 5% DHU for 3+ consecutive inspections on machine ${mach?.name||machId}. Consider retraining.`,autoGenerated:true});
+      }
+    }
+  }
+  const machMap={};
+  ins.filter(i=>i.machineId).forEach(i=>{
+    if(!machMap[i.machineId])machMap[i.machineId]={};
+    if(!machMap[i.machineId][i.operatorId||'?'])machMap[i.machineId][i.operatorId||'?']=[];
+    const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0;
+    if(c>0)machMap[i.machineId][i.operatorId||'?'].push((d/c)*100);
+  });
+  for(const [machId,opData] of Object.entries(machMap)){
+    const ops=Object.keys(opData);
+    if(ops.length>=2&&ops.every(op=>opData[op].length>0&&(opData[op].reduce((a,b)=>a+b,0)/opData[op].length)>5)){
+      const refId=`mach_risk_${machId}_${today}`;
+      if(!existingIds.has(refId)){
+        const mach=(D.machines||[]).find(m=>m.fbKey===machId);
+        await window.fbAdd('aiTickets',{refId,type:'MachineRisk',level:'high',status:'Open',machineId:machId,machineName:mach?.name||machId,title:`Machine Issue: ${mach?.name||machId} — All Operators Affected`,description:`Multiple operators on machine ${mach?.name||machId} are all showing DHU>5%. The machine itself likely needs servicing.`,autoGenerated:true});
+      }
+    }
+  }
+  const swaps=(D.machineEvents||[]).filter(e=>e.type==='Swap'&&(e.createdAt||'').startsWith(today));
+  const swapCount={};
+  swaps.forEach(s=>{swapCount[s.machineId]=(swapCount[s.machineId]||0)+1;});
+  for(const [machId,cnt] of Object.entries(swapCount)){
+    if(cnt>=2){
+      const refId=`swap_${machId}_${today}`;
+      if(!existingIds.has(refId)){
+        const mach=(D.machines||[]).find(m=>m.fbKey===machId);
+        await window.fbAdd('aiTickets',{refId,type:'FrequentSwap',level:'medium',status:'Open',machineId:machId,machineName:mach?.name||machId,title:`Unstable Machine: ${mach?.name||machId} swapped ${cnt}x today`,description:`Machine ${mach?.name||machId} has been swapped ${cnt} times today. Investigate machine reliability.`,autoGenerated:true});
+      }
+    }
+  }
+};
+
+window.ackTicket = async function(k){
+  await window.fbUpd('aiTickets',k,{status:'Acknowledged'});toast('Acknowledged');
+};
+window.resolveTicket = async function(k){
+  await window.fbUpd('aiTickets',k,{status:'Resolved'});toast('Resolved');
+};
 
 function pgAI(){const ins=D.inspections;const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const td=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);const total=Object.values(dm).reduce((a,b)=>a+b,0)||1;const om={};ins.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});const to=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,5);return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="ai-chip">${ic('cpu',12)} AI Analysis</div><div style="margin-top:8px;font-size:14px;font-weight:500;color:var(--text2)">From ${ins.length} records</div></div>${ins.length>0?`<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Defect Distribution</span></div>${td.map(([n,c])=>`<div class="ai-finding"><div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:500">${n}</span><span style="font-size:12px;font-family:var(--mono);color:var(--red)">${c} (${((c/total)*100).toFixed(0)}%)</span></div><div class="ai-bar"><div class="ai-bar-fill" style="width:${(c/total)*100}%"></div></div></div>`).join('')}</div><div class="card"><div class="card-header"><span class="card-title">Operator Risk</span></div>${to.length===0?'<div style="color:var(--text3);padding:12px">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Operator</th><th>Checks</th><th>Defects</th><th>Risk</th></tr></thead><tbody>${to.map(([o,d])=>{const avg=(d.d/d.n).toFixed(1);return`<tr><td style="font-family:var(--mono)">${o}</td><td>${d.n}</td><td style="color:var(--red)">${d.d}</td><td><span class="badge badge-${avg>3?'red':avg>1?'yellow':'green'}">${avg>3?'High':avg>1?'Med':'Low'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div></div><div class="card"><div class="card-header"><span class="card-title">Recommendations</span><button class="btn btn-ghost btn-sm" onclick="rptOperator('pdf')">${ic('pdf',12)} Report</button></div>${td.slice(0,3).map(([n,c])=>`<div class="alert-card alert-high">${ic('cpu',14)}<div><div style="font-weight:500">"${n}" — ${c} occurrences (${((c/total)*100).toFixed(0)}%)</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Consider machine maintenance, retraining, or material check.</div></div></div>`).join('')}</div>`:''}</div>`;}
 
-function pgOps(){const ops=D.operations;return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><div><span class="card-title">Operations</span><div style="font-size:12px;color:var(--text3);margin-top:4px">These appear in worker dropdown</div></div><button class="btn btn-primary btn-sm" onclick="showModal('addOp')">${ic('plus',14)} Add</button></div>${ops.length===0?`<div style="padding:20px;text-align:center;color:var(--text3)">No custom operations. <button class="btn btn-ghost btn-sm" onclick="seedOps()">Load Defaults</button></div>`:`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Added</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td style="font-weight:500">${o.name||''}</td><td style="font-size:12px;color:var(--text3)">${fd(o.createdAt)}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('operations','${o.fbKey}')">${ic('trash',14)}</button></td></tr>`).join('')}</tbody></table></div>`}</div></div>`;}
+function pgOps(){const ops=D.operations;return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><div><span class="card-title">Operations</span><div style="font-size:12px;color:var(--text3);margin-top:4px">These appear in worker dropdown</div></div><div><button class="btn btn-primary btn-sm" onclick="showModal('addOp')">${ic('plus',14)} Add</button><button class="btn btn-ghost btn-sm" onclick="triggerCSV('operations')" style="margin-left:4px">📄 Import CSV</button></div></div>${ops.length===0?`<div style="padding:20px;text-align:center;color:var(--text3)">No custom operations. <button class="btn btn-ghost btn-sm" onclick="seedOps()">Load Defaults</button></div>`:`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Added</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td style="font-weight:500">${o.name||''}</td><td style="font-size:12px;color:var(--text3)">${fd(o.createdAt)}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('operations','${o.fbKey}')">${ic('trash',14)}</button></td></tr>`).join('')}</tbody></table></div>`}</div></div>`;}
 
-function pgDefects(){const defs=D.defects||[];return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><button class="btn btn-primary" onclick="showModal('addDefect')">${ic('plus',14)} Add Defect</button></div>${defs.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No defects. Add one.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Defect ID</th><th>Name</th><th>Type</th><th></th></tr></thead><tbody>${defs.map(d=>`<tr><td style="font-family:var(--mono);font-size:12px">${d.defectId||''}</td><td style="font-weight:500">${d.name||''}</td><td><span class="badge badge-${d.type==='Inline'?'blue':d.type==='Endline'?'purple':'green'}">${d.type||'Both'}</span></td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editDefect',${JSON.stringify(d).replace(/"/g,'&quot;')})">${ic('edit',14)}</button><button class="btn-icon" style="color:var(--red)" onclick="del('defects','${d.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;}
+function pgDefects(){const defs=D.defects||[];return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="showModal('addDefect')">${ic('plus',14)} Add Defect</button><button class="btn btn-ghost" onclick="triggerCSV('defects')">📄 Import CSV</button></div></div>${defs.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No defects. Add one.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Defect ID</th><th>Name</th><th>Type</th><th></th></tr></thead><tbody>${defs.map(d=>`<tr><td style="font-family:var(--mono);font-size:12px">${d.defectId||''}</td><td style="font-weight:500">${d.name||''}</td><td><span class="badge badge-${d.type==='Inline'?'blue':d.type==='Endline'?'purple':'green'}">${d.type||'Both'}</span></td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editDefect',${JSON.stringify(d).replace(/"/g,'&quot;')})">${ic('edit',14)}</button><button class="btn-icon" style="color:var(--red)" onclick="del('defects','${d.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;}
 
-function pgUsers(){return`<div style="display:flex;flex-direction:column;gap:20px"><div><button class="btn btn-primary" onclick="showModal('addUser')">${ic('plus',14)} Add User</button></div>${D.users.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No users</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th></th></tr></thead><tbody>${D.users.map(u=>`<tr><td style="font-weight:500"><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:24px;height:24px;font-size:9px">${ini(u.name)}</div>${u.name||''}</div></td><td style="font-family:var(--mono);font-size:12px">${u.username||u.email||''}</td><td><span class="badge badge-${u.role==='Admin'?'green':u.role?.includes('QC')?'blue':'yellow'}">${u.role||''}</span></td><td style="font-family:var(--mono);font-size:12px">${u.password?'••••••':''} <button class="btn-icon" onclick="alert('Password: ${u.password||'none'}')" title="Show">${ic('eye',12)}</button></td><td><span class="badge badge-${u.status==='Active'?'green':'gray'}">${u.status||'Active'}</span></td><td><button class="btn-icon" onclick="showModal('editUser',${JSON.stringify(u).replace(/"/g,'&quot;')})">${ic('edit',14)}</button></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;}
+function roleBadge(role){
+  if(!role)return'gray';
+  if(role==='Admin')return'green';
+  if(role==='Line Head')return'yellow';
+  if(role.includes('End'))return'purple';
+  if(role.includes('QC')||role.includes('Inspector'))return'blue';
+  if(role==='Supervisor')return'blue';
+  return'gray';
+}
+
+function pgUsers(){
+  const lineHeads=D.users.filter(u=>u.role==='Line Head');
+  const others=D.users.filter(u=>u.role!=='Line Head');
+  const sorted=[...lineHeads,...others];
+  return`<div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-primary" onclick="showModal('addUser')">${ic('plus',14)} Add User</button>
+        <span style="font-size:12px;color:var(--text3)">${D.users.length} users — ${lineHeads.length} Line Heads</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${['Admin','Manager','Supervisor','Line Head','QC Inline Inspector','QC End Line Inspector'].map(r=>{
+          const c=D.users.filter(u=>u.role===r).length;
+          return c>0?`<span class="badge badge-${roleBadge(r)}">${r}: ${c}</span>`:'';
+        }).join('')}
+      </div>
+    </div>
+    ${D.users.length===0
+      ?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No users. Add one above.</div>'
+      :`<div class="card" style="padding:0;overflow:hidden">
+        <div class="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Line / Shift</th><th>Password</th><th>Status</th><th></th></tr></thead>
+          <tbody>${sorted.map(u=>`<tr>
+            <td style="font-weight:500"><div style="display:flex;align-items:center;gap:8px">
+              <div class="avatar" style="width:24px;height:24px;font-size:9px;background:${u.role==='Line Head'?'linear-gradient(135deg,var(--yellow),#ff9424)':''}">${ini(u.name)}</div>
+              ${u.name||''}
+            </div></td>
+            <td style="font-family:var(--mono);font-size:12px">${u.username||u.email||''}</td>
+            <td><span class="badge badge-${roleBadge(u.role)}">${u.role||''}</span></td>
+            <td style="font-size:12px">${u.role==='Line Head'
+              ?`<div style="display:flex;flex-direction:column;gap:2px">${u.assignedLine?`<span style="color:var(--accent);font-weight:500">&#128205; ${u.assignedLine}</span>`:'<span style="color:var(--text3)">No line set</span>'} ${u.shift?`<span class="badge badge-purple" style="width:fit-content">Shift ${u.shift}</span>`:''}</div>`
+              :'<span style="color:var(--text3)">—</span>'}</td>
+            <td style="font-family:var(--mono);font-size:12px">${u.password?'••••••':''} <button class="btn-icon" onclick="alert('Password: ${u.password||'none'}')" title="Show">${ic('eye',12)}</button></td>
+            <td><span class="badge badge-${u.status==='Active'?'green':'gray'}">${u.status||'Active'}</span></td>
+            <td><div style="display:flex;gap:4px">
+              <button class="btn-icon" onclick="showModal('editUser',${JSON.stringify(u).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>
+              ${u.role!=='Admin'?`<button class="btn-icon" style="color:var(--red)" onclick="del('users','${u.fbKey}')">${ic('trash',14)}</button>`:''}
+            </div></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>`}
+  </div>`;
+}
 
 function pgSettings(){return`<div style="max-width:640px"><div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">Profile</span></div><div style="display:flex;align-items:center;gap:16px;margin-bottom:16px"><div class="avatar" style="width:56px;height:56px;font-size:18px">${ini(D.user?.name)}</div><div><div style="font-size:16px;font-weight:600">${D.user?.name||''}</div><div style="font-size:12px;color:var(--text2)">${D.user?.username||D.user?.email||''}</div><span class="badge badge-green">${D.user?.role||''}</span></div></div></div><div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">Seed Demo Data</span></div><div style="font-size:12px;color:var(--text2);margin-bottom:12px">Populate with sample styles, modules, operations, inspections</div><button class="btn btn-ghost" id="seed-btn">${ic('refresh',14)} Seed Demo Data</button></div><div class="card"><button class="btn btn-danger" onclick="logout()">${ic('logout',14)} Sign Out</button></div></div>`;}
 
@@ -421,9 +724,9 @@ function renderModal(){
   }else if(m==='addAlert'){
     title='Create Alert';body=`<form id="mf"><div class="form-group"><label class="form-label">Title</label><input class="form-input" name="title" required></div><div class="form-group"><label class="form-label">Message</label><textarea class="form-input" name="message" rows="3" required></textarea></div><div class="form-row"><div class="form-group"><label class="form-label">Level</label><select class="form-input" name="level"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div><div class="form-group"><label class="form-label">Module</label><input class="form-input" name="module"></div></div><button class="btn btn-primary" type="button" onclick="sub('addAlert')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Create</button></form>`;
   }else if(m==='addUser'){
-    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>QC Inline Inspector</option><option>QC End Line Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
+    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>Line Head</option><option>QC Inline Inspector</option><option>QC End Line Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option><option>A</option><option>B</option><option>C</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
   }else if(m==='editUser'){
-    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role">${['Admin','Manager','Supervisor','QC Inline Inspector','QC End Line Inspector'].map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${['Admin','Manager','Supervisor','Line Head','QC Inline Inspector','QC End Line Inspector'].map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option>${['A','B','C'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else{title='Info';body='<button class="btn btn-ghost" onclick="closeModal()">Close</button>';}
   return`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-header"><div class="modal-title">${title}</div><button class="btn-icon" onclick="closeModal()">${ic('x',18)}</button></div>${body}</div></div>`;
 }
@@ -455,6 +758,73 @@ window.markRead=async function(k){await window.fbUpd('alerts',k,{read:true});toa
 window.seedOps=async function(){for(const o of DEF_OPS)await window.fbAdd('operations',{name:o});toast('Loaded');render();};
 window.printQR=function(){const el=document.getElementById('qr-el');if(!el)return;const w=window.open();w.document.write(`<html><body style="display:flex;justify-content:center;padding:40px"><div style="text-align:center"><h2>${D.modalData?.name||''}</h2><p>${D.modalData?.styleName||''} — ${D.modalData?.buyer||''}</p>${el.innerHTML}<p style="font-size:12px;margin-top:8px">${D.modalData?.moduleId||''}</p></div></body></html>`);w.document.close();w.print();};
 
+// ======================== CSV IMPORT ========================
+function csvToArray(str) {
+  const lines = str.trim().split('\n');
+  if(lines.length<2) return [];
+  const headers = lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/[^a-z0-9]/g,''));
+  const results = [];
+  for(let i=1; i<lines.length; i++) {
+    const obj = {};
+    const currentline = lines[i].split(',').map(v=>v.trim());
+    if(currentline.length <= 1) continue;
+    headers.forEach((h, j) => { obj[h] = currentline[j] || ''; });
+    results.push(obj);
+  }
+  return results;
+}
+
+window.csvType = '';
+window.triggerCSV = function(type) {
+  window.csvType = type;
+  document.getElementById('csv-file').click();
+};
+
+window.handleCSV = function(e) {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(evt) {
+    const text = evt.target.result;
+    const data = csvToArray(text);
+    if(data.length === 0) { toast('CSV is empty or invalid','error'); return; }
+    
+    let count = 0;
+    try {
+      if(window.csvType === 'styles') {
+        for(let d of data) {
+          if(!d.name && !d.styleid) continue;
+          const match = D.styles.find(s => s.styleId === d.styleid || s.name === d.name);
+          const p = { styleId: d.styleid||d.name, name: d.name||d.styleid, buyer: d.buyer||'', color: d.color||'', status: d.status||'Running' };
+          if(match) await window.fbUpd('styles', match.fbKey, p);
+          else await window.fbAdd('styles', p);
+          count++;
+        }
+      } else if(window.csvType === 'operations') {
+        for(let d of data) {
+          if(!d.name) continue;
+          const match = D.operations.find(o => o.name.toLowerCase() === d.name.toLowerCase());
+          if(!match) { await window.fbAdd('operations', {name: d.name}); count++; }
+        }
+      } else if(window.csvType === 'defects') {
+        for(let d of data) {
+          if(!d.name && !d.defectid) continue;
+          const match = D.defects.find(x => x.defectId === d.defectid || x.name === d.name);
+          const p = { defectId: d.defectid||'', name: d.name||d.defectid, type: d.type||'Both' };
+          if(match) await window.fbUpd('defects', match.fbKey, p);
+          else await window.fbAdd('defects', p);
+          count++;
+        }
+      }
+      toast(`Successfully imported ${count} items!`, 'success');
+    } catch(err) {
+      toast('Import error: '+err.message, 'error');
+    }
+    e.target.value = ''; // reset input
+  };
+  reader.readAsText(file);
+};
+
 // Seed demo data
 function bindSeed(){
   const btn=document.getElementById('seed-btn');if(!btn)return;
@@ -465,6 +835,8 @@ function bindSeed(){
     await window.fbAdd('users',{username:'ravi',password:'ravi123',name:'Ravi Perera',role:'QC Inline Inspector',dept:'Quality',status:'Active'});
     await window.fbAdd('users',{username:'sita',password:'sita123',name:'Sita Nair',role:'QC End Line Inspector',dept:'Quality',status:'Active'});
     await window.fbAdd('users',{username:'bimal',password:'bimal123',name:'Bimal Silva',role:'Supervisor',dept:'Production',status:'Active'});
+    await window.fbAdd('users',{username:'meera',password:'meera123',name:'Meera Devi',role:'Line Head',dept:'Production',assignedLine:'Module 1',shift:'A',status:'Active'});
+    await window.fbAdd('users',{username:'priya',password:'priya123',name:'Priya Kumari',role:'Line Head',dept:'Production',assignedLine:'Module 2',shift:'A',status:'Active'});
     // Styles
     const stys=[{styleId:'STY-1000',name:'Polo Shirt',buyer:'H&M',color:'White',status:'Running',targetDhu:2.5},{styleId:'STY-1001',name:'Casual Tee',buyer:'Zara',color:'Navy',status:'Running',targetDhu:2.5},{styleId:'STY-1002',name:'Formal Shirt',buyer:'Gap',color:'Blue',status:'Completed',targetDhu:2.0,completedDate:new Date(Date.now()-3*86400000).toISOString()},{styleId:'STY-1003',name:'Denim Shirt',buyer:'Next',color:'Indigo',status:'Running',targetDhu:3.0}];
     for(const s of stys)await window.fbAdd('styles',s);
