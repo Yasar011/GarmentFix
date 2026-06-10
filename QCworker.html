@@ -94,8 +94,10 @@ button{cursor:pointer;border:none;outline:none}
 .badge-yellow{background:rgba(212,168,0,.15);color:var(--yellow)}
 .badge-blue{background:rgba(68,136,255,.15);color:var(--blue)}
 .badge-purple{background:rgba(153,102,255,.15);color:var(--purple)}
-.scan-area{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.scan-area-sm{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:12px;min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.scan-area{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px;height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
+.scan-area>div{width:100%;height:100%}
+.scan-area-sm{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:12px;height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
+.scan-area-sm>div{width:100%;height:100%}
 .stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center}
 .stat-val{font-size:24px;font-weight:700}
@@ -185,6 +187,7 @@ function renderStep(){
   if(s==='lh_scan')         return renderLHScan();
   if(s==='lh_fill')         return renderLHFill();
   if(s==='lh_roster')       return renderLHRoster();
+  if(s==='lh_done')         return renderLHDone();
   // Inline QC
   if(s==='check_home')      return renderCheckHome();
   if(s==='check_scan_pick') return renderCheckScanPick();
@@ -228,22 +231,40 @@ function stopQR(){
 }
 function startQRIfNeeded(){
   const s=WS.step;
-  if(s==='scan')                initQRIn('qr-reader',handleModuleQR);
-  else if(s==='worker_scan_machine') initQRIn('qr-wmachine',handleWorkerMachineQR);
-  else if(s==='check_scan_pick')     initQRIn('qr-inline-pick',handleInlinePickQR);
+  if(s==='scan')               initQRIn('qr-reader',     handleModuleQR);
+  else if(s==='lh_scan')       initQRIn('qr-lh-scan',    handleLHScanQR);
+  else if(s==='check_scan_pick')     initQRIn('qr-inline-pick', handleInlinePickQR);
   else if(s==='endline_scan_pick')   initQRIn('qr-endline-pick',handleEndlinePickQR);
 }
 function initQRIn(elId,cb){
-  const el=document.getElementById(elId);if(!el)return;
-  try{
-    const sc=new Html5Qrcode(elId);
-    sc.start({facingMode:'environment'},{fps:10,qrbox:{width:220,height:220}},(text)=>{
-      sc.stop().then(()=>cb(text)).catch(()=>cb(text));
-    },()=>{}).catch(()=>{
-      el.innerHTML='<div style="padding:20px;color:var(--text3);text-align:center">📷 Camera unavailable.<br>Use manual options below.</div>';
-    });
-    qrActive=sc;
-  }catch(e){}
+  // Wait two frames so the DOM is fully painted before Html5Qrcode measures the element
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    const el=document.getElementById(elId);
+    if(!el)return;
+    el.innerHTML='';
+    // Html5Qrcode needs the parent to have a concrete pixel size
+    const parent=el.closest('.scan-area,.scan-area-sm')||el.parentElement;
+    const w=Math.min((parent?.offsetWidth||300)-32, 280);
+    try{
+      const sc=new Html5Qrcode(elId);
+      sc.start(
+        {facingMode:'environment'},
+        {fps:10, qrbox:{width:Math.max(w-40,150), height:Math.max(w-40,150)}},
+        (text)=>{ sc.stop().catch(()=>{}); qrActive=null; cb(text); },
+        ()=>{}
+      ).catch(err=>{
+        console.warn('QR camera error:',err);
+        el.innerHTML='<div style="padding:28px 16px;color:var(--text3);text-align:center;font-size:13px;line-height:1.6">'
+          +'📷 Camera not started<br>'
+          +'<span style="font-size:11px">Allow camera access or use manual entry below</span></div>';
+      });
+      qrActive=sc;
+    }catch(e){
+      console.warn('QR init error:',e);
+      el.innerHTML='<div style="padding:28px 16px;color:var(--text3);text-align:center;font-size:13px">'
+        +'📷 Scanner unavailable<br><span style="font-size:11px">Use manual entry below</span></div>';
+    }
+  }));
 }
 
 // ==================== LOGIN ====================
@@ -275,7 +296,7 @@ function bindLogin(){
       WS.user=user;WS.loading=false;
       window.loadWorkerData();
       toast('Welcome, '+user.name);
-      WS.step=isWorker()?'scan':'dashboard';
+      WS.step=(isLineHead()||isWorker())?'scan':'dashboard';
       renderW();
     }catch(e){
       WS.loading=false;renderW();
@@ -1178,25 +1199,26 @@ function renderWaiting(){
 // ==================== BIND ALL ====================
 function bindStep(){
   const s=WS.step;
-  if(s==='verify')            bindVerify();
-  if(s==='worker_scan_machine') bindWorkerScanManual();
-  if(s==='worker_fill')       bindWorkerFill();
+  if(s==='verify')             bindVerify();
+  if(s==='lh_scan')            bindLHScan();
+  if(s==='lh_fill')            bindLHFill();
+  if(s==='lh_roster')          bindLHRoster();
   if(s==='check_form'||s==='endline_form') bindSubmit();
-  if(s==='roster_manual')     bindManualRoster();
+  if(s==='roster_manual')      bindManualRoster();
 }
 
-// bind manual input on worker scan screen
-function bindWorkerScanManual(){
-  const mb=document.getElementById('wm-manual-btn');
-  if(mb)mb.onclick=()=>{
-    const v=(document.getElementById('wm-manual')?.value||'').trim();
-    if(!v){toast('Enter a machine name','error');return;}
-    const mach=WS.machines.find(m=>m.name===v||m.fbKey===v);
-    WS.myMachine=mach||{fbKey:'manual_'+Date.now(),name:v,type:'Unknown'};
-    WS.step='worker_fill';renderW();
+// Bind manual input on Line Head scan screen
+function bindLHScan(){
+  const btn=document.getElementById('lh-manual-btn');
+  if(btn)btn.onclick=()=>{
+    const v=(document.getElementById('lh-manual-input')?.value||'').trim();
+    if(!v){toast('Enter a machine name or ID','error');return;}
+    const mach=WS.machines.find(m=>m.name===v||m.fbKey===v||m.machineId===v);
+    WS._lhCurrentMachine=mach||{fbKey:'manual_'+Date.now(),name:v,type:'Unknown'};
+    WS.step='lh_fill';renderW();
   };
-  document.getElementById('wm-manual')?.addEventListener('keydown',e=>{
-    if(e.key==='Enter')document.getElementById('wm-manual-btn')?.click();
+  document.getElementById('lh-manual-input')?.addEventListener('keydown',e=>{
+    if(e.key==='Enter')document.getElementById('lh-manual-btn')?.click();
   });
 }
 
