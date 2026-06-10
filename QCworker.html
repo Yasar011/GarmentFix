@@ -237,32 +237,32 @@ function startQRIfNeeded(){
   else if(s==='endline_scan_pick')   initQRIn('qr-endline-pick',handleEndlinePickQR);
 }
 function initQRIn(elId,cb){
-  // Wait two frames so the DOM is fully painted before Html5Qrcode measures the element
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     const el=document.getElementById(elId);
     if(!el)return;
     el.innerHTML='';
-    // Html5Qrcode needs the parent to have a concrete pixel size
     const parent=el.closest('.scan-area,.scan-area-sm')||el.parentElement;
-    const w=Math.min((parent?.offsetWidth||300)-32, 280);
+    const w=Math.min((parent?.offsetWidth||300)-32,280);
     try{
-      const sc=new Html5Qrcode(elId);
+      // Force QR_CODE only — prevents barcode scanner mode
+      const formats=[Html5QrcodeSupportedFormats.QR_CODE];
+      const sc=new Html5Qrcode(elId,{formatsToSupport:formats,verbose:false});
       sc.start(
         {facingMode:'environment'},
-        {fps:10, qrbox:{width:Math.max(w-40,150), height:Math.max(w-40,150)}},
-        (text)=>{ sc.stop().catch(()=>{}); qrActive=null; cb(text); },
+        {fps:15,qrbox:{width:Math.max(w-40,180),height:Math.max(w-40,180)},aspectRatio:1.0},
+        (text)=>{sc.stop().catch(()=>{});qrActive=null;cb(text);},
         ()=>{}
       ).catch(err=>{
         console.warn('QR camera error:',err);
-        el.innerHTML='<div style="padding:28px 16px;color:var(--text3);text-align:center;font-size:13px;line-height:1.6">'
+        el.innerHTML='<div style="padding:28px 16px;color:var(--text3);text-align:center;font-size:13px;line-height:1.8">'
           +'📷 Camera not started<br>'
-          +'<span style="font-size:11px">Allow camera access or use manual entry below</span></div>';
+          +'<span style="font-size:11px">Allow camera access in browser settings,<br>then tap back and try again</span></div>';
       });
       qrActive=sc;
     }catch(e){
       console.warn('QR init error:',e);
       el.innerHTML='<div style="padding:28px 16px;color:var(--text3);text-align:center;font-size:13px">'
-        +'📷 Scanner unavailable<br><span style="font-size:11px">Use manual entry below</span></div>';
+        +'📷 Scanner unavailable — use manual entry below</div>';
     }
   }));
 }
@@ -593,10 +593,28 @@ function renderCheckHome(){
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
   const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today);
-  const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
-  const nextRound=completedRounds.length+1;
+  const completedRounds=[...new Set(myRounds.map(i=>parseInt(i.checkRound)).filter(Boolean))];
+  const nextRound=(completedRounds.length>0?Math.max(...completedRounds):0)+1;
   WS.checkRound=nextRound;
   const noMachines=machines.length===0;
+
+  // Trigger fresh Firebase read so roster shows after LH saves
+  const date=today;
+  const rKey=m?(m.fbKey||m.moduleId)+'_'+date:null;
+  if(rKey&&noMachines){
+    window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers')).then(snap=>{
+      if(snap.exists()){
+        const fresh=Object.values(snap.val());
+        if(fresh.length>0){
+          // Update the machineRosters cache
+          if(!WS.machineRosters.find(r=>r.fbKey===rKey)){
+            WS.machineRosters.push({fbKey:rKey,workers:snap.val()});
+          }
+          renderW(); // re-render with fresh data
+        }
+      }
+    }).catch(()=>{});
+  }
 
   return '<div class="card card-accent">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — Inline QC</div>'
@@ -613,11 +631,15 @@ function renderCheckHome(){
        +'<div style="font-size:13px;font-weight:600">🔧 Machines on Line ('+machines.length+')</div>'
        +'<button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>'
        +'</div>'
-       +machines.map(w=>'<div class="sub-item"><div><div style="font-size:13px;font-weight:600">'+(w.machineName||w.machineId)+'</div><div style="font-size:11px;color:var(--text2)">'+(w.operatorId||'No operator')+' • '+(w.operation||'—')+'</div></div><span class="badge badge-green">✓</span></div>').join('')
+       +machines.map(w=>'<div class="sub-item"><div style="flex:1"><div style="font-size:13px;font-weight:700">'+(w.machineName||w.machineId||'')+'</div>'
+         +'<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap">'
+         +(w.operatorId?'<span class="badge badge-blue" style="font-size:11px">👤 '+w.operatorId+'</span>':'<span style="font-size:11px;color:var(--text3)">No operator</span>')
+         +(w.operation?'<span class="badge badge-purple" style="font-size:11px">⚙ '+w.operation+'</span>':'')
+         +'</div></div><span class="badge badge-green">✓</span></div>').join('')
        +'</div>'
       :'<div class="card card-yellow" style="margin-bottom:16px">'
        +'<div style="font-weight:600;margin-bottom:6px">⚠ No Machines Registered Yet</div>'
-       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Workers scan their machine QR first, or set up the roster manually here.</div>'
+       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Line Head scans machine QRs at shift start. Or add manually.</div>'
        +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Machines Manually</button>'
        +'</div>')
     +'<button class="btn-big btn-primary" onclick="startCheckRound('+nextRound+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
@@ -627,12 +649,34 @@ function renderCheckHome(){
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
-window.startCheckRound=function(roundNum){
-  const machines=getModuleMachines();
-  if(machines.length===0){toast('Set up machine roster first — tap ⚙️ below','error');return;}
-  WS.checkRound=roundNum;WS.checkRoundData=[...machines];
-  WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
-  WS.step='check_scan_pick';renderW();
+window.startCheckRound=async function(roundNum){
+  const m=WS.scannedModule;
+  if(!m){toast('No module selected','error');return;}
+  // Fresh fetch from Firebase so roster is always up to date
+  const date=new Date().toISOString().split('T')[0];
+  const rKey=(m.fbKey||m.moduleId)+'_'+date;
+  try{
+    const snap=await window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers'));
+    let machines=[];
+    if(snap.exists()){
+      machines=Object.values(snap.val());
+    } else {
+      // fallback to in-memory
+      machines=getModuleMachines();
+    }
+    if(machines.length===0){toast('No machines in roster — set up roster first','error');return;}
+    WS.checkRound=roundNum;
+    WS.checkRoundData=machines.map(w=>({...w}));
+    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+    WS.step='check_scan_pick';renderW();
+  }catch(e){
+    // fallback if Firebase fails
+    const machines=getModuleMachines();
+    if(machines.length===0){toast('No machines in roster','error');return;}
+    WS.checkRound=roundNum;WS.checkRoundData=[...machines];
+    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+    WS.step='check_scan_pick';renderW();
+  }
 };
 
 // ---- NEW: Inline Scan-to-Pick screen ----
@@ -656,10 +700,17 @@ function renderCheckScanPick(){
     +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
     +machines.map(w=>{
       const isDone=done.some(d=>d.machineId===w.machineId);
+      const hasOp=w.operatorId&&w.operatorId.trim();
+      const hasOpn=w.operation&&w.operation.trim();
       return '<div class="machine-row '+(isDone?'done':'')+'" onclick="'+(isDone?'':'selectInlineMachine(\''+w.machineId+'\')')+'">'
-        +'<div><div style="font-size:14px;font-weight:600">'+(w.machineName||w.machineId)+'</div>'
-        +'<div style="font-size:11px;color:var(--text2)">'+(w.operatorId||'No operator')+' • '+(w.operation||'—')+'</div></div>'
-        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-blue">Tap</span>')
+        +'<div style="flex:1">'
+        +'<div style="font-size:14px;font-weight:700">'+(w.machineName||w.machineId||'Unknown')+'</div>'
+        +'<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">'
+        +(hasOp?'<span class="badge badge-blue" style="font-size:11px">👤 '+w.operatorId+'</span>':'<span style="font-size:11px;color:var(--text3)">No operator</span>')
+        +(hasOpn?'<span class="badge badge-purple" style="font-size:11px">⚙ '+w.operation+'</span>':'')
+        +'</div>'
+        +'</div>'
+        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-accent" style="background:rgba(0,212,168,.15);color:var(--accent)">Tap / Scan</span>')
         +'</div>';
     }).join('')
     +'</div>'
@@ -797,12 +848,31 @@ function renderEndlineHome(){
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
-window.startEndlineRound=function(roundNum){
-  const machines=getModuleMachines();
-  if(machines.length===0){toast('Set up roster first — tap ⚙️ below','error');return;}
-  WS.checkRound=roundNum;WS.checkRoundData=[...machines];
-  WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
-  WS.step='endline_scan_pick';renderW();
+window.startEndlineRound=async function(roundNum){
+  const m=WS.scannedModule;
+  if(!m){toast('No module selected','error');return;}
+  const date=new Date().toISOString().split('T')[0];
+  const rKey=(m.fbKey||m.moduleId)+'_'+date;
+  try{
+    const snap=await window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers'));
+    let machines=[];
+    if(snap.exists()){
+      machines=Object.values(snap.val());
+    } else {
+      machines=getModuleMachines();
+    }
+    if(machines.length===0){toast('No workers in roster — set up roster first','error');return;}
+    WS.checkRound=roundNum;
+    WS.checkRoundData=machines.map(w=>({...w}));
+    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+    WS.step='endline_scan_pick';renderW();
+  }catch(e){
+    const machines=getModuleMachines();
+    if(machines.length===0){toast('No workers in roster','error');return;}
+    WS.checkRound=roundNum;WS.checkRoundData=[...machines];
+    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+    WS.step='endline_scan_pick';renderW();
+  }
 };
 
 // ---- NEW: Endline Scan-to-Pick screen ----
@@ -825,10 +895,17 @@ function renderEndlineScanPick(){
     +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
     +machines.map((w,i)=>{
       const isDone=done.some(d=>d.operatorId===w.operatorId&&d.machineId===w.machineId);
+      const hasOp=w.operatorId&&w.operatorId.trim();
+      const hasOpn=w.operation&&w.operation.trim();
       return '<div class="machine-row '+(isDone?'done':'')+'" onclick="'+(isDone?'':'selectEndlineWorker(\''+w.machineId+'\')')+'">'
-        +'<div><div style="font-size:14px;font-weight:600">'+(w.operatorId||'No ID')+'</div>'
-        +'<div style="font-size:11px;color:var(--text2)">'+(w.operation||'—')+' • '+(w.machineName||'')+'</div></div>'
-        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-purple">Tap</span>')
+        +'<div style="flex:1">'
+        +'<div style="font-size:14px;font-weight:700">'+(w.machineName||w.machineId||'Machine '+(i+1))+'</div>'
+        +'<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">'
+        +(hasOp?'<span class="badge badge-blue" style="font-size:11px">👤 '+w.operatorId+'</span>':'<span style="font-size:11px;color:var(--text3)">No operator</span>')
+        +(hasOpn?'<span class="badge badge-purple" style="font-size:11px">⚙ '+w.operation+'</span>':'')
+        +'</div>'
+        +'</div>'
+        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-purple" style="background:rgba(153,102,255,.15)">Tap / Scan</span>')
         +'</div>';
     }).join('')
     +'</div>'
