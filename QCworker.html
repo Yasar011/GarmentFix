@@ -30,9 +30,30 @@
     throw new Error('Invalid username or password');
   };
 
+  // Enrich a module record with its linked style's colors/sizes
+  window._enrichMod = function(mod){
+    const sty=WS.styles.find(s=>s.fbKey===mod.styleKey||s.name===mod.styleName);
+    return {...mod, colors:mod.colors||sty?.colors||sty?.color||'', sizes:mod.sizes||sty?.sizes||''};
+  };
+
   window.loadWorkerData = function(){
-    onValue(ref(db,'modules'),  s=>{WS.modules=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
-    onValue(ref(db,'styles'),   s=>{WS.styles=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'modules'), s=>{
+      WS.modules=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];
+      // Keep scannedModule in sync — refresh style name & colors if module updated in Firebase
+      if(WS.scannedModule?.fbKey){
+        const live=WS.modules.find(m=>m.fbKey===WS.scannedModule.fbKey);
+        if(live) WS.scannedModule=window._enrichMod(live);
+      }
+      if(WS.step&&WS.step!=='login'&&WS.step!=='loading') renderW();
+    });
+    onValue(ref(db,'styles'), s=>{
+      WS.styles=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];
+      // Re-enrich scannedModule in case style colors/sizes changed
+      if(WS.scannedModule?.fbKey){
+        const live=WS.modules.find(m=>m.fbKey===WS.scannedModule.fbKey);
+        if(live) WS.scannedModule=window._enrichMod(live);
+      }
+    });
     onValue(ref(db,'operations'),s=>{WS.operations=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
     onValue(ref(db,'defects'),  s=>{WS.defects=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
     onValue(ref(db,'machines'), s=>{WS.machines=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
@@ -45,6 +66,25 @@
       } else WS.myInspections=[];
       if(WS.step==='dashboard') renderW();
     });
+    onValue(ref(db,'rovingInspections'),s=>{
+      if(s.exists()){
+        const today=new Date().toISOString().split('T')[0];
+        WS.myRovingInspections=Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v}))
+          .filter(i=>i.submittedBy===WS.user?.username&&(i.date===today||(i.createdAt||'').startsWith(today)));
+      } else WS.myRovingInspections=[];
+      if(WS.step==='dashboard') renderW();
+    });
+    if(WS.user?.fbKey){
+      onValue(ref(db,'users/'+WS.user.fbKey),s=>{
+        if(!s.exists())return;
+        const u=s.val();
+        WS.user={...WS.user,...u,fbKey:WS.user.fbKey};
+        if(WS.step==='waiting'&&!u.changeRequest){
+          toast('Approved ✓ — scan your module');
+          WS.scannedModule=null;WS.step='scan';renderW();
+        }
+      });
+    }
   };
 
   window.fbAdd=async(path,data)=>{const r=push(ref(db,path));await set(r,{...data,createdAt:new Date().toISOString()});return r.key;};
@@ -141,14 +181,26 @@ button{cursor:pointer;border:none;outline:none}
 window.WS = {
   step:'loading', user:null, loading:false,
   scannedModule:null, modules:[], styles:[], operations:[], defects:[],
-  machines:[], machineRosters:[], myInspections:[],
+  machines:[], machineRosters:[], myInspections:[], myRovingInspections:[],
   myMachine:null,
   // Check round state
   checkRound:1, checkMachineIdx:0, checkRoundData:[], checkRoundResults:[],
   _currentCheckMachine:null,
+  // Roving round state
+  rovingRound:1, rovingRoundData:[], rovingRoundResults:[],
+  // End-line form state
+  elShift:'A', elSize:'M', elColor:'',
+  elHourDefects:[],        // running tally for current hour: [{operatorId,operation,code,defectName,count}]
+  elAddOp:null,            // operator selected in add-defect screen
+  elAddDefCat:'S',         // active category in add-defect screen
+  elAddDefCode:null,       // selected code in add-defect screen
+  elAddDefQty:1,           // qty in add-defect screen
+  elCheckedQty:0,          // pieces checked — entered at end of hour
+  // legacy fields kept for compatibility
+  elDefects:[], elActiveCategory:'S',
   // For the scan-to-fill flow
-  _scanMode:null,        // 'worker_reg' | 'inline_pick' | 'endline_pick'
-  _scannedForForm:null,  // machine data resolved from QR for current check form
+  _scanMode:null,
+  _scannedForForm:null,
   showEventModal:false,
   _manualRows:[], _manualBackStep:'check_home'
 };
@@ -164,6 +216,7 @@ function toast(m,t='success'){
 function isWorker(){const r=(WS.user?.role||'').toLowerCase();return r.includes('worker')||r.includes('operator');}
 function isLineHead(){const r=(WS.user?.role||'').toLowerCase();return r.includes('line head')||r.includes('linehead')||r.includes('line-head');}
 function isEndline(){return (WS.user?.role||'').toLowerCase().includes('end');}
+function isRoving(){return (WS.user?.role||'').toLowerCase().includes('roving');}
 
 // ==================== RENDER ====================
 window.renderW = function(){
@@ -194,9 +247,15 @@ function renderStep(){
   if(s==='check_form')      return renderCheckForm();
   if(s==='check_end')       return renderCheckEnd();
   // Endline QC
-  if(s==='endline_home')    return renderEndlineHome();
-  if(s==='endline_scan_pick') return renderEndlineScanPick();
-  if(s==='endline_form')    return renderEndlineForm();
+  if(s==='endline_home')      return renderEndlineHome();
+  if(s==='endline_add_defect')return renderEndlineAddDefect();
+  if(s==='endline_hour_end')  return renderEndlineHourEnd();
+  // Roving QC
+  if(s==='roving_home')      return renderRovingHome();
+  if(s==='roving_scan_pick') return renderRovingScanPick();
+  if(s==='roving_form')      return renderRovingForm();
+  if(s==='roving_end')       return renderRovingEnd();
+  if(s==='roving_update')    return renderRovingUpdate();
   // Shared
   if(s==='roster_manual')   return renderRosterManual();
   if(s==='dashboard')       return renderDash();
@@ -205,8 +264,8 @@ function renderStep(){
 }
 
 function renderHeader(){
-  const roleColor=isLineHead()?'var(--yellow)':isWorker()?'var(--blue)':isEndline()?'var(--purple)':'var(--accent)';
-  const roleLabel=isLineHead()?'Line Head':isWorker()?'Machine Operator':isEndline()?'End Line QC':'Inline QC';
+  const roleColor=isLineHead()?'var(--yellow)':isWorker()?'var(--blue)':isEndline()?'var(--purple)':'var(--red)';
+  const roleLabel=isLineHead()?'Line Head':isWorker()?'Machine Operator':isEndline()?'End Line QC':'Roving QC';
   return '<div class="header">'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="logo-sm">BX</div>'
@@ -235,6 +294,7 @@ function startQRIfNeeded(){
   else if(s==='lh_scan')       initQRIn('qr-lh-scan',    handleLHScanQR);
   else if(s==='check_scan_pick')     initQRIn('qr-inline-pick', handleInlinePickQR);
   else if(s==='endline_scan_pick')   initQRIn('qr-endline-pick',handleEndlinePickQR);
+  else if(s==='roving_scan_pick')    initQRIn('qr-roving-pick', handleRovingPickQR);
 }
 function initQRIn(elId,cb){
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
@@ -296,7 +356,7 @@ function bindLogin(){
       WS.user=user;WS.loading=false;
       window.loadWorkerData();
       toast('Welcome, '+user.name);
-      WS.step=(isLineHead()||isWorker())?'scan':'dashboard';
+      WS.step=(isLineHead()||isWorker()||isRoving()||isEndline())?'scan':'dashboard';
       renderW();
     }catch(e){
       WS.loading=false;renderW();
@@ -327,14 +387,33 @@ function renderScan(){
 function handleModuleQR(text){
   let data;try{data=JSON.parse(text);}catch(e){data={name:text};}
   const mod=WS.modules.find(m=>m.moduleId===data.moduleId||m.name===data.name||m.fbKey===data.fbKey||m.name===text);
-  WS.scannedModule=mod||{name:data.name||text,moduleId:data.moduleId||text,styleName:data.styleName||'',buyer:data.buyer||''};
-  toast('Module: '+WS.scannedModule.name);
-  WS.step='verify';renderW();
+  const resolved=mod||{name:data.name||text,moduleId:data.moduleId||text,styleName:data.styleName||'',buyer:data.buyer||''};
+  toast('Module: '+resolved.name);
+  proceedWithModule(resolved);
 }
 window.pickModule=function(k){
   const mod=WS.modules.find(m=>m.fbKey===k);
-  if(mod){WS.scannedModule=mod;WS.step='verify';renderW();}
+  if(mod)proceedWithModule(mod);
 };
+
+// Module lock: a user bound to a different active module needs supervisor approval to switch
+function proceedWithModule(mod){
+  const enriched=window._enrichMod?window._enrichMod(mod):mod;
+  if(WS.user?.changeRequest){WS.scannedModule=enriched;WS.step='waiting';renderW();return;}
+  let locked=null;try{locked=WS.user?.activeModule?JSON.parse(WS.user.activeModule):null;}catch(e){}
+  const same=locked&&(locked.fbKey===enriched.fbKey||(locked.moduleId&&locked.moduleId===enriched.moduleId)||locked.name===enriched.name);
+  if(locked&&!same){requestModuleChange(enriched);return;}
+  WS.scannedModule=enriched;WS.step='verify';renderW();
+}
+async function requestModuleChange(mod){
+  WS.scannedModule=mod;
+  try{
+    await window._update(window._ref(window._db,'users/'+WS.user.fbKey),{changeRequest:true});
+    WS.user.changeRequest=true;
+  }catch(e){}
+  toast('Module change needs supervisor approval','error');
+  WS.step='waiting';renderW();
+}
 
 // ==================== VERIFY ====================
 function renderVerify(){
@@ -366,7 +445,7 @@ function bindVerify(){
       toast('Verified ✓');
       if(isLineHead())      WS.step='lh_scan';
       else if(isEndline())  WS.step='endline_home';
-      else                  WS.step='check_home';
+      else                  WS.step='roving_home';
       renderW();
     } else {
       err.style.display='block';
@@ -539,7 +618,8 @@ function bindLHRoster(){
       });
       await window._set(window._ref(window._db,'machineRosters/'+rKey+'/workers'),workers);
       await window._update(window._ref(window._db,'machineRosters/'+rKey),{
-        moduleId:m.fbKey,moduleName:m.name,date,
+        moduleId:m.fbKey,moduleName:m.name,date,shift:m.shift||WS.user?.shift||'',
+        status:'Pending Approval',createdBy:WS.user?.username,
         updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
       });
       toast('✅ Roster saved — '+entries.length+' machines registered!');
@@ -576,9 +656,11 @@ function getModuleMachines(){
   const rKey=(m.fbKey||m.moduleId)+'_'+date;
   const roster=WS.machineRosters.find(r=>r.fbKey===rKey);
   if(roster?.workers&&Object.keys(roster.workers).length>0) return Object.values(roster.workers);
+  const norm=s=>(s||'').toString().trim().toLowerCase();
+  const mName=norm(m.name);
   const matched=WS.machines.filter(mc=>
-    mc.moduleId===m.fbKey||mc.moduleId===m.moduleId||
-    (mc.moduleName&&mc.moduleName===m.name)||(mc.lineName&&mc.lineName===m.name)
+    mc.moduleId===m.fbKey||(m.moduleId&&mc.moduleId===m.moduleId)||
+    (mName&&norm(mc.moduleName)===mName)||(mName&&norm(mc.lineName)===mName)
   );
   if(matched.length>0) return matched.map(mc=>({machineId:mc.fbKey,machineName:mc.name,operatorId:'',operation:'',type:mc.type||''}));
   return [];
@@ -807,48 +889,336 @@ function renderCheckForm(){
 }
 
 // ====================================================================================
-// ENDLINE QC FLOW: Endline Home → Scan Machine/Operator QR → Auto-fill Form → Save
+// ENDLINE QC FLOW (LIVE TALLY):
+//   Home (live tally) → Add Defect (operator+code+qty) → End Hour (enter pieces checked+submit)
 // ====================================================================================
 
 function renderEndlineHome(){
   const machines=getModuleMachines();
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
-  const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today&&i.type==='endline');
-  const completedRounds=[...new Set(myRounds.map(i=>i.checkRound))];
-  const nextRound=completedRounds.length+1;
-  WS.checkRound=nextRound;
+  const hourDefs=WS.elHourDefects||[];
+  const totDef=hourDefs.reduce((a,d)=>a+d.count,0);
+  // completed hour records today (for history)
+  const todayRecs=WS.myInspections.filter(i=>i.type==='endline'&&i.date===today);
+  const doneHours=[...new Set(todayRecs.map(i=>i.time||'').filter(Boolean))].sort();
   const noMachines=machines.length===0;
 
+  // Shift & size buttons
+  const btnT='padding:13px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:2px solid ';
+  const shiftRow=['A','B','C','D'].map(s=>`<button onclick="WS.elShift='${s}';renderW()" style="${btnT}${WS.elShift===s?'var(--purple);background:var(--purple);color:#fff':'var(--border);background:var(--bg3);color:var(--text2)'}">${s}</button>`).join('');
+  const styleSizes=(m?.sizes||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const sizeList=styleSizes.length>0?styleSizes:['XS','S','M','L','XL','XXL'];
+  const curSize=WS.elSize||'M';
+  const sizeRow=sizeList.map(s=>`<button onclick="WS.elSize='${s}';renderW()" style="${btnT}${curSize===s?'var(--accent);background:rgba(0,212,168,.15);color:var(--accent)':'var(--border);background:var(--bg3);color:var(--text2)'}">${s}</button>`).join('');
+  const styleColors=(m?.colors||m?.color||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const curColor=WS.elColor||'';
+  const colorRow=styleColors.length>0
+    ?`<select onchange="WS.elColor=this.value;renderW()" style="width:100%;padding:11px 14px;border-radius:10px;border:2px solid ${curColor?'var(--blue)':'var(--border)'};background:var(--bg3);color:${curColor?'#93c5fd':'var(--text2)'};font-size:15px;font-weight:600;font-family:var(--font);cursor:pointer;outline:none"><option value="">— Select Colour —</option>${styleColors.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${curColor===c?'selected':''}>${c}</option>`).join('')}</select>`
+    :'';
+
+  // Live tally list for this hour
+  const tallyList=hourDefs.length===0
+    ?'<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">No defects logged yet<br><span style="font-size:11px">Tap ADD DEFECT whenever you spot one</span></div>'
+    :hourDefs.map((d,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:10px;margin-bottom:6px">
+        <div style="flex:1"><div style="font-size:13px;font-weight:700;color:#c4a5ff">${d.operatorId||'?'}</div><div style="font-size:11px;color:var(--text2)">${d.operation||'—'}</div></div>
+        <div style="text-align:center;min-width:44px"><div style="font-size:11px;color:var(--text3)">CODE</div><div style="font-size:14px;font-weight:700">${d.code}</div></div>
+        <div style="text-align:center;min-width:36px"><div style="font-size:11px;color:var(--text3)">QTY</div><div style="font-size:20px;font-weight:700;color:var(--red)">${d.count}</div></div>
+        <button onclick="elRemoveHourDefect(${i})" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
+      </div>`).join('');
+
+  // Completed hours today (history)
+  const histHours=[...new Set(todayRecs.map(i=>(i.time||'').slice(0,5)).filter(Boolean))].sort();
+  const histSection=histHours.length===0?''
+    :'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Submitted Today ('+histHours.length+' hour'+(histHours.length>1?'s':'')+')</div>'
+    +histHours.map(hr=>{
+        const hrRecs=todayRecs.filter(i=>(i.time||'').slice(0,5)===hr);
+        const chk=[...new Set(hrRecs.map(i=>i.checkedQty))].reduce((a,b)=>Math.max(a,parseInt(b)||0),0);
+        const def=hrRecs.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+        const dhu=chk?(def/chk*100).toFixed(1):'—';
+        const sizes=[...new Set(hrRecs.map(i=>i.size||'').filter(Boolean))].join('/');
+        const colors=[...new Set(hrRecs.map(i=>i.color||'').filter(Boolean))].join('/');
+        const inspectors=[...new Set(hrRecs.map(i=>i.inspector||i.submittedBy||'').filter(Boolean))].join(', ');
+        const dhuColor=chk?(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg3);border-radius:8px;margin-bottom:4px">'
+          +'<div><span style="font-family:var(--mono);font-weight:700">'+hr+'</span>'
+          +(sizes?' <span style="font-size:11px;background:rgba(0,212,168,.1);color:var(--accent);border-radius:4px;padding:1px 6px">'+sizes+'</span>':'')
+          +(colors?' <span style="font-size:11px;background:rgba(59,130,246,.1);color:#93c5fd;border-radius:4px;padding:1px 6px">'+colors+'</span>':'')
+          +(inspectors?'<div style="font-size:10px;color:var(--text3);margin-top:2px">'+inspectors+'</div>':'')
+          +'</div>'
+          +'<div style="display:flex;gap:14px;font-size:12px">'
+          +'<span>Chk <b>'+chk+'</b></span>'
+          +'<span>Def <b style="color:var(--red)">'+def+'</b></span>'
+          +'<span>DHU <b style="color:'+dhuColor+'">'+dhu+(chk?'%':'')+'</b></span>'
+          +'</div></div>';
+      }).join('')
+    +'</div>';
+
   return '<div class="card card-accent">'
-    +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — End Line QC</div>'
+    +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — End Line</div>'
     +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+'</div>'
     +'</div>'
-    +'<div style="margin-bottom:16px">'
-    +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Checks</div>'
-    +'<div class="check-pill">'
-    +[1,2,3,4,5].map(n=>'<div class="check-btn '+(completedRounds.includes(n)?'done':n===nextRound?'active':'')+'" onclick="'+(n===nextRound?'startEndlineRound('+n+')':'')+'">'+'Check '+n+(completedRounds.includes(n)?' ✓':'')+'</div>').join('')
-    +'</div></div>'
-    +(!noMachines
-      ?'<div class="card" style="margin-bottom:16px">'
-       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
-       +'<div style="font-size:13px;font-weight:600">Workers on Line ('+machines.length+')</div>'
-       +'<button class="btn-sm" onclick="openManualRoster()">✏️ Edit</button>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Shift</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">'+shiftRow+'</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Size</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+sizeRow+'</div>'
+    +(colorRow?'<div style="font-size:11px;color:var(--text3);margin:12px 0 8px;text-transform:uppercase;letter-spacing:.06em">Colour</div>'+colorRow:'')
+    +'</div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +'<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">This Hour — Live Tally</div>'
+    +'<span style="background:rgba(224,85,85,.15);color:var(--red);border-radius:20px;padding:3px 12px;font-size:14px;font-weight:700">'+totDef+' def</span>'
+    +'</div>'
+    +tallyList
+    +'</div>'
+    +histSection
+    +(noMachines
+      ?'<div style="background:rgba(212,168,0,.08);border:1px solid rgba(212,168,0,.3);border-radius:12px;padding:14px;margin-bottom:12px">'
+       +'<div style="font-weight:600;margin-bottom:4px;color:var(--yellow)">⚠ No Operators in Roster</div>'
+       +'<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Set up the operator roster so you can log who made each defect.</div>'
+       +'<button onclick="openManualRoster()" style="padding:12px 20px;background:var(--yellow);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">⚙️ Set Up Roster</button>'
        +'</div>'
-       +machines.map(w=>'<div class="sub-item"><div><div style="font-weight:600">'+(w.operatorId||'No ID')+'</div><div style="font-size:11px;color:var(--text2)">'+(w.operation||'—')+' • '+(w.machineName||'')+'</div></div></div>').join('')
-       +'</div>'
-      :'<div class="card card-yellow" style="margin-bottom:16px">'
-       +'<div style="font-weight:600;margin-bottom:6px">⚠ No Workers Registered Yet</div>'
-       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Workers scan their machine QR at start of shift to register. Or add manually.</div>'
-       +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Workers Manually</button>'
-       +'</div>')
-    +'<button class="btn-big btn-primary" onclick="startEndlineRound('+nextRound+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
-    +'▶ Start Check '+nextRound+'</button>'
+      :'')
+    +'<button class="btn-big btn-primary" onclick="elGoAddDefect()"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
+    +'➕ Add Defect</button>'
+    +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
-window.startEndlineRound=async function(roundNum){
+// ---- Add Defect screen (operator + code + qty) ----
+function renderEndlineAddDefect(){
+  const machines=getModuleMachines();
+  const CAT_LABELS={S:'Sewing',L:'Thread',M:'MMT',D:'Stain',E:'Fabric',F:'Cut Hole'};
+  const allDefs=WS.defects.filter(d=>d.type==='Endline'||d.type==='Both');
+  const activeCat=WS.elAddDefCat||'S';
+  const catDefs=allDefs.filter(d=>(d.defectId||'').toUpperCase().startsWith(activeCat)).sort((a,b)=>(a.defectId||'').localeCompare(b.defectId||''));
+  const selCode=WS.elAddDefCode||null;
+  const selOp=WS.elAddOp||null;
+  const qty=WS.elAddDefQty||1;
+  const canAdd=!!(selOp&&selCode);
+  const btnT='padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:2px solid ';
+  const stepBtn='width:52px;height:52px;border-radius:10px;font-size:24px;font-weight:700;cursor:pointer;border:none;';
+
+  const opButtons=machines.length===0
+    ?'<div style="padding:12px;color:var(--yellow);font-size:12px;background:rgba(212,168,0,.08);border-radius:8px">No operators in roster — set up roster first</div>'
+    :machines.map(w=>`<button onclick="elSelectOp('${(w.operatorId||'').replace(/'/g,"\\'")}','${(w.operation||'').replace(/'/g,"\\'")}') " style="${btnT}${selOp===w.operatorId?'var(--accent);background:rgba(0,212,168,.15);color:var(--accent)':'var(--border);background:var(--bg3);color:var(--text2)'};width:100%;text-align:left">
+        <div style="font-weight:700;font-size:13px">${w.operatorId||'—'}</div>
+        <div style="font-size:10px;opacity:.75">${w.operation||'—'}</div>
+      </button>`).join('');
+
+  const catTabs=Object.entries(CAT_LABELS).map(([k,v])=>`<button onclick="WS.elAddDefCat='${k}';WS.elAddDefCode=null;renderW()" style="padding:8px 10px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;border:2px solid ${activeCat===k?'var(--purple);background:rgba(153,102,255,.18);color:#c4a5ff':'var(--border);background:var(--bg3);color:var(--text3)'}">${k} ${v}</button>`).join('');
+
+  const codeButtons=catDefs.length===0
+    ?'<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px;grid-column:1/-1">No codes for this category — Admin → End Line → Load Defect Codes</div>'
+    :catDefs.map(d=>`<button onclick="elSelectAddCode('${(d.defectId||'').replace(/'/g,"\\'")}','${(d.name||'').replace(/'/g,"\\'")}') " style="${btnT}${selCode===d.defectId?'var(--purple);background:rgba(153,102,255,.15)':'var(--border);background:var(--bg3)'};width:100%;text-align:left">
+        <div style="font-size:13px;font-weight:700;color:${selCode===d.defectId?'#c4a5ff':'var(--text1)'}">${d.defectId||'?'}</div>
+        <div style="font-size:10px;color:var(--text3);line-height:1.3">${d.name}</div>
+      </button>`).join('');
+
+  return `
+    <div style="background:rgba(153,102,255,.06);border:1px solid rgba(153,102,255,.3);border-radius:12px;padding:14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:600;font-size:15px">Add Defect</div>
+      <div style="font-size:12px;color:var(--text2)">Shift ${WS.elShift||'A'} · Size ${WS.elSize||'—'}${WS.elColor?' · '+WS.elColor:''}</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">1 — Which Operator?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${opButtons}</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">2 — Defect Code</div>
+      <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px">${catTabs}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${codeButtons}</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">3 — How Many?</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:24px">
+        <button onclick="elAddDefStepQty(-1)" style="${stepBtn}background:var(--bg3);color:var(--text1)">−</button>
+        <span style="font-size:52px;font-weight:700;font-family:var(--mono);min-width:70px;text-align:center">${qty}</span>
+        <button onclick="elAddDefStepQty(1)" style="${stepBtn}background:var(--accent);color:#000">+</button>
+      </div>
+    </div>
+
+    ${canAdd?`<div style="background:rgba(0,212,168,.06);border:1px solid rgba(0,212,168,.3);border-radius:12px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:11px;color:var(--text3)">OPERATOR</div><div style="font-weight:700;color:var(--accent)">${selOp}</div><div style="font-size:11px;color:var(--text2)">${WS.elAddDefOp?.operation||''}</div></div>
+      <div style="text-align:right"><div style="font-size:11px;color:var(--text3)">DEFECT</div><div style="font-weight:700;font-size:18px;color:#c4a5ff">${selCode}</div><div style="font-size:11px;color:var(--text2)">× ${qty}</div></div>
+    </div>`:'<div style="padding:12px;border-radius:12px;border:1px dashed var(--border);margin-bottom:12px;text-align:center;color:var(--text3);font-size:12px">Select operator ↑ and defect code ↑</div>'}
+
+    <button onclick="elAddDefConfirm()" ${canAdd?'':'disabled'} style="width:100%;padding:18px;background:${canAdd?'var(--accent)':'rgba(255,255,255,.08)'};color:${canAdd?'#000':'var(--text3)'};border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:${canAdd?'pointer':'default'};margin-bottom:8px">
+      ✓ Add to Tally
+    </button>
+    <button onclick="WS.step='endline_home';renderW()" style="width:100%;padding:14px;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:12px;font-size:14px;cursor:pointer">← Back</button>
+  `;
+}
+
+// ---- End Hour screen (enter pieces checked + submit) ----
+function renderEndlineHourEnd(){
+  const hourDefs=WS.elHourDefects||[];
+  const totDef=hourDefs.reduce((a,d)=>a+d.count,0);
+  const chk=WS.elCheckedQty||0;
+  const dhu=chk>0?((totDef/chk)*100).toFixed(1):'—';
+  const dhuColor=chk>0?(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
+  const stepBtn='width:52px;height:52px;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;border:none;';
+  const byOp={};
+  hourDefs.forEach(d=>{if(!byOp[d.operatorId])byOp[d.operatorId]={operation:d.operation,parts:[]};byOp[d.operatorId].parts.push(d.code+'×'+d.count);});
+  const summaryRows=Object.entries(byOp).map(([op,g])=>`<div style="padding:10px 12px;background:var(--bg3);border-radius:10px;margin-bottom:6px;display:flex;gap:10px;align-items:flex-start">
+    <div style="min-width:68px"><div style="font-weight:700;font-size:13px;color:#c4a5ff">${op}</div><div style="font-size:10px;color:var(--text3)">${g.operation}</div></div>
+    <div style="font-size:13px;color:var(--text1);flex:1;line-height:1.6">${g.parts.join('  ')}</div>
+  </div>`).join('');
+
+  return `
+    <div style="background:rgba(0,212,168,.06);border:1px solid rgba(0,212,168,.3);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-weight:600;font-size:15px">End Hour — Submit</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Shift ${WS.elShift||'A'} · Size ${WS.elSize||'—'}${WS.elColor?' · '+WS.elColor:''} · ${(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date())}</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Defects This Hour — ${totDef} total</div>
+      ${summaryRows||'<div style="text-align:center;color:var(--green);padding:12px;font-size:13px">✓ No defects — clean hour!</div>'}
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">Pieces Checked This Hour</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:14px">
+        <button onclick="elQtyStep(-10)" style="${stepBtn}width:46px;height:46px;background:var(--bg3);color:var(--text2);font-size:14px">−10</button>
+        <button onclick="elQtyStep(-1)" style="${stepBtn}background:var(--bg3);color:var(--text1)">−</button>
+        <span style="font-size:56px;font-weight:700;font-family:var(--mono);min-width:90px;text-align:center">${chk}</span>
+        <button onclick="elQtyStep(1)" style="${stepBtn}background:var(--accent);color:#000">+</button>
+        <button onclick="elQtyStep(10)" style="${stepBtn}width:46px;height:46px;background:var(--accent);color:#000;font-size:14px">+10</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-around;padding:16px;background:rgba(0,0,0,.25);border-radius:12px;margin-bottom:14px">
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DEFECTS</div><div style="font-size:34px;font-weight:700;font-family:var(--mono);color:${totDef>0?'var(--red)':'var(--text3)'}">${totDef}</div></div>
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">CHECKED</div><div style="font-size:34px;font-weight:700;font-family:var(--mono)">${chk||'—'}</div></div>
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DHU</div><div style="font-size:34px;font-weight:700;font-family:var(--mono);color:${dhuColor}">${dhu}${chk>0?'%':''}</div></div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <textarea id="el-hour-notes" class="form-input" rows="2" placeholder="Notes for this hour..." style="font-size:14px"></textarea>
+    </div>
+
+    <button id="sub-btn-hour" onclick="elSubmitHour()" ${chk<1?'disabled':''} style="width:100%;padding:18px;background:${chk>0?'var(--accent)':'rgba(255,255,255,.08)'};color:${chk>0?'#000':'var(--text3)'};border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:${chk>0?'pointer':'default'};margin-bottom:8px">
+      ✓ Submit Hour
+    </button>
+    <button onclick="WS.step='endline_home';renderW()" style="width:100%;padding:14px;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:12px;font-size:14px;cursor:pointer">← Back to Tally</button>
+  `;
+}
+
+// ---- Endline helpers ----
+window.elGoAddDefect=function(){WS.elAddOp=null;WS.elAddDefOp=null;WS.elAddDefCode=null;WS.elAddDefQty=1;WS.elAddDefCat='S';WS.step='endline_add_defect';renderW();};
+window.elSelectOp=function(operatorId,operation){WS.elAddOp=operatorId;WS.elAddDefOp={operatorId,operation};renderW();};
+window.elSelectAddCode=function(code,name){WS.elAddDefCode=code;WS.elAddDefName=name;renderW();};
+window.elAddDefStepQty=function(delta){WS.elAddDefQty=Math.max(1,(WS.elAddDefQty||1)+delta);renderW();};
+window.elAddDefConfirm=function(){
+  const op=WS.elAddOp;const code=WS.elAddDefCode;const name=WS.elAddDefName||'';
+  const operation=WS.elAddDefOp?.operation||'';const qty=WS.elAddDefQty||1;
+  if(!op||!code){toast('Pick operator and defect code','error');return;}
+  const defs=WS.elHourDefects||[];
+  const existing=defs.find(d=>d.operatorId===op&&d.code===code);
+  if(existing){existing.count+=qty;}else{defs.push({operatorId:op,operation,code,defectName:name,count:qty});}
+  WS.elHourDefects=[...defs];
+  toast(code+'×'+qty+' logged','success');
+  WS.elAddOp=null;WS.elAddDefOp=null;WS.elAddDefCode=null;WS.elAddDefQty=1;
+  WS.step='endline_home';renderW();
+};
+window.elRemoveHourDefect=function(idx){WS.elHourDefects.splice(idx,1);WS.elHourDefects=[...WS.elHourDefects];renderW();};
+window.elQtyStep=function(delta){WS.elCheckedQty=Math.max(0,(WS.elCheckedQty||0)+delta);renderW();};
+window.elSubmitHour=async function(){
+  const m=WS.scannedModule;
+  const defs=WS.elHourDefects||[];
+  const chk=WS.elCheckedQty||0;
+  const totDef=defs.reduce((a,d)=>a+d.count,0);
+  const notes=(document.getElementById('el-hour-notes')?.value||'').trim();
+  if(chk<1){toast('Enter pieces checked','error');return;}
+  const btn=document.getElementById('sub-btn-hour');
+  if(btn){btn.disabled=true;btn.textContent='Saving...';}
+  try{
+    const base={type:'endline',date:new Date().toISOString().split('T')[0],
+      time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),shift:WS.elShift||'A',size:WS.elSize||'',color:WS.elColor||'',
+      module:m?.name||'',style:m?.styleName||'',checkedQty:chk,
+      submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name,comments:notes};
+    if(defs.length===0){
+      await window.fbAdd('inspections',{id:'INS-'+Date.now(),...base,operatorId:'',operation:'',defectQty:0,defectType:''});
+    }else{
+      for(const def of defs){
+        await window.fbAdd('inspections',{id:'INS-'+Date.now(),...base,
+          operatorId:def.operatorId,operation:def.operation,
+          defectQty:def.count,defectType:def.code+(def.defectName?' '+def.defectName:'')});
+      }
+    }
+    if(totDef>0&&chk>0&&(totDef/chk)*100>5){
+      await window.fbAddAlert({
+        title:'High DHU '+((totDef/chk)*100).toFixed(1)+'% — '+(m?.name||''),
+        message:defs.map(d=>d.code+'×'+d.count+' ('+d.operatorId+')').join(', '),
+        level:(totDef/chk)*100>8?'critical':'high',module:m?.name||'',read:false,createdBy:'qc-auto'});
+    }
+    WS.elHourDefects=[];WS.elCheckedQty=0;
+    toast('Hour submitted ✓','success');
+    WS.step='endline_home';renderW();
+  }catch(e){toast('Failed: '+e.message,'error');if(btn){btn.disabled=false;btn.textContent='✓ Submit Hour';}}
+};
+
+// ====================================================================================
+// ROVING QC FLOW: Roving Home → Scan Pick → Form (Trim/SP/DC/CPA/AB) → End
+// ====================================================================================
+
+function renderRovingHome(){
+  const machines=getModuleMachines();
+  const m=WS.scannedModule;
+  const today=new Date().toISOString().split('T')[0];
+  const myRounds=(WS.myRovingInspections||[]).filter(i=>i.date===today);
+  const completedVisits=[...new Set(myRounds.map(i=>parseInt(i.visitNum)).filter(Boolean))];
+  const nextVisit=(completedVisits.length>0?Math.max(...completedVisits):0)+1;
+  WS.rovingRound=nextVisit;
+  const noMachines=machines.length===0;
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
+    +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — Roving QC</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+'</div>'
+    +'</div>'
+    +'<div style="margin-bottom:16px">'
+    +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Visits</div>'
+    +'<div class="check-pill">'
+    +[1,2,3,4].map(n=>'<div class="check-btn '+(completedVisits.includes(n)?'done':n===nextVisit?'active':'')+'" onclick="'+(n===nextVisit?'startRovingRound('+n+')':'')+'">'+'Visit '+n+(completedVisits.includes(n)?' ✓':'')+'</div>').join('')
+    +'</div></div>'
+    +(!noMachines
+      ?'<div class="card" style="margin-bottom:16px">'
+       +'<div style="font-size:13px;font-weight:600;margin-bottom:8px">Operators on Line ('+machines.length+')</div>'
+       +machines.map(w=>'<div class="sub-item"><div><div style="font-weight:600">'+(w.operatorId||'No ID')+'</div>'
+         +'<div style="font-size:11px;color:var(--text2)">'+(w.operation||'—')+' • '+(w.machineName||'')+'</div></div></div>').join('')
+       +'</div>'
+      :'<div class="card card-yellow" style="margin-bottom:16px">'
+       +'<div style="font-weight:600;margin-bottom:6px">⚠ No Operators Yet</div>'
+       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Line Head must register operators first. Or set up manually.</div>'
+       +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Manually</button>'
+       +'</div>')
+    // Pending CPA/AB updates
+    +(myRounds.filter(r=>!r.cpa&&!r.absent).length>0
+      ?'<div class="card" style="border-color:rgba(255,180,0,.4);background:rgba(255,180,0,.04);margin-bottom:4px">'
+       +'<div style="font-size:12px;font-weight:600;color:var(--yellow);margin-bottom:10px">⏳ Pending CPA / AB Updates</div>'
+       +myRounds.filter(r=>!r.cpa&&!r.absent).map(r=>`
+         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border-radius:10px;margin-bottom:6px">
+           <div>
+             <div style="font-weight:600;font-size:13px">${r.operatorId||r.machineName||'—'}</div>
+             <div style="font-size:11px;color:var(--text3)">Visit ${r.visitNum} • ${r.operation||'—'}</div>
+           </div>
+           <button onclick="openRovingUpdate('${r.fbKey}')" style="padding:8px 14px;background:var(--yellow);color:#000;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Update</button>
+         </div>`).join('')
+       +'</div>'
+      :'')
+    +'<button class="btn-big btn-primary" onclick="startRovingRound('+nextVisit+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
+    +'▶ Start Visit '+nextVisit+'</button>'
+    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+window.startRovingRound=async function(visitNum){
   const m=WS.scannedModule;
   if(!m){toast('No module selected','error');return;}
   const date=new Date().toISOString().split('T')[0];
@@ -856,146 +1226,336 @@ window.startEndlineRound=async function(roundNum){
   try{
     const snap=await window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers'));
     let machines=[];
-    if(snap.exists()){
-      machines=Object.values(snap.val());
-    } else {
-      machines=getModuleMachines();
-    }
-    if(machines.length===0){toast('No workers in roster — set up roster first','error');return;}
-    WS.checkRound=roundNum;
-    WS.checkRoundData=machines.map(w=>({...w}));
-    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
-    WS.step='endline_scan_pick';renderW();
+    if(snap.exists()){machines=Object.values(snap.val());}
+    else{machines=getModuleMachines();}
+    if(machines.length===0){toast('No operators in roster — set up roster first','error');return;}
+    WS.rovingRound=visitNum;WS.rovingRoundData=machines.map(w=>({...w}));
+    WS.checkMachineIdx=0;WS.rovingRoundResults=[];WS._currentCheckMachine=null;
+    WS.step='roving_scan_pick';renderW();
   }catch(e){
     const machines=getModuleMachines();
-    if(machines.length===0){toast('No workers in roster','error');return;}
-    WS.checkRound=roundNum;WS.checkRoundData=[...machines];
-    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
-    WS.step='endline_scan_pick';renderW();
+    if(machines.length===0){toast('No operators in roster','error');return;}
+    WS.rovingRound=visitNum;WS.rovingRoundData=[...machines];
+    WS.checkMachineIdx=0;WS.rovingRoundResults=[];WS._currentCheckMachine=null;
+    WS.step='roving_scan_pick';renderW();
   }
 };
 
-// ---- NEW: Endline Scan-to-Pick screen ----
-function renderEndlineScanPick(){
-  const machines=WS.checkRoundData;
-  const done=WS.checkRoundResults;
+function renderRovingScanPick(){
+  const machines=WS.rovingRoundData;
+  const done=WS.rovingRoundResults;
   const pct=machines.length>0?Math.round((done.length/machines.length)*100):0;
-
-  return '<div class="card" style="background:rgba(153,102,255,.05);border-color:rgba(153,102,255,.3);margin-bottom:12px">'
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
-    +'<div style="font-weight:600">Check '+WS.checkRound+' — End Line QC</div>'
-    +'<span class="badge badge-purple">'+done.length+'/'+machines.length+'</span></div>'
+    +'<div style="font-weight:600">Visit '+WS.rovingRound+' — Roving QC</div>'
+    +'<span class="badge badge-red">'+done.length+'/'+machines.length+'</span></div>'
     +'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div>'
-    +'<div style="font-size:12px;color:var(--text2)">Scan operator\'s machine QR to open their form</div></div>'
-
-    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--purple)">📷 Scan Machine QR</div>'
-    +'<div class="scan-area-sm"><div id="qr-endline-pick"></div></div>'
-    +'<div class="qr-hint">— OR tap operator below to select manually —</div>'
-
+    +'<div style="font-size:12px;color:var(--text2)">Scan or tap each operator to inspect</div></div>'
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--red)">📷 Scan Machine QR</div>'
+    +'<div class="scan-area-sm"><div id="qr-roving-pick"></div></div>'
+    +'<div class="qr-hint">— OR tap operator below —</div>'
     +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
     +machines.map((w,i)=>{
-      const isDone=done.some(d=>d.operatorId===w.operatorId&&d.machineId===w.machineId);
-      const hasOp=w.operatorId&&w.operatorId.trim();
-      const hasOpn=w.operation&&w.operation.trim();
-      return '<div class="machine-row '+(isDone?'done':'')+'" onclick="'+(isDone?'':'selectEndlineWorker(\''+w.machineId+'\')')+'">'
+      const isDone=done.some(d=>d.machineId===w.machineId);
+      return '<div class="machine-row '+(isDone?'done':'')+'" onclick="'+(isDone?'':'selectRovingOperator(\''+w.machineId+'\')')+'">'
         +'<div style="flex:1">'
-        +'<div style="font-size:14px;font-weight:700">'+(w.machineName||w.machineId||'Machine '+(i+1))+'</div>'
+        +'<div style="font-size:14px;font-weight:700">'+(w.operatorId||'Operator '+(i+1))+'</div>'
         +'<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">'
-        +(hasOp?'<span class="badge badge-blue" style="font-size:11px">👤 '+w.operatorId+'</span>':'<span style="font-size:11px;color:var(--text3)">No operator</span>')
-        +(hasOpn?'<span class="badge badge-purple" style="font-size:11px">⚙ '+w.operation+'</span>':'')
-        +'</div>'
-        +'</div>'
-        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-purple" style="background:rgba(153,102,255,.15)">Tap / Scan</span>')
+        +(w.operation?'<span class="badge badge-purple" style="font-size:11px">⚙ '+w.operation+'</span>':'')
+        +(w.machineName?'<span class="badge badge-blue" style="font-size:11px">🔧 '+w.machineName+'</span>':'')
+        +'</div></div>'
+        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-red" style="background:rgba(224,85,85,.15)">Tap/Scan</span>')
         +'</div>';
     }).join('')
     +'</div>'
-
     +(done.length===machines.length&&machines.length>0
-      ?'<button class="btn-big btn-primary" onclick="WS.step=\'check_end\';renderW()">✅ All Done — Finish Check '+WS.checkRound+'</button>'
+      ?'<button class="btn-big btn-primary" onclick="WS.step=\'roving_end\';renderW()">✅ Visit '+WS.rovingRound+' Complete</button>'
       :'')
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'endline_home\';renderW()">← Back</button>';
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'roving_home\';renderW()">← Back</button>';
 }
 
-function handleEndlinePickQR(text){
+function handleRovingPickQR(text){
   const machId=text.trim();
   const mach=WS.machines.find(m=>m.fbKey===machId||m.name===machId);
-  const rosterMach=WS.checkRoundData.find(w=>w.machineId===machId||(mach&&w.machineId===mach.fbKey));
+  const rosterMach=WS.rovingRoundData.find(w=>w.machineId===machId||(mach&&w.machineId===mach.fbKey));
   if(rosterMach){
-    const isDone=WS.checkRoundResults.some(d=>d.operatorId===rosterMach.operatorId&&d.machineId===rosterMach.machineId);
-    if(isDone){toast('Already inspected this operator','error');setTimeout(()=>startQRIfNeeded(),500);return;}
-    selectEndlineWorker(rosterMach.machineId);
+    if(WS.rovingRoundResults.some(d=>d.machineId===rosterMach.machineId)){
+      toast('Already inspected','error');setTimeout(()=>startQRIfNeeded(),500);return;
+    }
+    selectRovingOperator(rosterMach.machineId);
   } else {
-    const tempMach={machineId:machId,machineName:mach?.name||'Machine '+machId.slice(-4),operatorId:'',operation:'',type:mach?.type||''};
-    WS.checkRoundData.push(tempMach);
-    toast('Machine scanned — added to check');
-    selectEndlineWorker(machId);
+    const temp={machineId:machId,machineName:mach?.name||'M-'+machId.slice(-4),operatorId:'',operation:''};
+    WS.rovingRoundData.push(temp);toast('Added to visit');selectRovingOperator(machId);
   }
 }
 
-window.selectEndlineWorker=function(machineId){
-  const idx=WS.checkRoundData.findIndex(w=>w.machineId===machineId);
-  if(idx>=0){
-    WS.checkMachineIdx=idx;
-    WS._currentCheckMachine=WS.checkRoundData[idx];
-    WS.step='endline_form';renderW();
-  }
+window.selectRovingOperator=function(machineId){
+  const idx=WS.rovingRoundData.findIndex(w=>w.machineId===machineId);
+  if(idx>=0){WS.checkMachineIdx=idx;WS._currentCheckMachine=WS.rovingRoundData[idx];WS.step='roving_form';renderW();}
 };
 
-// ---- Endline form (pre-filled from roster) ----
-function renderEndlineForm(){
-  const machines=WS.checkRoundData;
-  const idx=WS.checkMachineIdx;
-  const w=WS._currentCheckMachine||machines[idx];
-  const total=machines.length;
+function renderRovingForm(){
+  const w=WS._currentCheckMachine||WS.rovingRoundData[WS.checkMachineIdx];
   const m=WS.scannedModule;
-  const myDefs=WS.defects.filter(d=>d.type==='Endline'||d.type==='Both');
-  const done=WS.checkRoundResults;
-  const remaining=machines.filter(x=>!done.some(d=>d.operatorId===x.operatorId&&d.machineId===x.machineId)&&x.machineId!==w?.machineId);
-
-  return '<div class="card" style="background:rgba(153,102,255,.05);border-color:rgba(153,102,255,.3);margin-bottom:16px">'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
-    +'<div style="font-weight:600">End Line — Check '+WS.checkRound+'</div>'
-    +'<span class="badge badge-purple">'+(idx+1)+'/'+total+' workers</span></div>'
-    +'<div class="progress-bar"><div class="progress-fill" style="width:'+Math.round((idx/total)*100)+'%"></div></div>'
-    +'</div>'
+  const done=WS.rovingRoundResults;
+  const remaining=WS.rovingRoundData.filter(x=>!done.some(d=>d.machineId===x.machineId)&&x.machineId!==w?.machineId);
+  const myDefs=WS.defects.length
+    ?WS.defects.map(d=>'<option value="'+d.name+'">'+(d.defectId?d.defectId+' - ':'')+d.name+'</option>').join('')
+    :['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Uneven Stitch','Needle Mark','Loose Thread','Seam Pucker','Run-Off','Uncut Thread'].map(d=>'<option value="'+d+'">'+d+'</option>').join('');
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:16px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center">'
+    +'<div><div style="font-size:12px;color:var(--text3)">VISIT '+WS.rovingRound+' — ROVING</div>'
+    +'<div style="font-size:18px;font-weight:700;margin:2px 0">'+(w?.operatorId||w?.machineName||'Operator')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:12px;color:var(--text2)">'+(w?.machineName||'')+'</div>'
+    +'<div style="font-size:11px;color:var(--text3)">'+(w?.operation||'')+'</div></div>'
+    +'</div></div>'
     +'<div class="card"><form id="wf" onsubmit="return false">'
     +'<input type="hidden" name="module" value="'+(m?.name||'')+'">'
     +'<input type="hidden" name="style" value="'+(m?.styleName||'')+'">'
-    +'<input type="hidden" name="checkRound" value="'+WS.checkRound+'">'
     +'<input type="hidden" name="machineId" value="'+(w?.machineId||'')+'">'
+    +'<input type="hidden" name="machineName" value="'+(w?.machineName||'')+'">'
     +'<input type="hidden" name="operatorId" value="'+(w?.operatorId||'')+'">'
     +'<input type="hidden" name="operation" value="'+(w?.operation||'')+'">'
-    // Info row — pre-filled from roster scan
-    +'<div class="info-row" style="margin-bottom:16px">'
-    +'<div><div style="font-size:11px;color:var(--text3)">OPERATOR</div><div style="font-size:16px;font-weight:700">'+(w?.operatorId||'—')+'</div></div>'
-    +'<div style="text-align:right"><div style="font-size:11px;color:var(--text3)">MACHINE</div><div style="font-size:14px;font-weight:600">'+(w?.machineName||'—')+'</div>'
-    +'<div style="font-size:11px;color:var(--text2)">'+(w?.operation||'—')+'</div></div>'
-    +'</div>'
-    // If operator unknown, let inspector fill it
-    +((!w?.operatorId)
-      ?'<div class="form-group"><label class="form-label">Operator ID</label>'
-       +'<input class="form-input" id="f-opId-manual" placeholder="Enter operator ID" value=""></div>'
-       +'<div class="form-group"><label class="form-label">Operation</label>'
-       +'<input class="form-input" id="f-op-manual" placeholder="Enter operation"></div>'
-      :'')
-    +'<div class="form-row">'
-    +'<div class="form-group"><label class="form-label">Checked Qty *</label>'
-    +'<input class="form-input" name="checkedQty" type="number" min="1" placeholder="0" required oninput="calcDHU()"></div>'
-    +'<div class="form-group"><label class="form-label">Defect Qty</label>'
-    +'<input class="form-input" name="defectQty" type="number" min="0" value="0" oninput="calcDHU()"></div>'
-    +'</div>'
-    +'<div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">DHU</div>'
-    +'<div id="dhu-val" style="font-size:28px;font-weight:700"></div></div>'
-    +'<div class="form-group"><label class="form-label">Defect Type</label>'
-    +'<select class="form-input" name="defectType"><option value="">— No Defect —</option>'
-    +myDefs.map(d=>'<option value="'+d.name+'">'+(d.defectId?d.defectId+' - ':'')+d.name+'</option>').join('')
+    +'<input type="hidden" name="visitNum" value="'+WS.rovingRound+'">'
+    +'<input type="hidden" name="trim" id="trim-val" value="pass">'
+    // TRIM check + SPI
+    +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">TRIM Check</label>'
+    +'<div style="display:flex;gap:10px;margin-top:4px">'
+    +'<button type="button" id="trim-pass" class="btn-big btn-accent" style="flex:1;margin:0;padding:12px;font-size:15px;border:2px solid var(--accent)" onclick="setTrimRoving(true)">✓ Pass</button>'
+    +'<button type="button" id="trim-fail" class="btn-big btn-ghost" style="flex:1;margin:0;padding:12px;font-size:15px" onclick="setTrimRoving(false)">✗ Fail</button>'
+    +'</div></div>'
+    +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">SPI Check <span style="font-size:11px;color:var(--text3)">(Stitches Per Inch)</span></label>'
+    +'<input class="form-input" name="spi" type="number" min="0" max="30" step="0.5" placeholder="e.g. 12" style="font-size:22px;font-weight:700;font-family:var(--mono);text-align:center;padding:14px" oninput="checkSPI(this.value)"></div>'
+    +'<div id="spi-result" style="display:none;padding:10px 14px;border-radius:8px;margin-bottom:14px;text-align:center;font-weight:600;font-size:14px"></div>'
+    // AB (Absent)
+    +'<div class="form-group"><label class="form-label">Operator Status</label>'
+    +'<select class="form-input" name="absent">'
+    +'<option value="0">Present ✓</option><option value="1">Absent (AB)</option>'
     +'</select></div>'
-    +'<div class="form-group"><label class="form-label">Comments</label>'
-    +'<textarea class="form-input" name="comments" rows="2" placeholder="Notes..."></textarea></div>'
+    // SP and DC
+    +'<div class="form-row">'
+    +'<div class="form-group"><label class="form-label">Sample Qty (SP)</label>'
+    +'<input class="form-input" name="sp" type="number" min="1" value="3" oninput="calcRovingDHU()"></div>'
+    +'<div class="form-group"><label class="form-label">Defects Found (D/C)</label>'
+    +'<input class="form-input" name="dc" type="number" min="0" value="0" oninput="calcRovingDHU()"></div>'
+    +'</div>'
+    +'<div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">Defect %</div>'
+    +'<div id="dhu-val" style="font-size:28px;font-weight:700"></div></div>'
+    // Defect type
+    +'<div class="form-group"><label class="form-label">Defect Type</label>'
+    +'<select class="form-input" name="defectType"><option value="">— No Defect —</option>'+myDefs+'</select></div>'
+    // CPA
+    +'<div class="form-group"><label class="form-label">CPA — Corrective Action Taken</label>'
+    +'<select class="form-input" name="cpa">'
+    +'<option value="">— None —</option>'
+    +'<option value="A">A — Solved by Inline QC</option>'
+    +'<option value="B">B — Solved with Supervisor / Mechanic</option>'
+    +'<option value="C">C — Solved with Senior Technician</option>'
+    +'<option value="D">D — Informed Production / Quality Executive</option>'
+    +'</select></div>'
+    +'<div class="form-group"><label class="form-label">Notes</label>'
+    +'<textarea class="form-input" name="comments" rows="2" placeholder="Additional notes..."></textarea></div>'
     +'<button class="btn-big btn-primary" type="button" id="sub-btn">'
-    +(remaining.length>0?'✓ Save & Scan Next Operator':'✓ Save & Finish Check '+WS.checkRound)+'</button>'
+    +(remaining.length>0?'✓ Save & Next Operator':'✓ Save & Finish Visit '+WS.rovingRound)+'</button>'
     +'</form></div>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'endline_scan_pick\';renderW()">← Back to Operators</button>';
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'roving_scan_pick\';renderW()">← Back to Operators</button>';
+}
+
+window.setTrimRoving=function(pass){
+  document.getElementById('trim-val').value=pass?'pass':'fail';
+  const p=document.getElementById('trim-pass'),f=document.getElementById('trim-fail');
+  if(p&&f){
+    p.style.borderColor=pass?'var(--accent)':'var(--border)';p.style.background=pass?'rgba(0,212,168,.15)':'var(--bg3)';
+    f.style.borderColor=!pass?'var(--red)':'var(--border)';f.style.background=!pass?'rgba(224,85,85,.15)':'var(--bg3)';
+    f.style.color=!pass?'var(--red)':'var(--text)';
+  }
+};
+
+window.checkSPI=function(val){
+  const box=document.getElementById('spi-result');if(!box)return;
+  const v=parseFloat(val);
+  if(!val||isNaN(v)){box.style.display='none';return;}
+  const ok=v>=10&&v<=16;
+  box.style.display='block';
+  box.style.background=ok?'rgba(0,212,168,.12)':'rgba(224,85,85,.12)';
+  box.style.border='1px solid '+(ok?'var(--accent)':'var(--red)');
+  box.style.color=ok?'var(--accent)':'var(--red)';
+  box.textContent=ok?'✓ SPI OK ('+v+')':'⚠ SPI Out of Range ('+v+') — Standard: 10–16';
+};
+
+window.calcRovingDHU=function(){
+  const f=document.getElementById('wf');if(!f)return;
+  const sp=parseInt(f.sp?.value)||0,dc=parseInt(f.dc?.value)||0;
+  const box=document.getElementById('dhu-box'),val=document.getElementById('dhu-val');
+  if(!box||!val)return;
+  if(sp>0){const pct=((dc/sp)*100).toFixed(1);box.style.display='block';val.textContent=pct+'%';val.style.color=dc>0?'var(--red)':'var(--green)';}
+  else box.style.display='none';
+};
+
+function renderRovingEnd(){
+  const results=WS.rovingRoundResults||[];
+  const tSP=results.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
+  const tDC=results.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
+  const pct=tSP?((tDC/tSP)*100).toFixed(1):'0.0';
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);text-align:center;padding:24px;margin-bottom:16px">'
+    +'<div style="font-size:40px;margin-bottom:8px">✅</div>'
+    +'<div style="font-size:20px;font-weight:700;color:var(--red)">Visit '+WS.rovingRound+' Complete!</div>'
+    +'<div style="font-size:13px;color:var(--text2)">'+results.length+' operators inspected</div></div>'
+    +'<div class="stats-row" style="margin-bottom:16px">'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--blue)">'+tSP+'</div><div class="stat-label">Inspected</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--red)">'+tDC+'</div><div class="stat-label">Defects</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(pct)>5?'var(--red)':parseFloat(pct)>3?'var(--yellow)':'var(--green)')+'">'+pct+'%</div><div class="stat-label">Defect %</div></div>'
+    +'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
+    +results.map(r=>'<div class="sub-item">'
+      +'<div><div style="font-size:13px;font-weight:600">'+(r.operatorId||r.machineName||'')+'</div>'
+      +'<div style="font-size:11px;color:var(--text2)">'+(r.operation||'')+' | TRIM:'+(r.trim==='pass'?'✓':'✗')+' | SP:'+r.sp+'</div></div>'
+      +'<div style="text-align:right">'
+      +'<div style="color:'+((parseInt(r.dc)||0)>0?'var(--red)':'var(--green)')+';font-weight:600">'+(r.dc||0)+' def</div>'
+      +(r.cpa?'<div style="font-size:11px;color:var(--text3)">CPA-'+r.cpa+'</div>':'')
+      +'</div></div>').join('')
+    +'</div>'
+    +(WS.rovingRound<4?'<button class="btn-big btn-primary" onclick="WS.rovingRound++;WS.rovingRoundResults=[];WS._currentCheckMachine=null;WS.step=\'roving_scan_pick\';renderW()">▶ Start Visit '+(WS.rovingRound+1)+'</button>':'')
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'roving_home\';renderW()">← Back to Module</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+window.openRovingUpdate=function(fbKey){
+  const rec=(WS.myRovingInspections||[]).find(r=>r.fbKey===fbKey);
+  if(!rec){toast('Record not found','error');return;}
+  WS._rovingUpdateRec=rec;
+  WS.step='roving_update';renderW();
+};
+
+function renderRovingUpdate(){
+  const r=WS._rovingUpdateRec;
+  if(!r)return'<div class="card">No record selected.</div>';
+  const cpaOptions=[
+    {v:'',l:'— None yet —'},
+    {v:'A',l:'A — Solved by Inline QC'},
+    {v:'B',l:'B — Solved with Supervisor / Mechanic'},
+    {v:'C',l:'C — Solved with Senior Technician'},
+    {v:'D',l:'D — Informed Production / Quality Executive'},
+  ];
+  return`
+    <div style="background:rgba(255,180,0,.07);border:1px solid rgba(255,180,0,.4);border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="font-size:11px;color:var(--yellow);font-weight:600;margin-bottom:6px">UPDATE CPA / AB</div>
+      <div style="font-size:17px;font-weight:700">${r.operatorId||r.machineName||'—'}</div>
+      <div style="font-size:12px;color:var(--text2)">Visit ${r.visitNum} • ${r.operation||'—'} • ${r.date||''}</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge badge-${r.trim==='pass'?'green':'red'}">TRIM ${r.trim==='pass'?'✓':'✗'}</span>
+        ${r.spi?`<span class="badge badge-blue">SPI ${r.spi}</span>`:''}
+        <span class="badge badge-blue">SP ${r.sp}</span>
+        <span class="badge badge-${(r.dc||0)>0?'red':'green'}">DC ${r.dc||0}</span>
+        ${r.defectType?`<span class="badge badge-purple">${r.defectType}</span>`:''}
+      </div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">CPA — Corrective Action Taken</div>
+      ${cpaOptions.map(o=>`
+        <button onclick="WS._rovingUpdateRec={...WS._rovingUpdateRec,_cpa:'${o.v}'};renderW()"
+          style="width:100%;text-align:left;padding:13px 14px;margin-bottom:6px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:${(r._cpa??r.cpa)===o.v?'700':'400'};
+          border:2px solid ${(r._cpa??r.cpa)===o.v?'var(--yellow)':'var(--border)'};
+          background:${(r._cpa??r.cpa)===o.v?'rgba(255,180,0,.12)':'var(--bg3)'};
+          color:${(r._cpa??r.cpa)===o.v?'var(--yellow)':'var(--text1)'}">
+          ${o.l}
+        </button>`).join('')}
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Operator Status</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button onclick="WS._rovingUpdateRec={...WS._rovingUpdateRec,_absent:false};renderW()"
+          style="padding:16px;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;
+          border:2px solid ${!(r._absent??r.absent)?'var(--accent)':'var(--border)'};
+          background:${!(r._absent??r.absent)?'rgba(0,212,168,.12)':'var(--bg3)'};
+          color:${!(r._absent??r.absent)?'var(--accent)':'var(--text2)'}">✓ Present</button>
+        <button onclick="WS._rovingUpdateRec={...WS._rovingUpdateRec,_absent:true};renderW()"
+          style="padding:16px;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;
+          border:2px solid ${(r._absent??r.absent)?'var(--red)':'var(--border)'};
+          background:${(r._absent??r.absent)?'rgba(224,85,85,.12)':'var(--bg3)'};
+          color:${(r._absent??r.absent)?'var(--red)':'var(--text2)'}">✗ Absent (AB)</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <textarea id="update-notes" class="form-input" rows="2" placeholder="Additional notes..."
+        style="font-size:14px">${r._notes??r.comments??''}</textarea>
+    </div>
+
+    <button onclick="saveRovingUpdate()"
+      style="width:100%;padding:18px;background:var(--yellow);color:#000;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:8px">
+      ✓ Save Update
+    </button>
+    <button onclick="WS.step='roving_home';renderW()"
+      style="width:100%;padding:14px;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:12px;font-size:14px;cursor:pointer">
+      ← Back
+    </button>`;
+}
+
+window.saveRovingUpdate=async function(){
+  const r=WS._rovingUpdateRec;
+  if(!r?.fbKey){toast('Record not found','error');return;}
+  const cpa=r._cpa??r.cpa??'';
+  const absent=r._absent??r.absent??false;
+  const notes=(document.getElementById('update-notes')?.value||r.comments||'').trim();
+  const btn=document.querySelector('[onclick="saveRovingUpdate()"]');
+  if(btn){btn.disabled=true;btn.textContent='Saving...';}
+  try{
+    await window._update(window._ref(window._db,'rovingInspections/'+r.fbKey),{
+      cpa,absent,comments:notes,updatedAt:new Date().toISOString(),
+      updatedBy:WS.user?.username||WS.user?.name
+    });
+    // Update local cache
+    const idx=(WS.myRovingInspections||[]).findIndex(x=>x.fbKey===r.fbKey);
+    if(idx>=0){WS.myRovingInspections[idx]={...WS.myRovingInspections[idx],cpa,absent,comments:notes};}
+    WS._rovingUpdateRec=null;
+    toast('Updated ✓');
+    WS.step='roving_home';renderW();
+  }catch(e){
+    toast('Failed: '+e.message,'error');
+    if(btn){btn.disabled=false;btn.textContent='✓ Save Update';}
+  }
+};
+
+function bindRovingSubmit(){
+  const btn=document.getElementById('sub-btn');if(!btn)return;
+  btn.onclick=async()=>{
+    const f=document.getElementById('wf');if(!f)return;
+    const fd=new FormData(f);const data=Object.fromEntries(fd.entries());
+    btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
+    try{
+      await window.fbAdd('rovingInspections',{
+        id:'ROV-'+Date.now(),
+        visitNum:parseInt(data.visitNum)||WS.rovingRound,
+        date:new Date().toISOString().split('T')[0],
+        time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
+        shift:WS.scannedModule?.shift||'',
+        module:data.module,style:data.style,
+        machineId:data.machineId,machineName:data.machineName,
+        operatorId:data.operatorId,operation:data.operation,
+        trim:data.trim,absent:data.absent==='1',
+        spi:parseFloat(data.spi)||0,
+        sp:parseInt(data.sp)||0,dc:parseInt(data.dc)||0,
+        defectType:data.defectType||'',cpa:data.cpa||'',
+        comments:data.comments||'',
+        submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
+      });
+      if(parseInt(data.dc)>0){
+        await window.fbAddAlert({
+          title:'Roving Visit '+WS.rovingRound+' — Defect: '+data.operatorId,
+          message:(data.defectType||'Defect')+' on '+data.operation+' ('+data.machineName+')',
+          level:parseInt(data.dc)>=2?'high':'medium',module:data.module,read:false,createdBy:'roving-auto'
+        });
+      }
+      WS.rovingRoundResults.push({...data,dc:parseInt(data.dc)||0,sp:parseInt(data.sp)||0});
+      toast('Saved ✓');
+      const remaining=WS.rovingRoundData.filter(w=>!WS.rovingRoundResults.some(d=>d.machineId===w.machineId));
+      WS.step=remaining.length>0?'roving_scan_pick':'roving_end';
+      btn.disabled=false;renderW();
+    }catch(e){toast('Failed: '+e.message,'error');btn.disabled=false;btn.innerHTML='✓ Save';}
+  };
 }
 
 // ==================== EVENT MODAL ====================
@@ -1161,7 +1721,7 @@ function bindSubmit(){
       await window.fbAdd('inspections',{
         id:'INS-'+Date.now(),type:inspType,
         date:new Date().toISOString().split('T')[0],
-        time:new Date().toTimeString().slice(0,5),
+        time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
         shift:WS.scannedModule?.shift||'',
         ...data,submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
       });
@@ -1214,7 +1774,8 @@ function bindManualRoster(){
       });
       await window._set(window._ref(window._db,'machineRosters/'+rKey+'/workers'),workers);
       await window._update(window._ref(window._db,'machineRosters/'+rKey),{
-        moduleId:m.fbKey,moduleName:m.name,date,
+        moduleId:m.fbKey,moduleName:m.name,date,shift:m.shift||WS.user?.shift||'',
+        status:'Pending Approval',createdBy:WS.user?.username,
         updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
       });
       toast('Roster saved — '+valid.length+' machine(s) ✓');
@@ -1225,17 +1786,20 @@ function bindManualRoster(){
 
 // ==================== DASHBOARD ====================
 function renderDash(){
-  const ins=WS.myInspections;
+  const rovingMode=isRoving();
+  const ins=rovingMode?(WS.myRovingInspections||[]):WS.myInspections;
   const today=new Date().toISOString().split('T')[0];
-  const tc=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
-  const td=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const tc=rovingMode?ins.reduce((a,i)=>a+(parseInt(i.sp)||0),0):ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const td=rovingMode?ins.reduce((a,i)=>a+(parseInt(i.dc)||0),0):ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
   const dhu=tc?((td/tc)*100).toFixed(1):'0.0';
-  const rounds=[...new Set(ins.map(i=>i.checkRound).filter(Boolean))];
+  const rounds=rovingMode?[...new Set(ins.map(i=>i.visitNum).filter(Boolean))]:[...new Set(ins.map(i=>i.checkRound).filter(Boolean))];
   const roleAction=isWorker()
     ?'<button class="btn-big btn-primary" onclick="WS.step=\'worker_scan_machine\';renderW()">🔧 Register My Machine</button>'
-    :isEndline()
-      ?'<button class="btn-big btn-primary" onclick="goStartCheck()">📋 Start Check Round</button>'
-      :'<button class="btn-big btn-primary" onclick="goStartCheck()">📷 Start Check Round</button>';
+    :isRoving()
+      ?'<button class="btn-big btn-primary" onclick="goStartCheck()">🏃 Start Roving Visit</button>'
+      :isEndline()
+        ?'<button class="btn-big btn-primary" onclick="goStartCheck()">📋 Start Check Round</button>'
+        :'<button class="btn-big btn-primary" onclick="goStartCheck()">📷 Start Check Round</button>';
 
   return '<div style="margin-bottom:16px">'
     +'<div style="font-size:18px;font-weight:600">Today\'s Summary</div>'
@@ -1246,19 +1810,19 @@ function renderDash(){
     +'<div class="stat-card"><div class="stat-val" style="color:var(--red)">'+td+'</div><div class="stat-label">Defects</div></div>'
     +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)')+'">'+dhu+'%</div><div class="stat-label">DHU</div></div>'
     +'</div>'
-    +(rounds.length>0?'<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">Completed Checks Today</div><div class="check-pill">'+rounds.map(n=>'<div class="check-btn done">Check '+n+' ✓</div>').join('')+'</div></div>':'')
+    +(rounds.length>0?'<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">'+(rovingMode?'Completed Visits Today':'Completed Checks Today')+'</div><div class="check-pill">'+rounds.map(n=>'<div class="check-btn done">'+(rovingMode?'Visit ':'Check ')+n+' ✓</div>').join('')+'</div></div>':'')
     +roleAction
     +'<div style="font-size:13px;color:var(--text2);margin-bottom:8px;margin-top:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent</div>'
     +(ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No records today</div>'
     :ins.slice().reverse().slice(0,8).map(i=>'<div class="sub-item">'
       +'<div><div style="font-size:13px;font-weight:500">'+(i.operatorId||'')+' '+(i.machineName?'• '+i.machineName:'')+'</div>'
-      +'<div style="font-size:11px;color:var(--text3)">'+(i.module||'')+' • Check'+(i.checkRound||'')+' • '+(i.time||'')+'</div></div>'
-      +'<div style="color:'+((parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)')+';font-weight:600">'+(i.defectQty||0)+'</div>'
+      +'<div style="font-size:11px;color:var(--text3)">'+(i.module||'')+' • '+(rovingMode?'Visit'+(i.visitNum||''):'Check'+(i.checkRound||''))+' • '+(i.time||'')+'</div></div>'
+      +'<div style="color:'+((rovingMode?(parseInt(i.dc)||0):(parseInt(i.defectQty)||0))>0?'var(--red)':'var(--green)')+';font-weight:600">'+(rovingMode?(i.dc||0):(i.defectQty||0))+'</div>'
       +'</div>').join(''));
 }
 
 window.goStartCheck=function(){
-  if(WS.scannedModule){WS.step=isEndline()?'endline_home':'check_home';}
+  if(WS.scannedModule){WS.step=isEndline()?'endline_home':isRoving()?'roving_home':'check_home';}
   else WS.step='scan';
   renderW();
 };
@@ -1280,7 +1844,8 @@ function bindStep(){
   if(s==='lh_scan')            bindLHScan();
   if(s==='lh_fill')            bindLHFill();
   if(s==='lh_roster')          bindLHRoster();
-  if(s==='check_form'||s==='endline_form') bindSubmit();
+  if(s==='check_form') bindSubmit();
+  if(s==='roving_form')        bindRovingSubmit();
   if(s==='roster_manual')      bindManualRoster();
 }
 
