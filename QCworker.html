@@ -134,10 +134,27 @@ button{cursor:pointer;border:none;outline:none}
 .badge-yellow{background:rgba(212,168,0,.15);color:var(--yellow)}
 .badge-blue{background:rgba(68,136,255,.15);color:var(--blue)}
 .badge-purple{background:rgba(153,102,255,.15);color:var(--purple)}
-.scan-area{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px;height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
+.scan-area{background:#000;border:none;border-radius:14px;overflow:hidden;margin-bottom:0;height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
 .scan-area>div{width:100%;height:100%}
-.scan-area-sm{background:var(--bg3);border:2px dashed var(--border);border-radius:16px;overflow:hidden;margin-bottom:12px;height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
+.scan-area-sm{background:#000;border:none;border-radius:12px;overflow:hidden;margin-bottom:0;height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
 .scan-area-sm>div{width:100%;height:100%}
+.scan-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:12px}
+.scan-wrap-hdr{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.07);background:var(--bg3)}
+.scan-wrap-hdr .sw-icon{width:28px;height:28px;background:rgba(0,212,168,.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px}
+.scan-wrap-hdr .sw-title{font-size:14px;font-weight:600;flex:1}
+.scan-wrap-ftr{padding:10px 14px;text-align:center;font-size:12px;color:var(--text3);background:var(--bg3);border-top:1px solid rgba(255,255,255,.07)}
+.qr-corner-overlay{position:absolute;inset:0;pointer-events:none;z-index:10}
+.qrc{position:absolute;width:22px;height:22px;border-color:rgba(255,255,255,.9);border-style:solid}
+.qrc.tl{top:14%;left:13%;border-width:3px 0 0 3px;border-radius:3px 0 0 0}
+.qrc.tr{top:14%;right:13%;border-width:3px 3px 0 0;border-radius:0 3px 0 0}
+.qrc.bl{bottom:14%;left:13%;border-width:0 0 3px 3px;border-radius:0 0 0 3px}
+.qrc.br{bottom:14%;right:13%;border-width:0 3px 3px 0;border-radius:0 0 3px 0}
+@keyframes qrScanLine{0%,100%{top:16%}50%{top:82%}}
+.qr-scan-line{position:absolute;left:13%;right:13%;height:2px;background:linear-gradient(90deg,transparent,rgba(0,212,168,.85),transparent);animation:qrScanLine 1.8s ease-in-out infinite;pointer-events:none;z-index:11}
+.qr-stop-row{display:flex;align-items:center;justify-content:center;padding:10px;background:rgba(0,0,0,.7);position:absolute;bottom:0;left:0;right:0;z-index:12;pointer-events:none}
+.qr-stop-text{font-size:12px;color:rgba(255,255,255,.55);letter-spacing:.5px}
+[id$="__dashboard_section"],[id$="__header_message"],[id$="__dashboard_section_swaplink"]{display:none!important}
+[id$="__scan_region"] video{object-fit:cover!important}
 .stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center}
 .stat-val{font-size:24px;font-weight:700}
@@ -310,9 +327,20 @@ function initQRIn(elId,cb){
       sc.start(
         {facingMode:'environment'},
         {fps:15,qrbox:{width:Math.max(w-40,180),height:Math.max(w-40,180)},aspectRatio:1.0},
-        (text)=>{sc.stop().catch(()=>{});qrActive=null;cb(text);},
+        (text)=>{sc.stop().catch(()=>{});qrActive=null;
+          // remove overlay before callback
+          parent.querySelectorAll('.qr-corner-overlay').forEach(e=>e.remove());
+          cb(text);},
         ()=>{}
-      ).catch(err=>{
+      ).then(()=>{
+        // inject corner brackets + scan line after camera starts
+        const ov=document.createElement('div');
+        ov.className='qr-corner-overlay';
+        ov.innerHTML='<i class="qrc tl"></i><i class="qrc tr"></i><i class="qrc bl"></i><i class="qrc br"></i>'
+          +'<div class="qr-scan-line"></div>'
+          +'<div class="qr-stop-row"><span class="qr-stop-text">Stop Scanning</span></div>';
+        parent.appendChild(ov);
+      }).catch(err=>{
         console.warn('QR camera error:',err);
         el.innerHTML='<div style="padding:28px 16px;color:var(--text3);text-align:center;font-size:13px;line-height:1.8">'
           +'📷 Camera not started<br>'
@@ -374,9 +402,12 @@ function renderScan(){
   const mods=WS.modules;
   const title=isWorker()?'Scan Your Line QR':'Scan Module QR';
   return '<div style="text-align:center;margin-bottom:16px">'
-    +'<div style="font-size:20px;font-weight:600">'+title+'</div>'
-    +'<div style="font-size:13px;color:var(--text2)">Point camera at module QR code</div></div>'
+    +'<div style="font-size:20px;font-weight:600">'+title+'</div></div>'
+    +'<div class="scan-wrap">'
+    +'<div class="scan-wrap-hdr"><div class="sw-icon">📷</div><div class="sw-title">Scan Module QR Code</div><span style="font-size:11px;color:var(--text3)">Hold steady</span></div>'
     +'<div class="scan-area"><div id="qr-reader"></div></div>'
+    +'<div class="scan-wrap-ftr">Point camera at the module QR code</div>'
+    +'</div>'
     +'<div class="qr-hint">— OR select module below —</div>'
     +'<div class="module-grid">'
     +mods.map(m=>'<div class="module-btn" onclick="pickModule(\''+m.fbKey+'\')"><div style="font-size:14px;font-weight:600">'+(m.name||m.moduleId)+'</div><div style="font-size:11px;color:var(--text3)">'+(m.styleName||'No style')+'</div></div>').join('')
@@ -489,8 +520,11 @@ function renderLHScan(){
        +'</div>'
       :'')
 
-    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--yellow)">📷 Scan Next Machine QR</div>'
+    +'<div class="scan-wrap">'
+    +'<div class="scan-wrap-hdr"><div class="sw-icon">📷</div><div class="sw-title">Scan Machine QR Code</div><span style="font-size:11px;color:var(--text3)">Hold steady</span></div>'
     +'<div class="scan-area"><div id="qr-lh-scan"></div></div>'
+    +'<div class="scan-wrap-ftr">Point camera at the machine QR code</div>'
+    +'</div>'
     +'<div class="qr-hint">— OR enter machine name / ID manually —</div>'
     +'<div style="display:flex;gap:8px;margin-bottom:12px">'
     +'<input class="form-input" id="lh-manual-input" placeholder="Machine name or ID" style="flex:1">'
@@ -775,8 +809,11 @@ function renderCheckScanPick(){
     +'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div>'
     +'<div style="font-size:12px;color:var(--text2)">Scan each machine QR to open its inspection form</div></div>'
 
-    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--accent)">📷 Scan Machine QR</div>'
+    +'<div class="scan-wrap">'
+    +'<div class="scan-wrap-hdr"><div class="sw-icon">📷</div><div class="sw-title">Scan Machine QR Code</div><span style="font-size:11px;color:var(--text3)">Hold steady</span></div>'
     +'<div class="scan-area-sm"><div id="qr-inline-pick"></div></div>'
+    +'<div class="scan-wrap-ftr">Point camera at the machine QR code</div>'
+    +'</div>'
     +'<div class="qr-hint">— OR tap machine below to select manually —</div>'
 
     +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
@@ -1251,8 +1288,11 @@ function renderRovingScanPick(){
     +'<span class="badge badge-red">'+done.length+'/'+machines.length+'</span></div>'
     +'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div>'
     +'<div style="font-size:12px;color:var(--text2)">Scan or tap each operator to inspect</div></div>'
-    +'<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--red)">📷 Scan Machine QR</div>'
+    +'<div class="scan-wrap">'
+    +'<div class="scan-wrap-hdr"><div class="sw-icon">📷</div><div class="sw-title">Scan Machine QR Code</div><span style="font-size:11px;color:var(--text3)">Hold steady</span></div>'
     +'<div class="scan-area-sm"><div id="qr-roving-pick"></div></div>'
+    +'<div class="scan-wrap-ftr">Point camera at the machine QR code</div>'
+    +'</div>'
     +'<div class="qr-hint">— OR tap operator below —</div>'
     +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
     +machines.map((w,i)=>{
@@ -1808,63 +1848,4 @@ function renderDash(){
     +'<div class="stats-row">'
     +'<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+ins.length+'</div><div class="stat-label">Records</div></div>'
     +'<div class="stat-card"><div class="stat-val" style="color:var(--red)">'+td+'</div><div class="stat-label">Defects</div></div>'
-    +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)')+'">'+dhu+'%</div><div class="stat-label">DHU</div></div>'
-    +'</div>'
-    +(rounds.length>0?'<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">'+(rovingMode?'Completed Visits Today':'Completed Checks Today')+'</div><div class="check-pill">'+rounds.map(n=>'<div class="check-btn done">'+(rovingMode?'Visit ':'Check ')+n+' ✓</div>').join('')+'</div></div>':'')
-    +roleAction
-    +'<div style="font-size:13px;color:var(--text2);margin-bottom:8px;margin-top:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent</div>'
-    +(ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No records today</div>'
-    :ins.slice().reverse().slice(0,8).map(i=>'<div class="sub-item">'
-      +'<div><div style="font-size:13px;font-weight:500">'+(i.operatorId||'')+' '+(i.machineName?'• '+i.machineName:'')+'</div>'
-      +'<div style="font-size:11px;color:var(--text3)">'+(i.module||'')+' • '+(rovingMode?'Visit'+(i.visitNum||''):'Check'+(i.checkRound||''))+' • '+(i.time||'')+'</div></div>'
-      +'<div style="color:'+((rovingMode?(parseInt(i.dc)||0):(parseInt(i.defectQty)||0))>0?'var(--red)':'var(--green)')+';font-weight:600">'+(rovingMode?(i.dc||0):(i.defectQty||0))+'</div>'
-      +'</div>').join(''));
-}
-
-window.goStartCheck=function(){
-  if(WS.scannedModule){WS.step=isEndline()?'endline_home':isRoving()?'roving_home':'check_home';}
-  else WS.step='scan';
-  renderW();
-};
-
-// ==================== WAITING ====================
-function renderWaiting(){
-  return '<div class="card card-yellow" style="text-align:center;padding:32px">'
-    +'<div class="spinner" style="border-top-color:var(--yellow);margin:0 auto 16px"></div>'
-    +'<div style="font-size:18px;font-weight:700;color:var(--yellow)">Waiting for Approval</div>'
-    +'<div style="font-size:13px;color:var(--text2)">A supervisor needs to approve your request.</div>'
-    +'</div>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 My Dashboard</button>';
-}
-
-// ==================== BIND ALL ====================
-function bindStep(){
-  const s=WS.step;
-  if(s==='verify')             bindVerify();
-  if(s==='lh_scan')            bindLHScan();
-  if(s==='lh_fill')            bindLHFill();
-  if(s==='lh_roster')          bindLHRoster();
-  if(s==='check_form') bindSubmit();
-  if(s==='roving_form')        bindRovingSubmit();
-  if(s==='roster_manual')      bindManualRoster();
-}
-
-// Bind manual input on Line Head scan screen
-function bindLHScan(){
-  const btn=document.getElementById('lh-manual-btn');
-  if(btn)btn.onclick=()=>{
-    const v=(document.getElementById('lh-manual-input')?.value||'').trim();
-    if(!v){toast('Enter a machine name or ID','error');return;}
-    const mach=WS.machines.find(m=>m.name===v||m.fbKey===v||m.machineId===v);
-    WS._lhCurrentMachine=mach||{fbKey:'manual_'+Date.now(),name:v,type:'Unknown'};
-    WS.step='lh_fill';renderW();
-  };
-  document.getElementById('lh-manual-input')?.addEventListener('keydown',e=>{
-    if(e.key==='Enter')document.getElementById('lh-manual-btn')?.click();
-  });
-}
-
-renderW();
-</script>
-</body>
-</html>
+    +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)')+'">'+dhu+'
