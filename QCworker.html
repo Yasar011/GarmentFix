@@ -1848,4 +1848,63 @@ function renderDash(){
     +'<div class="stats-row">'
     +'<div class="stat-card"><div class="stat-val" style="color:var(--accent)">'+ins.length+'</div><div class="stat-label">Records</div></div>'
     +'<div class="stat-card"><div class="stat-val" style="color:var(--red)">'+td+'</div><div class="stat-label">Defects</div></div>'
-    +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)')+'">'+dhu+'
+    +'<div class="stat-card"><div class="stat-val" style="color:'+(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)')+'">'+dhu+'%</div><div class="stat-label">DHU</div></div>'
+    +'</div>'
+    +(rounds.length>0?'<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">'+(rovingMode?'Completed Visits Today':'Completed Checks Today')+'</div><div class="check-pill">'+rounds.map(n=>'<div class="check-btn done">'+(rovingMode?'Visit ':'Check ')+n+' ✓</div>').join('')+'</div></div>':'')
+    +roleAction
+    +'<div style="font-size:13px;color:var(--text2);margin-bottom:8px;margin-top:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent</div>'
+    +(ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No records today</div>'
+    :ins.slice().reverse().slice(0,8).map(i=>'<div class="sub-item">'
+      +'<div><div style="font-size:13px;font-weight:500">'+(i.operatorId||'')+' '+(i.machineName?'• '+i.machineName:'')+'</div>'
+      +'<div style="font-size:11px;color:var(--text3)">'+(i.module||'')+' • '+(rovingMode?'Visit'+(i.visitNum||''):'Check'+(i.checkRound||''))+' • '+(i.time||'')+'</div></div>'
+      +'<div style="color:'+((rovingMode?(parseInt(i.dc)||0):(parseInt(i.defectQty)||0))>0?'var(--red)':'var(--green)')+';font-weight:600">'+(rovingMode?(i.dc||0):(i.defectQty||0))+'</div>'
+      +'</div>').join(''));
+}
+
+window.goStartCheck=function(){
+  if(WS.scannedModule){WS.step=isEndline()?'endline_home':isRoving()?'roving_home':'check_home';}
+  else WS.step='scan';
+  renderW();
+};
+
+// ==================== WAITING ====================
+function renderWaiting(){
+  return '<div class="card card-yellow" style="text-align:center;padding:32px">'
+    +'<div class="spinner" style="border-top-color:var(--yellow);margin:0 auto 16px"></div>'
+    +'<div style="font-size:18px;font-weight:700;color:var(--yellow)">Waiting for Approval</div>'
+    +'<div style="font-size:13px;color:var(--text2)">A supervisor needs to approve your request.</div>'
+    +'</div>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 My Dashboard</button>';
+}
+
+// ==================== BIND ALL ====================
+function bindStep(){
+  const s=WS.step;
+  if(s==='verify')             bindVerify();
+  if(s==='lh_scan')            bindLHScan();
+  if(s==='lh_fill')            bindLHFill();
+  if(s==='lh_roster')          bindLHRoster();
+  if(s==='check_form') bindSubmit();
+  if(s==='roving_form')        bindRovingSubmit();
+  if(s==='roster_manual')      bindManualRoster();
+}
+
+// Bind manual input on Line Head scan screen
+function bindLHScan(){
+  const btn=document.getElementById('lh-manual-btn');
+  if(btn)btn.onclick=()=>{
+    const v=(document.getElementById('lh-manual-input')?.value||'').trim();
+    if(!v){toast('Enter a machine name or ID','error');return;}
+    const mach=WS.machines.find(m=>m.name===v||m.fbKey===v||m.machineId===v);
+    WS._lhCurrentMachine=mach||{fbKey:'manual_'+Date.now(),name:v,type:'Unknown'};
+    WS.step='lh_fill';renderW();
+  };
+  document.getElementById('lh-manual-input')?.addEventListener('keydown',e=>{
+    if(e.key==='Enter')document.getElementById('lh-manual-btn')?.click();
+  });
+}
+
+renderW();
+</script>
+</body>
+</html>
