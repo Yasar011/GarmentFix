@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GarmentFix — AI Downtime & Quality Analysis</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{--bg:#0a0c10;--bg2:#111318;--bg3:#1a1d24;--bg4:#22262f;--border:#2a2e38;--border2:#363c48;--text:#e8eaf0;--text2:#9097a8;--text3:#5c6478;--accent:#00d4a8;--accent2:#0099d4;--red:#e05555;--yellow:#d4a800;--green:#00d4a8;--blue:#4488ff;--purple:#9966ff;--radius:8px;--radius2:12px;--font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.5}
+.app{display:flex;min-height:100vh}
+.sidebar{width:230px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh}
+.logo{padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.logo-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:15px;flex-shrink:0}
+.logo-txt b{font-size:14px}.logo-txt span{font-size:10px;color:var(--text3);display:block;letter-spacing:.05em}
+.nav-sec{padding:14px 16px 4px;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.1em;text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;transition:all .15s;border-left:3px solid transparent;color:var(--text2);font-size:13px}
+.nav-item:hover{background:var(--bg3);color:var(--text)}.nav-item.active{background:rgba(0,212,168,.08);border-left-color:var(--accent);color:var(--accent)}
+.nav-item .ic{width:18px;text-align:center}
+.sidebar-footer{margin-top:auto;padding:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text3)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{padding:0 24px;height:56px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg2);position:sticky;top:0;z-index:10}
+.topbar h1{font-size:16px;font-weight:600}
+.topbar .sub{font-size:11px;color:var(--text3)}
+.topctrl{display:flex;align-items:center;gap:8px}
+.content{padding:24px;max-width:1400px;width:100%}
+.btn{padding:8px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px;border:none;cursor:pointer;background:var(--bg3);color:var(--text2)}
+.btn:hover{background:var(--bg4);color:var(--text)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:600}.btn-primary:hover{opacity:.9}
+.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border)}.btn-ghost:hover{background:var(--bg3);color:var(--text)}
+select.ctrl{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:var(--radius);font-size:12px;font-family:var(--font)}
+.grid{display:grid;gap:16px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.cols2{grid-template-columns:1fr 1fr}
+.cols3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:900px){.cols2,.cols3{grid-template-columns:1fr}}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:20px}
+.card h3{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.card .csub{font-size:11px;color:var(--text3);margin-bottom:14px}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:18px}
+.kpi .lab{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em}
+.kpi .val{font-size:30px;font-weight:600;font-family:var(--mono);margin-top:6px;line-height:1}
+.kpi .unit{font-size:14px;color:var(--text3);margin-left:3px}
+.kpi .delta{font-size:11px;margin-top:8px}
+.up{color:var(--red)}.down{color:var(--green)}.flat{color:var(--text3)}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
+.badge-green{background:rgba(0,212,168,.15);color:var(--green)}.badge-red{background:rgba(224,85,85,.15);color:var(--red)}.badge-yellow{background:rgba(212,168,0,.15);color:var(--yellow)}.badge-blue{background:rgba(68,136,255,.15);color:var(--blue)}.badge-gray{background:rgba(92,100,120,.2);color:var(--text2)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10px;color:var(--text3);padding:9px 12px;border-bottom:1px solid var(--border);font-weight:600;text-transform:uppercase;letter-spacing:.06em;background:var(--bg3)}
+td{padding:9px 12px;border-bottom:1px solid var(--border);font-size:13px}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.02)}
+.mono{font-family:var(--mono)}
+.insight{padding:14px 16px;border-radius:var(--radius);border-left:3px solid;margin-bottom:12px;background:var(--bg3)}
+.insight.critical{border-color:var(--red);background:rgba(224,85,85,.06)}
+.insight.high{border-color:var(--yellow);background:rgba(212,168,0,.06)}
+.insight.medium{border-color:var(--blue);background:rgba(68,136,255,.06)}
+.insight.good{border-color:var(--green);background:rgba(0,212,168,.06)}
+.insight .ih{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.insight .it{font-weight:600;font-size:13px}
+.insight .ib{font-size:13px;color:var(--text2)}
+.insight .rec{margin-top:8px;font-size:12px;color:var(--text);background:rgba(255,255,255,.03);padding:8px 10px;border-radius:6px}
+.insight .rec b{color:var(--accent)}
+.chartwrap{position:relative;height:260px}
+.chartwrap.sm{height:200px}
+.empty{text-align:center;padding:40px;color:var(--text3);font-size:13px}
+.spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loadscreen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:100}
+.loadscreen .big{width:46px;height:46px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot.ok{background:var(--green)}.dot.err{background:var(--red)}.dot.wait{background:var(--yellow)}
+.src-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);background:var(--bg3);border:1px solid var(--border);padding:4px 9px;border-radius:20px}
+.aibox{background:linear-gradient(135deg,rgba(0,212,168,.05),rgba(0,153,212,.05));border:1px solid var(--border2)}
+.ai-narrative{white-space:pre-wrap;font-size:13px;line-height:1.7;color:var(--text)}
+.barrow{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.barrow .nm{width:130px;font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.barrow .track{flex:1;height:8px;background:var(--bg4);border-radius:4px;overflow:hidden}
+.barrow .fill{height:100%;border-radius:4px}
+.barrow .vv{width:64px;text-align:right;font-size:12px;font-family:var(--mono);color:var(--text)}
+.tag{font-size:10px;padding:1px 6px;border-radius:4px;background:var(--bg4);color:var(--text2);margin-left:6px}
+input.keyin{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:var(--radius);font-size:12px;font-family:var(--mono);width:100%}
+.muted{color:var(--text3)}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div id="loadscreen" class="loadscreen">
+  <div class="big"></div>
+  <div style="font-weight:600">Connecting to GarmentFix data…</div>
+  <div id="loadstatus" style="font-size:12px;color:var(--text2);text-align:center"></div>
+</div>
+
+<div class="app hide" id="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-icon">AI</div>
+      <div class="logo-txt"><b>GarmentFix</b><span>AI ANALYSIS HUB</span></div>
+    </div>
+    <div class="nav-sec">Analysis</div>
+    <div class="nav-item active" data-page="overview"><span class="ic">📊</span> Executive Overview</div>
+    <div class="nav-item" data-page="downtime"><span class="ic">🔧</span> Downtime Analysis</div>
+    <div class="nav-item" data-page="quality"><span class="ic">🎯</span> Quality Analysis</div>
+    <div class="nav-item" data-page="insights"><span class="ic">🤖</span> AI Insights</div>
+    <div class="nav-sec">Tools</div>
+    <div class="nav-item" data-page="narrative"><span class="ic">📝</span> AI Narrative</div>
+    <div class="sidebar-footer">
+      <div id="conn-maint"><span class="dot wait"></span>Maintenance DB</div>
+      <div id="conn-qc" style="margin-top:5px"><span class="dot wait"></span>Quality DB</div>
+      <div style="margin-top:8px" class="muted" id="lastupd"></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="pgtitle">Executive Overview</h1>
+        <div class="sub" id="pgsub">Combined downtime &amp; quality intelligence</div>
+      </div>
+      <div class="topctrl">
+        <select class="ctrl" id="rangeSel">
+          <option value="7">Last 7 days</option>
+          <option value="14">Last 14 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="9999">All time</option>
+        </select>
+        <button class="btn btn-ghost" id="refreshBtn">↻ Refresh</button>
+        <button class="btn btn-primary" id="printBtn">⬇ Export Report</button>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+/* ---- Firebase: two databases used across the GarmentFix suite ---- */
+const maintCfg = { databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com" };
+const qcCfg = {
+  apiKey: "AIzaSyA-aIRjMPFkK0hQKWY8-rpcA_5TfMhbRM4",
+  authDomain: "qc--brandex.firebaseapp.com",
+  databaseURL: "https://qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "qc--brandex", storageBucket: "qc--brandex.firebasestorage.app"
+};
+const maintApp = initializeApp(maintCfg, "maint");
+const qcApp = initializeApp(qcCfg, "qc");
+const maintDb = getDatabase(maintApp);
+const qcDb = getDatabase(qcApp);
+
+const $ = s => document.querySelector(s);
+const setStatus = t => { $("#loadstatus").innerHTML = t; };
+const objToArr = v => v ? Object.entries(v).map(([k, x]) => (typeof x === 'object' ? { _key: k, ...x } : { _key: k, value: x })) : [];
+
+async function fetchPath(db, path) {
+  try { const s = await get(ref(db, path)); return s.exists() ? objToArr(s.val()) : []; }
+  catch (e) { console.warn("read fail", path, e.message); return null; }
+}
+
+/* ---------------- State ---------------- */
+const DATA = { logs: [], machines: [], inspections: [], roving: [], defectsCat: [] };
+const CONN = { maint: false, qc: false };
+let RANGE = 30;
+let PAGE = "overview";
+const charts = {};
+
+/* ---------------- Load ---------------- */
+async function loadAll() {
+  setStatus("Reading maintenance / downtime data…");
+  const logs = await fetchPath(maintDb, "logs");
+  const machines = await fetchPath(maintDb, "machines");
+  CONN.maint = logs !== null || machines !== null;
+  DATA.logs = logs || [];
+  DATA.machines = machines || [];
+
+  setStatus("Reading quality / inspection data…");
+  const insp = await fetchPath(qcDb, "inspections");
+  const roving = await fetchPath(qcDb, "rovingInspections");
+  const defs = await fetchPath(qcDb, "defects");
+  CONN.qc = insp !== null || roving !== null;
+  DATA.inspections = insp || [];
+  DATA.roving = roving || [];
+  DATA.defectsCat = defs || [];
+
+  updateConnUI();
+}
+
+function updateConnUI() {
+  $("#conn-maint").innerHTML = `<span class="dot ${CONN.maint ? 'ok' : 'err'}"></span>Maintenance DB <span class="muted">(${DATA.logs.length} logs)</span>`;
+  $("#conn-qc").innerHTML = `<span class="dot ${CONN.qc ? 'ok' : 'err'}"></span>Quality DB <span class="muted">(${DATA.inspections.length} insp)</span>`;
+  $("#lastupd").textContent = "Updated " + new Date().toLocaleTimeString();
+}
+
+/* ---------------- Helpers ---------------- */
+const DAY = 86400000;
+function machineName(id) {
+  const m = DATA.machines.find(x => x._key === id || x.id === id || x.name === id);
+  return m ? (m.name || m.id || id) : id;
+}
+function logTime(l) { const t = l.timestamp ? Date.parse(l.timestamp) : NaN; return isNaN(t) ? null : t; }
+function inspTime(i) {
+  if (i.date) { const t = Date.parse(i.date + (i.time ? "T" + i.time : "T00:00")); if (!isNaN(t)) return t; }
+  return null;
+}
+function withinRange(ts) { if (RANGE >= 9999) return true; if (ts == null) return false; return ts >= Date.now() - RANGE * DAY; }
+function fmtH(ms) { const h = ms / 3600000; return h >= 1 ? h.toFixed(1) : (ms / 60000).toFixed(0) + "m"; }
+function fmtMin(ms) { return (ms / 60000).toFixed(0); }
+function dayKey(ts) { const d = new Date(ts); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0'); }
+function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+/* ---------------- Downtime metrics ---------------- */
+function downtimeMetrics() {
+  const repairActions = new Set(["Fixed", "Fixed (QA Pending)", "PM Completed", "Replaced"]);
+  const events = DATA.logs.filter(l => repairActions.has(l.action) && withinRange(logTime(l)));
+  let totalDownMs = 0, totalRepairMs = 0, totalRespMs = 0, repairN = 0, respN = 0, cost = 0;
+  const byMachine = {}, byDay = {}, byDept = {};
+  let breakdowns = 0, pm = 0, swaps = 0;
+
+  events.forEach(l => {
+    const m = l.metrics || {};
+    const down = num(m.downtimeMs), rep = num(m.repairMs), resp = num(m.responseMs);
+    totalDownMs += down; if (rep > 0) { totalRepairMs += rep; repairN++; } if (resp > 0) { totalRespMs += resp; respN++; }
+    cost += num(l.cost);
+    if (l.action === "PM Completed") pm++; else if (l.action === "Replaced") swaps++; else breakdowns++;
+    const id = l.machineId || "unknown";
+    byMachine[id] = byMachine[id] || { id, name: machineName(id), down: 0, count: 0, repair: 0 };
+    byMachine[id].down += down; byMachine[id].count++; byMachine[id].repair += rep;
+    const ts = logTime(l); if (ts) { const k = dayKey(ts); byDay[k] = (byDay[k] || 0) + down; }
+    const d = l.department || "Unassigned"; byDept[d] = byDept[d] || { dept: d, down: 0, count: 0 }; byDept[d].down += down; byDept[d].count++;
+  });
+
+  const downNow = DATA.machines.filter(m => {
+    const s = (m.status || "").toLowerCase();
+    return s && !["running", "available", "idle", "", "active"].includes(s);
+  });
+
+  return {
+    events, totalDownMs, mttr: repairN ? totalRepairMs / repairN : 0, resp: respN ? totalRespMs / respN : 0,
+    breakdowns, pm, swaps, cost,
+    topMachines: Object.values(byMachine).sort((a, b) => b.down - a.down).slice(0, 8),
+    byDay, byDept: Object.values(byDept).sort((a, b) => b.down - a.down),
+    downNow, totalMachines: DATA.machines.length
+  };
+}
+
+/* ---------------- Quality metrics ---------------- */
+function qualityMetrics() {
+  const rows = DATA.inspections.filter(i => withinRange(inspTime(i)));
+  let checked = 0, defects = 0;
+  const byDefect = {}, byModule = {}, byOperator = {}, byStyle = {}, byShift = {}, byDay = {};
+  rows.forEach(i => {
+    const c = num(i.checkedQty), d = num(i.defectQty);
+    checked += c; defects += d;
+    if (d > 0 && i.defectType) { const k = String(i.defectType).trim(); byDefect[k] = (byDefect[k] || 0) + d; }
+    const mod = i.module || "Unknown"; byModule[mod] = byModule[mod] || { name: mod, c: 0, d: 0 }; byModule[mod].c += c; byModule[mod].d += d;
+    if (i.operatorId) { const o = i.operatorId; byOperator[o] = byOperator[o] || { name: o, c: 0, d: 0, op: i.operation || "" }; byOperator[o].c += c; byOperator[o].d += d; }
+    const st = i.style || "Unknown"; byStyle[st] = byStyle[st] || { name: st, c: 0, d: 0 }; byStyle[st].c += c; byStyle[st].d += d;
+    const sh = i.shift || "—"; byShift[sh] = byShift[sh] || { name: sh, c: 0, d: 0 }; byShift[sh].c += c; byShift[sh].d += d;
+    const ts = inspTime(i); if (ts) { const k = dayKey(ts); byDay[k] = byDay[k] || { c: 0, d: 0 }; byDay[k].c += c; byDay[k].d += d; }
+  });
+  const dhu = checked ? (defects / checked) * 100 : 0;
+  const calc = o => ({ ...o, dhu: o.c ? (o.d / o.c) * 100 : 0 });
+  return {
+    rows, checked, defects, dhu,
+    passRate: checked ? ((checked - defects) / checked) * 100 : 0,
+    topDefects: Object.entries(byDefect).map(([name, v]) => ({ name, v })).sort((a, b) => b.v - a.v).slice(0, 8),
+    byModule: Object.values(byModule).map(calc).filter(x => x.c > 0).sort((a, b) => b.dhu - a.dhu),
+    byOperator: Object.values(byOperator).map(calc).filter(x => x.c >= 10).sort((a, b) => b.dhu - a.dhu),
+    byStyle: Object.values(byStyle).map(calc).filter(x => x.c > 0).sort((a, b) => b.dhu - a.dhu),
+    byShift: Object.values(byShift).map(calc),
+    byDay
+  };
+}
+
+/* ---------------- AI insight engine ---------------- */
+function generateInsights(dm, qm) {
+  const out = [];
+  // Quality: overall DHU
+  if (qm.checked > 0) {
+    if (qm.dhu > 5) out.push({ sev: "critical", title: `Plant DHU is ${qm.dhu.toFixed(1)}% — above the 5% control limit`, body: `Across ${qm.checked.toLocaleString()} pieces checked, ${qm.defects.toLocaleString()} defects were found. This signals a systemic quality problem, not isolated noise.`, rec: `Trigger a quality stand-up on the top defect (<b>${qm.topDefects[0]?.name || 'n/a'}</b>) and the worst module (<b>${qm.byModule[0]?.name || 'n/a'}</b> at ${qm.byModule[0]?.dhu.toFixed(1)}%).` });
+    else if (qm.dhu > 3) out.push({ sev: "high", title: `Plant DHU at ${qm.dhu.toFixed(1)}% — drifting toward the limit`, body: `Quality is holding but the worst module is running hot.`, rec: `Watch <b>${qm.byModule[0]?.name || 'n/a'}</b> (${qm.byModule[0]?.dhu.toFixed(1)}% DHU) before it breaches 5%.` });
+    else out.push({ sev: "good", title: `Plant DHU healthy at ${qm.dhu.toFixed(1)}%`, body: `Pass rate ${qm.passRate.toFixed(1)}% across ${qm.checked.toLocaleString()} pieces.`, rec: `Maintain current controls; document what's working on the best lines.` });
+  }
+  // Quality: worst operator
+  const badOp = qm.byOperator[0];
+  if (badOp && badOp.dhu > 5) out.push({ sev: "high", title: `Operator ${badOp.name} running ${badOp.dhu.toFixed(1)}% DHU`, body: `${badOp.d} defects on ${badOp.c} pieces${badOp.op ? ' at ' + badOp.op : ''} — well above peers.`, rec: `Schedule targeted re-training / method check for operator <b>${badOp.name}</b>.` });
+  // Quality: dominant defect
+  if (qm.topDefects.length && qm.defects > 0) {
+    const top = qm.topDefects[0]; const share = (top.v / qm.defects) * 100;
+    if (share > 25) out.push({ sev: "high", title: `"${top.name}" drives ${share.toFixed(0)}% of all defects`, body: `${top.v} of ${qm.defects} defects come from a single defect type.`, rec: `Run a focused root-cause (5-why) on <b>${top.name}</b> — the single highest-leverage fix.` });
+  }
+  // Downtime: total
+  if (dm.events.length > 0) {
+    const hrs = dm.totalDownMs / 3600000;
+    out.push({ sev: hrs > 40 ? "critical" : hrs > 15 ? "high" : "medium", title: `${hrs.toFixed(1)} machine-hours lost to downtime`, body: `${dm.breakdowns} breakdowns, ${dm.pm} PM jobs, ${dm.swaps} machine swaps. Mean time-to-repair ${fmtMin(dm.mttr)} min.`, rec: dm.topMachines[0] ? `Prioritise <b>${dm.topMachines[0].name}</b> — ${fmtH(dm.topMachines[0].down)} lost across ${dm.topMachines[0].count} events.` : `Review the top offenders table.` });
+  }
+  // Downtime: repeat offender
+  const rep = dm.topMachines.find(m => m.count >= 3);
+  if (rep) out.push({ sev: "high", title: `${rep.name} broke down ${rep.count}× this period`, body: `Repeat failures suggest a root cause that quick fixes aren't solving.`, rec: `Move <b>${rep.name}</b> from reactive repair to a <b>preventive-maintenance schedule</b> or condition inspection.` });
+  // Downtime: slow response
+  if (dm.resp > 15 * 60000) out.push({ sev: "medium", title: `Average response time ${fmtMin(dm.resp)} min`, body: `Time from breakdown report to a technician starting work is high — machines sit idle waiting.`, rec: `Review technician dispatch / coverage on the busiest shift.` });
+  // Currently down
+  if (dm.downNow.length > 0) out.push({ sev: "medium", title: `${dm.downNow.length} machine(s) down right now`, body: dm.downNow.slice(0, 5).map(m => (m.name || m._key) + (m.issue ? " — " + m.issue : "")).join("; "), rec: `Confirm these have open tickets and an assigned technician.` });
+  // Correlation: downtime ↔ quality on same module
+  if (dm.events.length && qm.byModule.length) {
+    // match worst quality module names against machine names that had downtime
+    const hotMod = qm.byModule[0];
+    if (hotMod && hotMod.dhu > 4) {
+      const related = dm.topMachines.find(m => (m.name || "").toLowerCase().includes(String(hotMod.name).toLowerCase()) || String(hotMod.name).toLowerCase().includes((m.name || "").toLowerCase()));
+      if (related) out.push({ sev: "critical", title: `Quality + downtime overlap on ${hotMod.name}`, body: `Module ${hotMod.name} has the worst DHU (${hotMod.dhu.toFixed(1)}%) and machine ${related.name} on it lost ${fmtH(related.down)}. Defects and breakdowns are likely linked.`, rec: `Inspect <b>${related.name}</b> mechanically — worn parts often cause both stoppages and stitch defects.` });
+    }
+  }
+  if (!out.length) out.push({ sev: "good", title: "No critical issues detected", body: "Not enough data in the selected range, or all metrics are within normal limits.", rec: "Widen the date range or confirm worker apps are submitting data." });
+  const order = { critical: 0, high: 1, medium: 2, good: 3 };
+  return out.sort((a, b) => order[a.sev] - order[b.sev]);
+}
+
+/* ---------------- Chart util ---------------- */
+function makeChart(id, cfg) {
+  const el = document.getElementById(id); if (!el) return;
+  if (charts[id]) charts[id].destroy();
+  Chart.defaults.color = "#9097a8"; Chart.defaults.borderColor = "#2a2e38"; Chart.defaults.font.family = "IBM Plex Sans";
+  charts[id] = new Chart(el, cfg);
+}
+function lastNDays(n) { const a = []; for (let i = n - 1; i >= 0; i--) a.push(dayKey(Date.now() - i * DAY)); return a; }
+
+/* ---------------- Renderers ---------------- */
+function bars(items, getName, getVal, color, fmt) {
+  const max = Math.max(1, ...items.map(getVal));
+  return items.map(it => `<div class="barrow"><div class="nm" title="${getName(it)}">${getName(it)}</div><div class="track"><div class="fill" style="width:${(getVal(it) / max * 100).toFixed(0)}%;background:${color}"></div></div><div class="vv">${fmt(getVal(it))}</div></div>`).join("");
+}
+
+function renderOverview() {
+  const dm = downtimeMetrics(), qm = qualityMetrics();
+  const ins = generateInsights(dm, qm).slice(0, 4);
+  const c = $("#content");
+  c.innerHTML = `
+    <div class="grid kpis" style="margin-bottom:16px">
+      <div class="kpi"><div class="lab">Plant DHU</div><div class="val ${qm.dhu > 5 ? 'up' : 'down'}">${qm.dhu.toFixed(1)}<span class="unit">%</span></div><div class="delta ${qm.dhu > 5 ? 'up' : 'down'}">${qm.dhu > 5 ? '▲ above 5% limit' : '▼ within limit'}</div></div>
+      <div class="kpi"><div class="lab">Pieces Checked</div><div class="val">${qm.checked.toLocaleString()}</div><div class="delta flat">${qm.defects.toLocaleString()} defects</div></div>
+      <div class="kpi"><div class="lab">Downtime</div><div class="val">${(dm.totalDownMs / 3600000).toFixed(1)}<span class="unit">h</span></div><div class="delta flat">${dm.breakdowns} breakdowns</div></div>
+      <div class="kpi"><div class="lab">MTTR</div><div class="val">${fmtMin(dm.mttr)}<span class="unit">min</span></div><div class="delta flat">resp ${fmtMin(dm.resp)}m</div></div>
+      <div class="kpi"><div class="lab">Machines Down Now</div><div class="val ${dm.downNow.length ? 'up' : 'down'}">${dm.downNow.length}</div><div class="delta flat">of ${dm.totalMachines}</div></div>
+    </div>
+    <div class="grid cols2" style="margin-bottom:16px">
+      <div class="card"><h3>Downtime trend</h3><div class="csub">Machine-hours lost per day</div><div class="chartwrap"><canvas id="ovDownChart"></canvas></div></div>
+      <div class="card"><h3>Quality trend</h3><div class="csub">Daily DHU %</div><div class="chartwrap"><canvas id="ovQualChart"></canvas></div></div>
+    </div>
+    <div class="card aibox">
+      <h3>🤖 AI — what matters right now</h3><div class="csub">Auto-generated from live downtime &amp; quality data</div>
+      ${ins.map(renderInsight).join("")}
+      <div style="margin-top:6px"><span class="muted">See full list under </span><a style="color:var(--accent);cursor:pointer" data-jump="insights">AI Insights →</a></div>
+    </div>`;
+
+  const days = lastNDays(Math.min(RANGE >= 9999 ? 30 : RANGE, 30));
+  makeChart("ovDownChart", { type: "bar", data: { labels: days.map(d => d.slice(5)), datasets: [{ label: "Hours", data: days.map(d => (dm.byDay[d] || 0) / 3600000), backgroundColor: "#0099d4" }] }, options: chartOpts() });
+  makeChart("ovQualChart", { type: "line", data: { labels: days.map(d => d.slice(5)), datasets: [{ label: "DHU %", data: days.map(d => { const x = qm.byDay[d]; return x && x.c ? (x.d / x.c * 100) : null; }), borderColor: "#00d4a8", backgroundColor: "rgba(0,212,168,.1)", fill: true, tension: .3, spanGaps: true }] }, options: chartOpts(true) });
+  c.querySelectorAll("[data-jump]").forEach(a => a.onclick = () => go(a.dataset.jump));
+}
+
+function renderDowntime() {
+  const dm = downtimeMetrics();
+  const c = $("#content");
+  if (!dm.events.length && !dm.downNow.length) { c.innerHTML = emptyState("No downtime data in this range", CONN.maint); return; }
+  c.innerHTML = `
+    <div class="grid kpis" style="margin-bottom:16px">
+      <div class="kpi"><div class="lab">Total Downtime</div><div class="val">${(dm.totalDownMs / 3600000).toFixed(1)}<span class="unit">h</span></div></div>
+      <div class="kpi"><div class="lab">MTTR</div><div class="val">${fmtMin(dm.mttr)}<span class="unit">min</span></div></div>
+      <div class="kpi"><div class="lab">Avg Response</div><div class="val">${fmtMin(dm.resp)}<span class="unit">min</span></div></div>
+      <div class="kpi"><div class="lab">Breakdowns</div><div class="val">${dm.breakdowns}</div><div class="delta flat">${dm.pm} PM · ${dm.swaps} swaps</div></div>
+      <div class="kpi"><div class="lab">Parts Cost</div><div class="val">${dm.cost ? dm.cost.toLocaleString() : '—'}</div></div>
+    </div>
+    <div class="grid cols2" style="margin-bottom:16px">
+      <div class="card"><h3>Top machines by downtime</h3><div class="csub">Hours lost</div>${dm.topMachines.length ? bars(dm.topMachines, m => m.name, m => m.down, "#e05555", v => fmtH(v)) : '<div class="empty">No data</div>'}</div>
+      <div class="card"><h3>Downtime by department</h3><div class="csub">Hours lost</div>${dm.byDept.length ? bars(dm.byDept, d => d.dept, d => d.down, "#9966ff", v => fmtH(v)) : '<div class="empty">No data</div>'}</div>
+    </div>
+    <div class="card" style="margin-bottom:16px"><h3>Machines down right now</h3><div class="csub">${dm.downNow.length} machine(s)</div>
+      ${dm.downNow.length ? `<table><thead><tr><th>Machine</th><th>Status</th><th>Issue</th><th>Priority</th></tr></thead><tbody>${dm.downNow.slice(0, 20).map(m => `<tr><td>${m.name || m._key}</td><td><span class="badge badge-red">${m.status}</span></td><td>${m.issue || '—'}</td><td>${m.priority || '—'}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">All machines running ✓</div>'}
+    </div>
+    <div class="card"><h3>Repeat offenders</h3><div class="csub">Machines with the most failure events</div>
+      <table><thead><tr><th>Machine</th><th>Events</th><th>Total downtime</th><th>Avg repair</th></tr></thead><tbody>
+      ${dm.topMachines.map(m => `<tr><td>${m.name}</td><td class="mono">${m.count}</td><td class="mono">${fmtH(m.down)}</td><td class="mono">${m.count ? fmtMin(m.repair / m.count) : 0}m</td></tr>`).join("")}
+      </tbody></table></div>`;
+}
+
+function renderQuality() {
+  const qm = qualityMetrics();
+  const c = $("#content");
+  if (!qm.rows.length) { c.innerHTML = emptyState("No inspection data in this range", CONN.qc); return; }
+  c.innerHTML = `
+    <div class="grid kpis" style="margin-bottom:16px">
+      <div class="kpi"><div class="lab">DHU</div><div class="val ${qm.dhu > 5 ? 'up' : 'down'}">${qm.dhu.toFixed(2)}<span class="unit">%</span></div></div>
+      <div class="kpi"><div class="lab">Pass Rate</div><div class="val down">${qm.passRate.toFixed(1)}<span class="unit">%</span></div></div>
+      <div class="kpi"><div class="lab">Checked</div><div class="val">${qm.checked.toLocaleString()}</div></div>
+      <div class="kpi"><div class="lab">Defects</div><div class="val up">${qm.defects.toLocaleString()}</div></div>
+      <div class="kpi"><div class="lab">Inspections</div><div class="val">${qm.rows.length.toLocaleString()}</div></div>
+    </div>
+    <div class="grid cols2" style="margin-bottom:16px">
+      <div class="card"><h3>Top defect types (Pareto)</h3><div class="csub">Defect count</div>${qm.topDefects.length ? bars(qm.topDefects, d => d.name, d => d.v, "#d4a800", v => v) : '<div class="empty">No defects 🎉</div>'}</div>
+      <div class="card"><h3>DHU by module</h3><div class="csub">Worst first</div>${qm.byModule.length ? bars(qm.byModule.slice(0, 8), m => m.name, m => m.dhu, "#e05555", v => v.toFixed(1) + "%") : '<div class="empty">No data</div>'}</div>
+    </div>
+    <div class="grid cols2">
+      <div class="card"><h3>Worst operators</h3><div class="csub">DHU %, min 10 pieces checked</div>
+        <table><thead><tr><th>Operator</th><th>Operation</th><th>Checked</th><th>Def</th><th>DHU</th></tr></thead><tbody>
+        ${qm.byOperator.slice(0, 12).map(o => `<tr><td>${o.name}</td><td class="muted">${o.op || '—'}</td><td class="mono">${o.c}</td><td class="mono">${o.d}</td><td><span class="badge ${o.dhu > 5 ? 'badge-red' : o.dhu > 3 ? 'badge-yellow' : 'badge-green'}">${o.dhu.toFixed(1)}%</span></td></tr>`).join("") || '<tr><td colspan="5" class="empty">No data</td></tr>'}
+        </tbody></table></div>
+      <div class="card"><h3>DHU by style &amp; shift</h3><div class="csub">Style breakdown</div>
+        <table><thead><tr><th>Style</th><th>Checked</th><th>DHU</th></tr></thead><tbody>
+        ${qm.byStyle.slice(0, 6).map(s => `<tr><td>${s.name}</td><td class="mono">${s.c}</td><td><span class="badge ${s.dhu > 5 ? 'badge-red' : 'badge-gray'}">${s.dhu.toFixed(1)}%</span></td></tr>`).join("")}
+        </tbody></table>
+        <div style="height:12px"></div><div class="csub">By shift</div>
+        ${bars(qm.byShift, s => "Shift " + s.name, s => s.dhu, "#4488ff", v => v.toFixed(1) + "%")}
+      </div>
+    </div>`;
+}
+
+function renderInsightsPage() {
+  const dm = downtimeMetrics(), qm = qualityMetrics();
+  const ins = generateInsights(dm, qm);
+  const counts = { critical: 0, high: 0, medium: 0, good: 0 }; ins.forEach(i => counts[i.sev]++);
+  $("#content").innerHTML = `
+    <div class="grid kpis" style="margin-bottom:16px">
+      <div class="kpi"><div class="lab">Critical</div><div class="val up">${counts.critical}</div></div>
+      <div class="kpi"><div class="lab">High</div><div class="val" style="color:var(--yellow)">${counts.high}</div></div>
+      <div class="kpi"><div class="lab">Medium</div><div class="val" style="color:var(--blue)">${counts.medium}</div></div>
+      <div class="kpi"><div class="lab">Healthy</div><div class="val down">${counts.good}</div></div>
+    </div>
+    <div class="card"><h3>🤖 AI Insight Engine</h3><div class="csub">Rule-based analysis correlating downtime &amp; quality — ranked by severity</div>
+      ${ins.map(renderInsight).join("")}
+    </div>`;
+}
+
+function renderNarrative() {
+  const saved = localStorage.getItem("gf_ai_key") || "";
+  $("#content").innerHTML = `
+    <div class="card aibox" style="margin-bottom:16px">
+      <h3>📝 AI Executive Narrative</h3>
+      <div class="csub">Generate a written management summary. Works fully offline with the built-in engine; optionally use a Google Gemini API key for a richer narrative.</div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px"><label class="muted" style="font-size:11px">Gemini API key (optional, stored only in this browser)</label><input class="keyin" id="aiKey" placeholder="AIza… leave blank for offline summary" value="${saved}"></div>
+        <button class="btn btn-primary" id="genBtn">Generate Summary</button>
+      </div>
+    </div>
+    <div class="card"><h3>Summary</h3><div class="csub" id="narrSub">Click generate</div><div class="ai-narrative" id="narrOut"><span class="muted">No summary yet.</span></div></div>`;
+  $("#genBtn").onclick = generateNarrative;
+}
+
+async function generateNarrative() {
+  const dm = downtimeMetrics(), qm = qualityMetrics();
+  const ins = generateInsights(dm, qm);
+  const key = $("#aiKey").value.trim();
+  localStorage.setItem("gf_ai_key", key);
+  const out = $("#narrOut"), sub = $("#narrSub");
+
+  const offline = buildOfflineNarrative(dm, qm, ins);
+  if (!key) { out.textContent = offline; sub.textContent = "Built-in engine · " + new Date().toLocaleString(); return; }
+
+  sub.innerHTML = '<span class="spinner"></span> Asking Gemini…'; out.textContent = "";
+  const facts = JSON.stringify({
+    rangeDays: RANGE, dhu: +qm.dhu.toFixed(2), passRate: +qm.passRate.toFixed(1), checked: qm.checked, defects: qm.defects,
+    topDefects: qm.topDefects.slice(0, 5), worstModules: qm.byModule.slice(0, 4), worstOperators: qm.byOperator.slice(0, 4).map(o => ({ id: o.name, dhu: +o.dhu.toFixed(1), op: o.op })),
+    downtimeHours: +(dm.totalDownMs / 3600000).toFixed(1), mttrMin: +fmtMin(dm.mttr), breakdowns: dm.breakdowns, topMachines: dm.topMachines.slice(0, 4).map(m => ({ name: m.name, hours: +(m.down / 3600000).toFixed(1), events: m.count })), machinesDownNow: dm.downNow.length,
+    detectedIssues: ins.map(i => ({ sev: i.sev, title: i.title }))
+  });
+  const prompt = `You are a garment factory operations analyst. Using ONLY this JSON data from a maintenance + quality system, write a concise executive summary (180-260 words) for a factory manager. Cover: overall health, the single biggest downtime risk, the single biggest quality risk, any link between machine breakdowns and defects, and 3 prioritised actions. Be specific with numbers. Plain prose, no markdown headers.\n\nDATA:\n${facts}`;
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error?.message || ("HTTP " + r.status));
+    const txt = j.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!txt) throw new Error("Empty response");
+    out.textContent = txt; sub.textContent = "Gemini 1.5 Flash · " + new Date().toLocaleString();
+  } catch (e) {
+    out.textContent = "⚠ LLM call failed (" + e.message + ").\n\nFalling back to the built-in summary:\n\n" + offline;
+    sub.textContent = "Offline fallback · " + new Date().toLocaleString();
+  }
+}
+
+function buildOfflineNarrative(dm, qm, ins) {
+  const L = [];
+  const period = RANGE >= 9999 ? "all available history" : `the last ${RANGE} days`;
+  L.push(`OPERATIONS SUMMARY — ${period}.`);
+  L.push("");
+  if (qm.checked) L.push(`Quality: ${qm.checked.toLocaleString()} pieces were inspected with ${qm.defects.toLocaleString()} defects, a plant DHU of ${qm.dhu.toFixed(2)}% (pass rate ${qm.passRate.toFixed(1)}%). ${qm.dhu > 5 ? "This is ABOVE the 5% control limit and needs immediate attention." : "This is within the 5% control limit."}${qm.topDefects[0] ? ` The dominant defect is "${qm.topDefects[0].name}" (${qm.topDefects[0].v} occurrences).` : ""}${qm.byModule[0] ? ` The weakest module is ${qm.byModule[0].name} at ${qm.byModule[0].dhu.toFixed(1)}% DHU.` : ""}`);
+  else L.push("Quality: no inspection records were found in this period.");
+  L.push("");
+  if (dm.events.length) L.push(`Downtime: ${(dm.totalDownMs / 3600000).toFixed(1)} machine-hours were lost across ${dm.breakdowns} breakdowns, ${dm.pm} preventive jobs and ${dm.swaps} swaps. Mean time-to-repair was ${fmtMin(dm.mttr)} minutes with an average response of ${fmtMin(dm.resp)} minutes.${dm.topMachines[0] ? ` ${dm.topMachines[0].name} was the biggest contributor (${fmtH(dm.topMachines[0].down)} over ${dm.topMachines[0].count} events).` : ""}${dm.downNow.length ? ` ${dm.downNow.length} machine(s) are down right now.` : ""}`);
+  else L.push("Downtime: no repair logs were found in this period.");
+  L.push("");
+  const crit = ins.filter(i => i.sev === "critical" || i.sev === "high").slice(0, 3);
+  if (crit.length) { L.push("Priority actions:"); crit.forEach((i, n) => L.push(`${n + 1}. ${i.title} — ${i.rec.replace(/<[^>]+>/g, "")}`)); }
+  else L.push("No critical actions — maintain current controls and keep logging data.");
+  return L.join("\n");
+}
+
+/* ---------------- Shared bits ---------------- */
+function renderInsight(i) {
+  const icon = { critical: "🔴", high: "🟡", medium: "🔵", good: "🟢" }[i.sev];
+  return `<div class="insight ${i.sev}"><div class="ih">${icon}<span class="it">${i.title}</span><span class="badge badge-gray">${i.sev}</span></div><div class="ib">${i.body}</div><div class="rec">💡 ${i.rec}</div></div>`;
+}
+function emptyState(msg, conn) {
+  return `<div class="card"><div class="empty"><div style="font-size:32px;margin-bottom:8px">${conn ? '📭' : '🔌'}</div><div style="font-size:15px;color:var(--text2)">${msg}</div><div style="margin-top:6px">${conn ? 'Try widening the date range.' : 'Could not read this database — check connectivity or rules.'}</div></div></div>`;
+}
+function chartOpts(pct) {
+  return { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { callback: v => pct ? v + "%" : v } } } };
+}
+
+/* ---------------- Routing ---------------- */
+const TITLES = {
+  overview: ["Executive Overview", "Combined downtime & quality intelligence"],
+  downtime: ["Downtime Analysis", "Machine reliability, MTTR & repair logs"],
+  quality: ["Quality Analysis", "DHU, defects, operators & modules"],
+  insights: ["AI Insights", "Ranked, auto-generated findings & actions"],
+  narrative: ["AI Narrative", "Written executive summary"]
+};
+function go(page) {
+  PAGE = page;
+  document.querySelectorAll(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.page === page));
+  $("#pgtitle").textContent = TITLES[page][0]; $("#pgsub").textContent = TITLES[page][1];
+  if (page === "overview") renderOverview();
+  else if (page === "downtime") renderDowntime();
+  else if (page === "quality") renderQuality();
+  else if (page === "insights") renderInsightsPage();
+  else if (page === "narrative") renderNarrative();
+}
+
+document.querySelectorAll(".nav-item").forEach(n => n.onclick = () => go(n.dataset.page));
+$("#rangeSel").onchange = e => { RANGE = parseInt(e.target.value); go(PAGE); };
+$("#refreshBtn").onclick = async () => { $("#refreshBtn").innerHTML = '<span class="spinner"></span>'; await loadAll(); go(PAGE); $("#refreshBtn").innerHTML = "↻ Refresh"; };
+$("#printBtn").onclick = () => window.print();
+
+/* ---------------- Boot ---------------- */
+(async function boot() {
+  await loadAll();
+  $("#loadscreen").classList.add("hide");
+  $("#app").classList.remove("hide");
+  go("overview");
+})();
+</script>
+</body>
+</html>
