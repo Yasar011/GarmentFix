@@ -177,6 +177,9 @@ button{cursor:pointer;border:none;outline:none}
 .toast-error{background:rgba(224,85,85,.95);color:#fff}
 .err-msg{color:var(--red);font-size:13px;margin-bottom:12px;padding:12px;background:rgba(224,85,85,.08);border-radius:8px;border:1px solid rgba(224,85,85,.2);display:none}
 .dhu-box{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;text-align:center;display:none}
+.sp-btn{padding:10px 4px;background:var(--bg3);border:2px solid var(--border);border-radius:8px;color:var(--text2);font-size:17px;font-weight:600;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.sp-btn:active{transform:scale(.92)}
+.sp-sel{background:rgba(0,212,168,.15);border-color:var(--accent);color:var(--accent)}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:flex;align-items:flex-end;justify-content:center}
 .modal-sheet{background:var(--bg2);border:1px solid var(--border);border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:500px;max-height:88vh;overflow-y:auto}
 .progress-bar{height:4px;background:var(--border);border-radius:4px;margin-bottom:16px}
@@ -310,7 +313,6 @@ function startQRIfNeeded(){
   if(s==='scan')               initQRIn('qr-reader',     handleModuleQR);
   else if(s==='lh_scan')       initQRIn('qr-lh-scan',    handleLHScanQR);
   else if(s==='check_scan_pick')     initQRIn('qr-inline-pick', handleInlinePickQR);
-  else if(s==='endline_scan_pick')   initQRIn('qr-endline-pick',handleEndlinePickQR);
   else if(s==='roving_scan_pick')    initQRIn('qr-roving-pick', handleRovingPickQR);
 }
 function initQRIn(elId,cb){
@@ -476,7 +478,8 @@ function bindVerify(){
       toast('Verified ✓');
       if(isLineHead())      WS.step='lh_scan';
       else if(isEndline())  WS.step='endline_home';
-      else                  WS.step='roving_home';
+      else if(isRoving())   WS.step='roving_home';
+      else                  WS.step='check_home';
       renderW();
     } else {
       err.style.display='block';
@@ -1324,8 +1327,21 @@ function handleRovingPickQR(text){
     }
     selectRovingOperator(rosterMach.machineId);
   } else {
-    const temp={machineId:machId,machineName:mach?.name||'M-'+machId.slice(-4),operatorId:'',operation:''};
-    WS.rovingRoundData.push(temp);toast('Added to visit');selectRovingOperator(machId);
+    // Machine not in today's roster — flash warning, do not add
+    const label=mach?.name||machId.slice(-6);
+    toast('⚠ Machine "'+label+'" not in roster!','error');
+    const sa=document.querySelector('.scan-area-sm')||document.querySelector('.scan-area');
+    if(sa){
+      sa.style.transition='none';
+      sa.style.boxShadow='0 0 0 4px rgba(224,85,85,.9)';
+      sa.style.outline='3px solid var(--red)';
+      let blinks=0;
+      const blink=setInterval(()=>{
+        sa.style.opacity=blinks%2===0?'0.35':'1';
+        if(++blinks>=6){clearInterval(blink);sa.style.opacity='1';sa.style.boxShadow='';sa.style.outline='';}
+      },160);
+    }
+    setTimeout(()=>startQRIfNeeded(),900);
   }
 }
 
@@ -1372,13 +1388,14 @@ function renderRovingForm(){
     +'<select class="form-input" name="absent">'
     +'<option value="0">Present ✓</option><option value="1">Absent (AB)</option>'
     +'</select></div>'
-    // SP and DC
-    +'<div class="form-row">'
-    +'<div class="form-group"><label class="form-label">Sample Qty (SP)</label>'
-    +'<input class="form-input" name="sp" type="number" min="1" value="3" oninput="calcRovingDHU()"></div>'
-    +'<div class="form-group"><label class="form-label">Defects Found (D/C)</label>'
-    +'<input class="form-input" name="dc" type="number" min="0" value="0" oninput="calcRovingDHU()"></div>'
-    +'</div>'
+    // SP picker (9–18) and DC
+    +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">Sample Qty (SP)</label>'
+    +'<input type="hidden" name="sp" id="sp-val" value="12">'
+    +'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px" id="sp-grid">'
+    +[9,10,11,12,13,14,15,16,17,18].map(n=>'<button type="button" class="sp-btn'+(n===12?' sp-sel':'')+'" onclick="pickSP('+n+')">'+n+'</button>').join('')
+    +'</div></div>'
+    +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">Defects Found (D/C)</label>'
+    +'<input class="form-input" name="dc" type="number" min="0" value="0" oninput="calcRovingDHU()" style="font-size:24px;font-weight:700;text-align:center;padding:14px"></div>'
     +'<div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">Defect %</div>'
     +'<div id="dhu-val" style="font-size:28px;font-weight:700"></div></div>'
     // Defect type
@@ -1423,9 +1440,18 @@ window.checkSPI=function(val){
   box.textContent=ok?'✓ SPI OK ('+v+')':'⚠ SPI Out of Range ('+v+') — Standard: 10–16';
 };
 
+window.pickSP=function(n){
+  const inp=document.getElementById('sp-val');if(inp)inp.value=n;
+  document.querySelectorAll('.sp-btn').forEach(b=>{
+    const isMe=parseInt(b.textContent)===n;
+    b.classList.toggle('sp-sel',isMe);
+  });
+  calcRovingDHU();
+};
+
 window.calcRovingDHU=function(){
   const f=document.getElementById('wf');if(!f)return;
-  const sp=parseInt(f.sp?.value)||0,dc=parseInt(f.dc?.value)||0;
+  const sp=parseInt(document.getElementById('sp-val')?.value)||0,dc=parseInt(f.dc?.value)||0;
   const box=document.getElementById('dhu-box'),val=document.getElementById('dhu-val');
   if(!box||!val)return;
   if(sp>0){const pct=((dc/sp)*100).toFixed(1);box.style.display='block';val.textContent=pct+'%';val.style.color=dc>0?'var(--red)':'var(--green)';}
@@ -1668,7 +1694,7 @@ function renderCheckEnd(){
       +'<div style="font-size:11px;color:var(--text3)">'+(r.checkedQty||0)+' chkd</div>'
       +'</div></div>').join('')
     +'</div>'
-    +'<button class="btn-big btn-primary" onclick="WS.checkRound++;WS.checkRoundResults=[];WS._currentCheckMachine=null;WS.step=isEndline()?\'endline_scan_pick\':\'check_scan_pick\';renderW()">▶ Start Next Check</button>'
+    +'<button class="btn-big btn-primary" onclick="WS.checkRound++;WS.checkRoundResults=[];WS._currentCheckMachine=null;WS.step=\'check_scan_pick\';renderW()">▶ Start Next Check</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=isEndline()?\'endline_home\':\'check_home\';renderW()">← Back to Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
@@ -1784,7 +1810,7 @@ function bindSubmit(){
       });
 
       if(remaining.length>0){
-        WS.step=isEndline()?'endline_scan_pick':'check_scan_pick';
+        WS.step='check_scan_pick';
       } else {
         WS.step='check_end';
       }
@@ -1834,7 +1860,7 @@ function renderDash(){
   const dhu=tc?((td/tc)*100).toFixed(1):'0.0';
   const rounds=rovingMode?[...new Set(ins.map(i=>i.visitNum).filter(Boolean))]:[...new Set(ins.map(i=>i.checkRound).filter(Boolean))];
   const roleAction=isWorker()
-    ?'<button class="btn-big btn-primary" onclick="WS.step=\'worker_scan_machine\';renderW()">🔧 Register My Machine</button>'
+    ?'<button class="btn-big btn-primary" onclick="goStartCheck()">🔧 Start Inline Check</button>'
     :isRoving()
       ?'<button class="btn-big btn-primary" onclick="goStartCheck()">🏃 Start Roving Visit</button>'
       :isEndline()
