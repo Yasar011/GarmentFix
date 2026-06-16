@@ -72,7 +72,7 @@
     onValue(ref(db,'machineRosters'), s => { window.D.machineRosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','roster'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'machines'), s => { window.D.machines = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='machines') window.render(); });
     onValue(ref(db,'machineEvents'), s => { window.D.machineEvents = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['machines','supervisor'].includes(window.D.page)) window.render(); if(window.scheduleAI)window.scheduleAI(); });
-    onValue(ref(db,'aiTickets'), s => { window.D.aiTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='supervisor') window.render(); });
+    onValue(ref(db,'aiTickets'), s => { window.D.aiTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','ai-analysis'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'rovingInspections'), s => { window.D.rovingInspections = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['roving','reports'].includes(window.D.page)) window.render(); });
   };
 
@@ -1054,7 +1054,7 @@ function pgRoving(){
   return`<div style="display:flex;flex-direction:column;gap:20px">
     <div class="card" style="border-color:var(--red)">
       <div class="card-header"><span class="card-title" style="color:var(--red)">🏃 Roving Inspection Report — Brandix paper format</span><span class="fb">🔥 ${rovIns.length} records</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
         <div class="form-group" style="margin:0"><label class="form-label">Date</label>
           <select class="form-input" onchange="D.rovingDate=this.value;render()">${dates.length?dates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No data yet</option>'}</select></div>
         <div class="form-group" style="margin:0"><label class="form-label">Module / Team</label>
@@ -1067,6 +1067,9 @@ function pgRoving(){
             <button class="btn btn-primary" onclick="rptRoving('pdf')">${ic('pdf',14)} PDF</button>
             <button class="btn btn-ghost" onclick="rptRoving('excel')">${ic('excel',14)} Excel</button>
           </div></div>
+        <div class="form-group" style="margin:0"><label class="form-label" style="color:var(--red)">⏰ ${shiftLabel()}</label>
+          <button class="btn" onclick="endShiftRoving()" style="width:100%;background:rgba(255,80,80,.15);color:var(--red);border:1px solid rgba(255,80,80,.3);font-weight:700">🔚 End Shift & Clear</button>
+        </div>
       </div>
     </div>
     ${operators.length===0?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No roving data for selected filters.<br><span style="font-size:12px;margin-top:8px;display:block">Workers with <b>QC Roving Inspector</b> role submit data from the worker portal.</span></div>`:`
@@ -1614,7 +1617,263 @@ window.resolveTicket = async function(k){
   await window.fbUpd('aiTickets',k,{status:'Resolved'});toast('Resolved');
 };
 
-function pgAI(){const ins=D.inspections;const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const td=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);const total=Object.values(dm).reduce((a,b)=>a+b,0)||1;const om={};ins.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});const to=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,5);return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="ai-chip">${ic('cpu',12)} AI Analysis</div><div style="margin-top:8px;font-size:14px;font-weight:500;color:var(--text2)">From ${ins.length} records</div></div>${ins.length>0?`<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Defect Distribution</span></div>${td.map(([n,c])=>`<div class="ai-finding"><div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:500">${n}</span><span style="font-size:12px;font-family:var(--mono);color:var(--red)">${c} (${((c/total)*100).toFixed(0)}%)</span></div><div class="ai-bar"><div class="ai-bar-fill" style="width:${(c/total)*100}%"></div></div></div>`).join('')}</div><div class="card"><div class="card-header"><span class="card-title">Operator Risk</span></div>${to.length===0?'<div style="color:var(--text3);padding:12px">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Operator</th><th>Checks</th><th>Defects</th><th>Risk</th></tr></thead><tbody>${to.map(([o,d])=>{const avg=(d.d/d.n).toFixed(1);return`<tr><td style="font-family:var(--mono)">${o}</td><td>${d.n}</td><td style="color:var(--red)">${d.d}</td><td><span class="badge badge-${avg>3?'red':avg>1?'yellow':'green'}">${avg>3?'High':avg>1?'Med':'Low'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div></div><div class="card"><div class="card-header"><span class="card-title">Recommendations</span><button class="btn btn-ghost btn-sm" onclick="rptOperator('pdf')">${ic('pdf',12)} Report</button></div>${td.slice(0,3).map(([n,c])=>`<div class="alert-card alert-high">${ic('cpu',14)}<div><div style="font-weight:500">"${n}" — ${c} occurrences (${((c/total)*100).toFixed(0)}%)</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Consider machine maintenance, retraining, or material check.</div></div></div>`).join('')}</div>`:''}</div>`;}
+function pgAI(){
+  const ins=D.inspections||[];
+  const rovIns=D.rovingInspections||[];
+  const tickets=(D.aiTickets||[]).sort((a,b)=>(b.generatedAt||b.createdAt||'').localeCompare(a.generatedAt||a.createdAt||''));
+  const latest=tickets[0]||null;
+
+  // Live computed metrics
+  const today=new Date().toISOString().split('T')[0];
+  const todayIns=ins.filter(i=>(i.date||(i.createdAt||'').split('T')[0])===today);
+  const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const dhu=totChk?((totDef/totChk)*100).toFixed(1):0;
+  const dhuColor=parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>2.5?'var(--yellow)':'var(--green)';
+
+  // Defect breakdown
+  const dm={};ins.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||0);});
+  const topDef=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const maxDef=topDef[0]?.[1]||1;
+
+  // Module DHU
+  const modMap={};ins.forEach(i=>{const m=i.module||'—';if(!modMap[m])modMap[m]={chk:0,def:0};modMap[m].chk+=parseInt(i.checkedQty)||0;modMap[m].def+=parseInt(i.defectQty)||0;});
+  const modStats=Object.entries(modMap).map(([n,s])=>({n,dhu:s.chk?((s.def/s.chk)*100).toFixed(1):0,chk:s.chk,def:s.def})).sort((a,b)=>parseFloat(b.dhu)-parseFloat(a.dhu));
+
+  // Operator risk
+  const om={};ins.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});
+  const topOps=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,6);
+
+  // Status helpers
+  const statusColor={'Critical':'var(--red)','High':'var(--red)','Medium':'var(--yellow)','Low':'var(--green)'};
+  const trendIcon={'improving':'↑','stable':'→','declining':'↓'};
+  const trendColor={'improving':'var(--green)','stable':'var(--yellow)','declining':'var(--red)'};
+  const prioColor={'immediate':'var(--red)','soon':'var(--yellow)','planned':'var(--blue)'};
+
+  const latestCard=latest?`
+  <div class="card" style="border-color:${statusColor[latest.overallStatus]||'var(--border)'};border-width:2px">
+    <div class="card-header" style="flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="ai-chip">${ic('cpu',12)} Grok AI</div>
+        <span class="card-title">Latest Analysis</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+        <span style="font-size:11px;color:var(--text3)">${latest.analysisDate||fd(latest.generatedAt||latest.createdAt)||'—'}</span>
+        <span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${statusColor[latest.overallStatus]||'var(--border)'};color:#fff">${latest.overallStatus||'—'}</span>
+        <span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;color:${trendColor[latest.trend]||'var(--text2)'};">${trendIcon[latest.trend]||''}  ${(latest.trend||'').toUpperCase()}</span>
+      </div>
+    </div>
+    <div style="padding:12px 0 16px;font-size:13px;color:var(--text2);line-height:1.7;border-bottom:1px solid var(--border);margin-bottom:14px">${latest.summary||'No summary.'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+      <div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px">DHU</div>
+        <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${statusColor[latest.overallStatus]||'var(--text1)'}">${latest.dhu||dhu}%</div>
+      </div>
+      <div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px">INSPECTED</div>
+        <div style="font-size:22px;font-weight:700;font-family:var(--mono)">${latest.totalInsp||totChk}</div>
+      </div>
+      <div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px">DEFECTS</div>
+        <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:var(--red)">${latest.totalDef||totDef}</div>
+      </div>
+    </div>
+    ${(latest.findings||[]).length>0?`
+    <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.8px;margin-bottom:8px">KEY FINDINGS</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      ${(latest.findings||[]).slice(0,4).map(f=>`
+      <div style="padding:10px 12px;border-radius:8px;border-left:3px solid ${statusColor[f.level]||statusColor[(f.level||'').charAt(0).toUpperCase()+(f.level||'').slice(1)]||'var(--border)'};background:rgba(255,255,255,.02)">
+        <div style="font-size:12px;font-weight:600;margin-bottom:2px">${f.title||''} ${f.module?`<span style="font-size:10px;color:var(--text3);margin-left:4px">${f.module}</span>`:''}</div>
+        <div style="font-size:11px;color:var(--text2)">${f.detail||''}</div>
+      </div>`).join('')}
+    </div>`:''}
+    ${(latest.rootCauses||[]).length>0?`
+    <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.8px;margin-bottom:8px">ROOT CAUSES</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      ${(latest.rootCauses||[]).slice(0,3).map(r=>`
+      <div style="padding:10px 12px;border-radius:8px;background:rgba(153,102,255,.08);border:1px solid rgba(153,102,255,.2)">
+        <div style="font-size:12px;font-weight:600;color:var(--purple)">${r.cause||''}</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">${r.evidence||''}</div>
+      </div>`).join('')}
+    </div>`:''}
+    ${(latest.recommendations||[]).length>0?`
+    <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.8px;margin-bottom:8px">RECOMMENDATIONS</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${(latest.recommendations||[]).slice(0,5).map(r=>`
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:8px;background:rgba(0,212,168,.05);border:1px solid rgba(0,212,168,.15)">
+        <span style="padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;background:${prioColor[r.priority]||'var(--text3)'};color:#fff;white-space:nowrap;margin-top:1px">${(r.priority||'planned').toUpperCase()}</span>
+        <div><div style="font-size:12px;font-weight:500">${r.action||''}</div>${r.target?`<div style="font-size:10px;color:var(--text3);margin-top:2px">→ ${r.target}</div>`:''}</div>
+      </div>`).join('')}
+    </div>`:''}
+  </div>`:`
+  <div class="card" style="text-align:center;padding:40px 20px">
+    <div style="font-size:32px;margin-bottom:12px">🤖</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:8px">No AI Analysis Yet</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px">Run the n8n workflow to generate Grok AI root cause analysis.</div>
+    <div class="ai-chip" style="margin:0 auto">${ic('cpu',12)} Awaiting n8n Trigger</div>
+  </div>`;
+
+  return`<div style="display:flex;flex-direction:column;gap:20px">
+
+  <!-- Header -->
+  <div class="card" style="background:linear-gradient(135deg,rgba(153,102,255,.12),rgba(0,212,168,.08));border-color:rgba(153,102,255,.3)">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:4px">🤖 AI Quality Analysis</div>
+        <div style="font-size:12px;color:var(--text2)">Root cause detection powered by Grok AI via n8n automation</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="ai-chip">${ic('cpu',12)} Grok AI (xAI)</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(255,127,0,.1);border:1px solid rgba(255,127,0,.25);border-radius:20px;font-size:11px;color:#ff7f00">⚙ n8n Automation</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);border-radius:20px;font-size:11px;color:var(--red)">🔥 Firebase</span>
+      </div>
+    </div>
+    ${latest?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:var(--text3)">Last analysis: ${latest.analysisDate||fd(latest.generatedAt||latest.createdAt)||'—'} &nbsp;•&nbsp; ${tickets.length} analysis records in database</div>`:''}
+  </div>
+
+  <!-- Live KPI row -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <div class="card" style="padding:14px;border-color:${dhuColor}">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">LIVE OVERALL DHU</div>
+      <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:${dhuColor}">${dhu}%</div>
+      <div style="font-size:11px;color:var(--text2)">Target ≤ 2.5%</div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">TOTAL INSPECTED</div>
+      <div style="font-size:28px;font-weight:700;font-family:var(--mono)">${totChk.toLocaleString()}</div>
+      <div style="font-size:11px;color:var(--text2)">${ins.length} records</div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">TOTAL DEFECTS</div>
+      <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:var(--red)">${totDef}</div>
+      <div style="font-size:11px;color:var(--text2)">${todayIns.length} today</div>
+    </div>
+    <div class="card" style="padding:14px;border-color:${latest?statusColor[latest.overallStatus]||'var(--border)':'var(--border)'}">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">AI STATUS</div>
+      <div style="font-size:18px;font-weight:700;color:${latest?statusColor[latest.overallStatus]||'var(--text1)':'var(--text3)'}">${latest?latest.overallStatus:'No data'}</div>
+      <div style="font-size:11px;color:${latest?trendColor[latest.trend]||'var(--text2)':'var(--text3)'}">${latest?(trendIcon[latest.trend]||'')+'  '+(latest.trend||''):'Run n8n workflow'}</div>
+    </div>
+  </div>
+
+  <!-- Latest AI analysis card -->
+  ${latestCard}
+
+  <!-- Live Defect Distribution -->
+  ${topDef.length>0?`
+  <div class="card">
+    <div class="card-header"><span class="card-title">📊 Live Defect Distribution</span><span style="font-size:12px;color:var(--text3)">${totDef} total defects</span></div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${topDef.map(([n,c])=>`
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:500">${n}</span>
+          <span style="font-size:12px;font-family:var(--mono);color:var(--red)">${c} &nbsp;<span style="color:var(--text3)">(${totDef?((c/totDef)*100).toFixed(0):0}%)</span></span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${(c/maxDef)*100}%;background:linear-gradient(90deg,var(--red),var(--accent2));border-radius:3px;transition:width .5s"></div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`:''}
+
+  <!-- Module DHU + Operator Risk -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header"><span class="card-title">🏭 Module DHU Breakdown</span></div>
+      ${modStats.length===0?'<div style="color:var(--text3);padding:12px">No data</div>':`
+      <div class="table-wrap"><table>
+        <thead><tr><th>Module</th><th>DHU %</th><th>Checked</th><th>Defects</th><th>Status</th></tr></thead>
+        <tbody>${modStats.map(m=>{
+          const c=parseFloat(m.dhu);
+          const col=c>5?'var(--red)':c>2.5?'var(--yellow)':'var(--green)';
+          const lbl=c>5?'Critical':c>2.5?'Review':'Pass';
+          return`<tr>
+            <td style="font-weight:500">${m.n}</td>
+            <td style="font-family:var(--mono);color:${col};font-weight:700">${m.dhu}%</td>
+            <td style="font-family:var(--mono)">${m.chk}</td>
+            <td style="font-family:var(--mono);color:var(--red)">${m.def}</td>
+            <td><span class="badge badge-${c>5?'red':c>2.5?'yellow':'green'}">${lbl}</span></td>
+          </tr>`;}).join('')}
+        </tbody>
+      </table></div>`}
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">👷 Operator Risk Analysis</span></div>
+      ${topOps.length===0?'<div style="color:var(--text3);padding:12px">No data</div>':`
+      <div class="table-wrap"><table>
+        <thead><tr><th>Operator</th><th>Checks</th><th>Defects</th><th>Avg</th><th>Risk</th></tr></thead>
+        <tbody>${topOps.map(([o,d])=>{
+          const avg=(d.d/Math.max(d.n,1)).toFixed(1);
+          const risk=avg>3?'High':avg>1?'Med':'Low';
+          return`<tr>
+            <td style="font-family:var(--mono);font-size:12px">${o}</td>
+            <td>${d.n}</td>
+            <td style="color:var(--red)">${d.d}</td>
+            <td style="font-family:var(--mono)">${avg}</td>
+            <td><span class="badge badge-${avg>3?'red':avg>1?'yellow':'green'}">${risk}</span></td>
+          </tr>`;}).join('')}
+        </tbody>
+      </table></div>`}
+    </div>
+  </div>
+
+  <!-- n8n Integration info -->
+  <div class="card" style="border-color:rgba(255,127,0,.3)">
+    <div class="card-header">
+      <span class="card-title">⚙ n8n Automation Setup</span>
+      <span style="font-size:11px;color:var(--text3)">Auto-runs every 30 min</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.8px;margin-bottom:10px">WORKFLOW STEPS</div>
+        ${['🔥 Fetch Firebase — inspections, roving, modules, styles','🧠 Build analysis prompt with live DHU & defect data','🤖 Send to Grok AI (xAI) for root cause analysis','📋 Parse structured JSON response (findings, causes, recs)','⚠ Auto-create Firebase alert if status is Critical','💾 Save AI ticket to Firebase aiTickets collection'].map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;color:var(--text2);border-bottom:1px solid rgba(255,255,255,.04)">${s}</div>`).join('')}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.8px;margin-bottom:10px">CREDENTIALS NEEDED IN n8n</div>
+        ${[
+          ['Firebase DB Secret','HTTP Query Auth','settings.json in n8n → Firebase → Database Secrets'],
+          ['Grok API Key','HTTP Header Auth','console.x.ai → API Keys → Bearer token'],
+          ['Firebase URL','Inline in nodes','qc--brandex-default-rtdb.asia-southeast1.firebasedatabase.app'],
+        ].map(([name,type,hint])=>`
+        <div style="padding:8px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px;border:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:12px;font-weight:600">${name}</span>
+            <span style="font-size:10px;padding:2px 6px;background:rgba(0,212,168,.1);color:var(--accent);border-radius:6px">${type}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">${hint}</div>
+        </div>`).join('')}
+        <div style="margin-top:8px;padding:10px;background:rgba(153,102,255,.08);border-radius:8px;border:1px solid rgba(153,102,255,.2)">
+          <div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">Import the workflow</div>
+          <div style="font-size:11px;color:var(--text2)">n8n → Workflows → Import from file → brandix_qms_n8n_grok.json</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI History -->
+  ${tickets.length>1?`
+  <div class="card">
+    <div class="card-header"><span class="card-title">📜 Analysis History</span><span style="font-size:12px;color:var(--text3)">${tickets.length} runs</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Status</th><th>DHU</th><th>Trend</th><th>Summary</th><th>State</th><th></th></tr></thead>
+      <tbody>${tickets.slice(0,10).map(t=>`<tr>
+        <td style="font-size:12px;white-space:nowrap">${t.analysisDate||fd(t.generatedAt||t.createdAt)||'—'}</td>
+        <td><span class="badge badge-${t.overallStatus==='Critical'||t.overallStatus==='High'?'red':t.overallStatus==='Medium'?'yellow':'green'}">${t.overallStatus||'—'}</span></td>
+        <td style="font-family:var(--mono);color:${parseFloat(t.dhu)>5?'var(--red)':parseFloat(t.dhu)>2.5?'var(--yellow)':'var(--green)'}">${t.dhu||'—'}%</td>
+        <td style="color:${trendColor[t.trend]||'var(--text2)'}">${trendIcon[t.trend]||''} ${t.trend||'—'}</td>
+        <td style="font-size:11px;color:var(--text2);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.summary||''}</td>
+        <td><span class="badge badge-${t.status==='Resolved'?'green':t.status==='Acknowledged'?'blue':'yellow'}">${t.status||'Active'}</span></td>
+        <td><div style="display:flex;gap:4px">
+          ${t.status!=='Acknowledged'&&t.status!=='Resolved'?`<button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Ack</button>`:''}
+          ${t.status!=='Resolved'?`<button class="btn btn-ghost btn-sm" onclick="resolveTicket('${t.fbKey}')">Resolve</button>`:''}
+          <button class="btn-icon" style="color:var(--red)" onclick="del('aiTickets','${t.fbKey}')">${ic('trash',12)}</button>
+        </div></td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+  </div>`:''}
+  </div>`;
+}
 
 function pgOps(){const ops=D.operations;return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><div><span class="card-title">Operations</span><div style="font-size:12px;color:var(--text3);margin-top:4px">These appear in worker dropdown</div></div><div><button class="btn btn-primary btn-sm" onclick="showModal('addOp')">${ic('plus',14)} Add</button><button class="btn btn-ghost btn-sm" onclick="triggerCSV('operations')" style="margin-left:4px">📄 Import CSV</button></div></div>${ops.length===0?`<div style="padding:20px;text-align:center;color:var(--text3)">No custom operations. <button class="btn btn-ghost btn-sm" onclick="seedOps()">Load Defaults</button></div>`:`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Added</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td style="font-weight:500">${o.name||''}</td><td style="font-size:12px;color:var(--text3)">${fd(o.createdAt)}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('operations','${o.fbKey}')">${ic('trash',14)}</button></td></tr>`).join('')}</tbody></table></div>`}</div></div>`;}
 
@@ -1675,7 +1934,76 @@ function pgUsers(){
   </div>`;
 }
 
-function pgSettings(){return`<div style="max-width:640px"><div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">Profile</span></div><div style="display:flex;align-items:center;gap:16px;margin-bottom:16px"><div class="avatar" style="width:56px;height:56px;font-size:18px">${ini(D.user?.name)}</div><div><div style="font-size:16px;font-weight:600">${D.user?.name||''}</div><div style="font-size:12px;color:var(--text2)">${D.user?.username||D.user?.email||''}</div><span class="badge badge-green">${D.user?.role||''}</span></div></div></div><div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">Seed Demo Data</span></div><div style="font-size:12px;color:var(--text2);margin-bottom:12px">Populate with sample styles, modules, operations, inspections</div><button class="btn btn-ghost" id="seed-btn">${ic('refresh',14)} Seed Demo Data</button></div><div class="card"><button class="btn btn-danger" onclick="logout()">${ic('logout',14)} Sign Out</button></div></div>`;}
+function pgSettings(){
+  const rovN=D.rovingInspections?.length||0;
+  const insN=D.inspections?.length||0;
+  const today=new Date().toISOString().split('T')[0];
+  const rovToday=(D.rovingInspections||[]).filter(i=>i.date===today).length;
+  const insToday=(D.inspections||[]).filter(i=>(i.date||(i.createdAt||'').split('T')[0])===today).length;
+  const shift=currentShift();
+  const shiftColors={A:'var(--blue)',B:'var(--yellow)',C:'var(--text2)'};
+  return`<div style="max-width:680px;display:flex;flex-direction:column;gap:16px">
+  <div class="card"><div class="card-header"><span class="card-title">Profile</span></div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="avatar" style="width:56px;height:56px;font-size:18px">${ini(D.user?.name)}</div>
+      <div><div style="font-size:16px;font-weight:600">${D.user?.name||''}</div>
+      <div style="font-size:12px;color:var(--text2)">${D.user?.username||D.user?.email||''}</div>
+      <span class="badge badge-green">${D.user?.role||''}</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="border-color:${shiftColors[shift]}">
+    <div class="card-header"><span class="card-title">⏰ Current Shift Status</span>
+      <span style="font-size:13px;font-weight:700;color:${shiftColors[shift]};background:rgba(255,255,255,.06);padding:4px 12px;border-radius:20px">SHIFT ${shift}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT A</div>
+        <div style="font-size:13px;font-weight:600;color:${shift==='A'?'var(--blue)':'var(--text3)'}">06:00 – 14:00${shift==='A'?' ◀ NOW':''}</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT B</div>
+        <div style="font-size:13px;font-weight:600;color:${shift==='B'?'var(--yellow)':'var(--text3)'}">14:00 – 22:00${shift==='B'?' ◀ NOW':''}</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT C</div>
+        <div style="font-size:13px;font-weight:600;color:${shift==='C'?'var(--text2)':'var(--text3)'}">22:00 – 06:00${shift==='C'?' ◀ NOW':''}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="border-color:rgba(255,80,80,.3)">
+    <div class="card-header"><span class="card-title" style="color:var(--red)">🗑 Data Management</span></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px;background:rgba(255,80,80,.06);border-radius:8px;border:1px solid rgba(255,80,80,.15)">
+      ⚠ Downloads a copy before deleting. Always download PDF/Excel reports first.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div style="padding:12px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">ROVING RECORDS</div>
+        <div style="font-size:20px;font-weight:700;font-family:var(--mono)">${rovN}</div>
+        <div style="font-size:11px;color:var(--text2)">${rovToday} today</div>
+      </div>
+      <div style="padding:12px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">INSPECTION RECORDS</div>
+        <div style="font-size:20px;font-weight:700;font-family:var(--mono)">${insN}</div>
+        <div style="font-size:11px;color:var(--text2)">${insToday} today</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-ghost" onclick="clearTodayRoving()" style="justify-content:flex-start">🗑 Clear Today's Roving Data <span style="margin-left:auto;font-size:11px;color:var(--text3)">${rovToday} records</span></button>
+      <button class="btn btn-ghost" onclick="clearAllRoving()" style="justify-content:flex-start">🗑 Clear ALL Roving Data <span style="margin-left:auto;font-size:11px;color:var(--text3)">${rovN} records</span></button>
+      <button class="btn btn-ghost" onclick="clearTodayInspections()" style="justify-content:flex-start">🗑 Clear Today's Inspections (End/Inline) <span style="margin-left:auto;font-size:11px;color:var(--text3)">${insToday} records</span></button>
+      <button class="btn btn-danger" onclick="clearAllInspections()" style="justify-content:flex-start">⚠ Clear ALL Inspection Data <span style="margin-left:auto;font-size:11px;opacity:.7">${insN} records</span></button>
+    </div>
+  </div>
+
+  <div class="card"><div class="card-header"><span class="card-title">Seed Demo Data</span></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Populate with sample styles, modules, operations, inspections</div>
+    <button class="btn btn-ghost" id="seed-btn">${ic('refresh',14)} Seed Demo Data</button>
+  </div>
+  <div class="card"><button class="btn btn-danger" onclick="logout()">${ic('logout',14)} Sign Out</button></div>
+  </div>`;
+}
 
 // ======================== MODAL ========================
 function renderModal(){
@@ -1734,6 +2062,68 @@ window.sub=async function(type){
 window.del=async function(p,k){if(!confirm('Delete?'))return;await window.fbDel(p,k);toast('Deleted');};
 window.markRead=async function(k){await window.fbUpd('alerts',k,{read:true});toast('Read');};
 window.seedOps=async function(){for(const o of DEF_OPS)await window.fbAdd('operations',{name:o});toast('Loaded');render();};
+
+// Shift auto-detection (A=06:00–14:00, B=14:00–22:00, C=22:00–06:00)
+function currentShift(){const h=new Date().getHours();if(h>=6&&h<14)return'A';if(h>=14&&h<22)return'B';return'C';}
+function shiftLabel(){const s=currentShift();const hrs={A:'06:00–14:00',B:'14:00–22:00',C:'22:00–06:00'};return`Shift ${s} (${hrs[s]})`;}
+
+// ======================== DATA MANAGEMENT ========================
+async function _deleteCollection(col){
+  const {get,ref,remove}=window._fbSDK||{};
+  // Use onValue already loaded data for bulk delete
+  const items=col==='rovingInspections'?(D.rovingInspections||[])
+    :col==='inspections'?(D.inspections||[])
+    :col==='alerts'?(D.alerts||[])
+    :[];
+  let n=0;
+  for(const i of items){if(i.fbKey){await window.fbDel(col,i.fbKey);n++;}}
+  return n;
+}
+
+window.clearTodayRoving=async function(){
+  const today=new Date().toISOString().split('T')[0];
+  const todayRecs=(D.rovingInspections||[]).filter(i=>i.date===today);
+  if(!todayRecs.length){toast('No roving data for today','error');return;}
+  if(!confirm(`Delete ${todayRecs.length} roving inspection records for today (${fd(today)})?\n\nDownload a PDF first if you need a copy.`))return;
+  for(const i of todayRecs)if(i.fbKey)await window.fbDel('rovingInspections',i.fbKey);
+  toast(`Cleared ${todayRecs.length} roving records for today ✓`);
+};
+
+window.clearAllRoving=async function(){
+  const n=(D.rovingInspections||[]).length;
+  if(!n){toast('No roving data to clear','error');return;}
+  if(!confirm(`Delete ALL ${n} roving inspection records?\n\nThis cannot be undone. Download PDF/Excel first!`))return;
+  for(const i of (D.rovingInspections||[]))if(i.fbKey)await window.fbDel('rovingInspections',i.fbKey);
+  toast(`Cleared all ${n} roving records ✓`);
+};
+
+window.clearTodayInspections=async function(){
+  const today=new Date().toISOString().split('T')[0];
+  const todayRecs=(D.inspections||[]).filter(i=>(i.date||(i.createdAt||'').split('T')[0])===today);
+  if(!todayRecs.length){toast('No inspections for today','error');return;}
+  if(!confirm(`Delete ${todayRecs.length} inspection records for today (${fd(today)})?\n\nDownload report first if you need a copy.`))return;
+  for(const i of todayRecs)if(i.fbKey)await window.fbDel('inspections',i.fbKey);
+  toast(`Cleared ${todayRecs.length} inspections for today ✓`);
+};
+
+window.clearAllInspections=async function(){
+  const n=(D.inspections||[]).length;
+  if(!n){toast('No inspections to clear','error');return;}
+  if(!confirm(`Delete ALL ${n} inspection records (end-line + inline)?\n\nThis CANNOT be undone.`))return;
+  for(const i of (D.inspections||[]))if(i.fbKey)await window.fbDel('inspections',i.fbKey);
+  toast(`Cleared all ${n} inspection records ✓`);
+};
+
+window.endShiftRoving=async function(){
+  const curDate=D.rovingDate||new Date().toISOString().split('T')[0];
+  let rows=(D.rovingInspections||[]).filter(i=>i.date===curDate);
+  if(D.rovingModule&&D.rovingModule!=='__all') rows=rows.filter(i=>i.module===D.rovingModule);
+  if(!rows.length){toast('No roving data for selected date/module','error');return;}
+  const shift=currentShift();
+  if(!confirm(`End of ${shiftLabel()}\n\n${rows.length} roving records for ${fd(curDate)}.\n\nClick OK to download the PDF report and move to next shift.`))return;
+  rptRoving('pdf');
+  toast(`Shift ${shift} ended — PDF downloaded. Data kept for records. ✓`,'success');
+};
 window.printQR=function(){const el=document.getElementById('qr-el');if(!el)return;const w=window.open();w.document.write(`<html><body style="display:flex;justify-content:center;padding:40px"><div style="text-align:center"><h2>${D.modalData?.name||''}</h2><p>${D.modalData?.styleName||''} — ${D.modalData?.buyer||''}</p>${el.innerHTML}<p style="font-size:12px;margin-top:8px">${D.modalData?.moduleId||''}</p></div></body></html>`);w.document.close();w.print();};
 
 // ======================== CSV IMPORT ========================
