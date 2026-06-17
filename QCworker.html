@@ -207,6 +207,8 @@ button{cursor:pointer;border:none;outline:none}
 <div id="app"></div>
 <script>
 // ==================== STATE ====================
+// Two-shift factory: A = 06:00–14:00, B = 14:00–22:00 (off-hours fold into B).
+function wkCurrentShift(){const h=new Date().getHours();return(h>=6&&h<14)?'A':'B';}
 window.WS = {
   step:'loading', user:null, loading:false,
   scannedModule:null, modules:[], styles:[], operations:[], defects:[],
@@ -217,8 +219,8 @@ window.WS = {
   _currentCheckMachine:null,
   // Roving round state
   rovingRound:1, rovingRoundData:[], rovingRoundResults:[],
-  // End-line form state
-  elShift:'A', elSize:'M', elColor:'',
+  // End-line form state — shift auto-defaults to the current one (A 06:00–14:00, B 14:00–22:00)
+  elShift:wkCurrentShift(), elSize:'M', elColor:'',
   elHourDefects:[],        // running tally for current hour: [{operatorId,operation,code,defectName,count}]
   elAddOp:null,            // operator selected in add-defect screen
   elAddDefCat:'S',         // active category in add-defect screen
@@ -434,11 +436,21 @@ function renderScan(){
     +(mods.length===0?'<div style="text-align:center;color:var(--text3);padding:20px">No modules. Ask admin to add them.</div>':'')
     +'<div style="margin-top:16px"><button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 My Dashboard</button></div>';
 }
-function handleModuleQR(text){
+async function handleModuleQR(text){
   let data;try{data=JSON.parse(text);}catch(e){data={name:text};}
   const mod=WS.modules.find(m=>m.moduleId===data.moduleId||m.name===data.name||m.fbKey===data.fbKey||m.name===text);
-  const resolved=mod||{name:data.name||text,moduleId:data.moduleId||text,styleName:data.styleName||'',buyer:data.buyer||''};
-  toast('Module: '+resolved.name);
+  if(mod){toast('Module: '+mod.name);proceedWithModule(mod);return;}
+  // Not in the local cache yet (e.g. modules list hasn't loaded from Firebase on a
+  // fresh page load) — fetch it live by fbKey instead of falling back to a bare
+  // object with no style data, which would have shown an empty style until rescanned.
+  if(data.fbKey){
+    try{
+      const live=await window.fbGet('modules/'+data.fbKey);
+      if(live){const resolved={fbKey:data.fbKey,...live};toast('Module: '+resolved.name);proceedWithModule(resolved);return;}
+    }catch(e){}
+  }
+  const resolved={name:data.name||text,moduleId:data.moduleId||text};
+  toast('Module: '+resolved.name+' — style not found yet, please rescan in a moment','error');
   proceedWithModule(resolved);
 }
 window.pickModule=function(k){
@@ -963,7 +975,7 @@ function renderEndlineHome(){
 
   // Shift & size buttons
   const btnT='padding:13px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:2px solid ';
-  const shiftRow=['A','B','C','D'].map(s=>`<button onclick="WS.elShift='${s}';renderW()" style="${btnT}${WS.elShift===s?'var(--purple);background:var(--purple);color:#fff':'var(--border);background:var(--bg3);color:var(--text2)'}">${s}</button>`).join('');
+  const shiftRow=['A','B'].map(s=>`<button onclick="WS.elShift='${s}';renderW()" style="${btnT}${WS.elShift===s?'var(--purple);background:var(--purple);color:#fff':'var(--border);background:var(--bg3);color:var(--text2)'}">${s}</button>`).join('');
   const styleSizes=(m?.sizes||'').split(',').map(s=>s.trim()).filter(Boolean);
   const sizeList=styleSizes.length>0?styleSizes:['XS','S','M','L','XL','XXL'];
   const curSize=WS.elSize||'M';
@@ -1018,7 +1030,7 @@ function renderEndlineHome(){
     +'</div>'
     +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
     +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Shift</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">'+shiftRow+'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">'+shiftRow+'</div>'
     +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Size</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+sizeRow+'</div>'
     +(colorRow?'<div style="font-size:11px;color:var(--text3);margin:12px 0 8px;text-transform:uppercase;letter-spacing:.06em">Colour</div>'+colorRow:'')
@@ -2052,14 +2064,6 @@ function bindSubmit(){
     const f=document.getElementById('wf');if(!f)return;
     const fd=new FormData(f);
     const data=Object.fromEntries(fd.entries());
-
-    // If endline form had manual operator fill
-    if(WS.step==='endline_form'){
-      const manOp=document.getElementById('f-opId-manual');
-      const manOpName=document.getElementById('f-op-manual');
-      if(manOp&&manOp.value.trim()){data.operatorId=manOp.value.trim();}
-      if(manOpName&&manOpName.value.trim()){data.operation=manOpName.value.trim();}
-    }
 
     if(!data.checkedQty||parseInt(data.checkedQty)<1){toast('Enter Checked Qty','error');return;}
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
