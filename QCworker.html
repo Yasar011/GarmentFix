@@ -74,6 +74,12 @@
       } else WS.myRovingInspections=[];
       if(WS.step==='dashboard') renderW();
     });
+    onValue(ref(db,'correctiveActions'),s=>{
+      const today=new Date().toISOString().split('T')[0];
+      WS.capEntries=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})).filter(e=>e.date===today):[];
+      // Never auto-rerender cap_form — it would wipe an in-progress textarea or unsaved signature
+      if(['roving_home','cap_list','cap_admin','dashboard'].includes(WS.step)) renderW();
+    });
     if(WS.user?.fbKey){
       onValue(ref(db,'users/'+WS.user.fbKey),s=>{
         if(!s.exists())return;
@@ -89,6 +95,9 @@
 
   window.fbAdd=async(path,data)=>{const r=push(ref(db,path));await set(r,{...data,createdAt:new Date().toISOString()});return r.key;};
   window.fbAddAlert=async(data)=>{const r=push(ref(db,'alerts'));await set(r,{...data,createdAt:new Date().toISOString()});};
+  window.fbSet=async(path,data)=>{await set(ref(db,path),{...data,updatedAt:new Date().toISOString()});};
+  window.fbGet=async(path)=>{const s=await get(ref(db,path));return s.exists()?s.val():null;};
+  window.fbOnValue=(path,cb)=>{onValue(ref(db,path),s=>cb(s.exists()?s.val():null));};
 
   setTimeout(()=>{if(WS.step==='loading'){WS.step='login';renderW();}},2000);
 </script>
@@ -222,7 +231,11 @@ window.WS = {
   _scanMode:null,
   _scannedForForm:null,
   showEventModal:false,
-  _manualRows:[], _manualBackStep:'check_home'
+  _manualRows:[], _manualBackStep:'check_home',
+  // Corrective Action Plan (CAP) — Roving QC defect escalation sheet
+  capEntries:[],          // all CAP entries for today's module, hour-grouped
+  _capActive:null,        // entry currently open in the CAP form
+  _capSigPad:null         // which signature pad is open: 'operator'|'tech'|'tl'|'qa'|null
 };
 let qrActive=null;
 
@@ -276,6 +289,10 @@ function renderStep(){
   if(s==='roving_form')      return renderRovingForm();
   if(s==='roving_end')       return renderRovingEnd();
   if(s==='roving_update')    return renderRovingUpdate();
+  // CAP — Corrective Action Plan (Roving QC defect escalation sheet)
+  if(s==='cap_list')         return renderCapList();
+  if(s==='cap_form')         return renderCapForm();
+  if(s==='cap_admin')        return renderCapAdmin();
   // Shared
   if(s==='roster_manual')   return renderRosterManual();
   if(s==='dashboard')       return renderDash();
@@ -1253,9 +1270,17 @@ function renderRovingHome(){
       :'')
     +'<button class="btn-big btn-primary" onclick="startRovingRound('+nextVisit+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'▶ Start Visit '+nextVisit+'</button>'
+    +renderCapNavButton()
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+function renderCapNavButton(){
+  const open=(WS.capEntries||[]).filter(e=>e.status!=='closed').length;
+  return '<button class="btn-big btn-ghost" style="border-color:rgba(224,85,85,.4);color:var(--red)" onclick="openCapList()">📝 Corrective Action Plan'
+    +(open>0?' <span style="background:var(--red);color:#fff;border-radius:10px;padding:2px 8px;font-size:11px;margin-left:6px">'+open+' open</span>':'')
+    +'</button>';
 }
 
 window.startRovingRound=async function(visitNum){
@@ -1614,6 +1639,7 @@ function bindRovingSubmit(){
           message:(data.defectType||'Defect')+' on '+data.operation+' ('+data.machineName+')',
           level:parseInt(data.dc)>=2?'high':'medium',module:data.module,read:false,createdBy:'roving-auto'
         });
+        await addRovingDefectToCAP(data);
       }
       WS.rovingRoundResults.push({...data,dc:parseInt(data.dc)||0,sp:parseInt(data.sp)||0});
       toast('Saved ✓');
@@ -1623,6 +1649,261 @@ function bindRovingSubmit(){
     }catch(e){toast('Failed: '+e.message,'error');btn.disabled=false;btn.innerHTML='✓ Save';}
   };
 }
+
+// ==================== CAP — CORRECTIVE ACTION PLAN ====================
+// Mirrors the paper "End Line Report / Corrective Action Plan" sheet:
+// one row per hour, defects found, corrective action taken, 4 sign-offs.
+const CAP_CPA_LABELS={A:'Solved by Inline QC',B:'Solved with Supervisor / Mechanic',C:'Solved with Senior Technician',D:'Informed Production / Quality Executive'};
+const CAP_SIGN_ROLES=[{k:'operator',l:'Operator'},{k:'tech',l:'Tech'},{k:'tl',l:'T/L'},{k:'qa',l:'QA'}];
+
+function capHourKey(d){return String(d.getHours()).padStart(2,'0')+':00';}
+function capDateKey(d){return d.toISOString().split('T')[0];}
+function capRecordKey(moduleId,date,hour){return (moduleId||'NOMOD')+'_'+date+'_'+hour.replace(':','');}
+
+async function addRovingDefectToCAP(data){
+  const dc=parseInt(data.dc)||0;
+  if(dc<=0)return;
+  const now=new Date();
+  const hour=capHourKey(now),date=capDateKey(now);
+  const moduleId=WS.scannedModule?.fbKey||data.module||'NOMOD';
+  const key=capRecordKey(moduleId,date,hour);
+  const path='correctiveActions/'+key;
+  const existing=await window.fbGet(path);
+  const defects=existing?.defects?[...existing.defects]:[];
+  defects.push({
+    code:data.defectType||'Unspecified',qty:dc,cpa:data.cpa||'',
+    machineId:data.machineId||'',machineName:data.machineName||'',
+    operatorId:data.operatorId||'',operation:data.operation||'',
+    time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(now)
+  });
+  await window.fbSet(path,{
+    moduleId,moduleName:WS.scannedModule?.name||data.module||'',
+    lineNo:WS.scannedModule?.lineNo||WS.scannedModule?.line||'',
+    team:WS.scannedModule?.team||'',
+    date,hour,
+    defects,
+    correctiveAction:existing?.correctiveAction||'',
+    signatures:existing?.signatures||{operator:null,tech:null,tl:null,qa:null},
+    status:existing?.status||'open',
+    raisedBy:WS.user?.name||WS.user?.username||''
+  });
+}
+
+window.openCapList=function(){WS.step='cap_list';renderW();};
+
+function renderCapList(){
+  const m=WS.scannedModule;
+  const mine=(WS.capEntries||[]).filter(e=>!m||e.moduleId===m.fbKey).sort((a,b)=>a.hour.localeCompare(b.hour));
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:14px">'
+    +'<div style="font-size:18px;font-weight:600">📝 Corrective Action Plan</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.name||'Today')+' — one row per hour, like the paper sheet</div>'
+    +'</div>'
+    +(mine.length===0
+      ?'<div style="text-align:center;padding:32px;color:var(--text3)">No defects logged yet today.<br>Entries appear automatically when a defect is found during a roving visit.</div>'
+      :mine.map(e=>{
+        const signed=CAP_SIGN_ROLES.filter(r=>e.signatures?.[r.k]).length;
+        const closed=e.status==='closed';
+        return '<div class="sub-item" style="align-items:flex-start;cursor:pointer" onclick="openCapEntry(\''+e.fbKey+'\')">'
+          +'<div style="flex:1">'
+          +'<div style="font-weight:700;font-size:14px">'+e.hour+' hrs</div>'
+          +'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'
+          +(e.defects||[]).map(d=>'<span class="badge badge-red">'+d.code+' ×'+d.qty+(d.cpa?' · CPA-'+d.cpa:'')+'</span>').join('')
+          +'</div>'
+          +(e.correctiveAction?'<div style="font-size:11px;color:var(--text2);margin-top:6px">↳ '+e.correctiveAction+'</div>':'')
+          +'</div>'
+          +'<div style="text-align:right">'
+          +'<span class="badge badge-'+(closed?'green':'yellow')+'">'+(closed?'Closed':'Open')+'</span>'
+          +'<div style="font-size:11px;color:var(--text3);margin-top:6px">'+signed+'/4 signed</div>'
+          +'</div></div>';
+      }).join(''))
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'roving_home\';renderW()">← Back</button>';
+}
+
+window.openCapEntry=function(fbKey){
+  const e=(WS.capEntries||[]).find(x=>x.fbKey===fbKey);
+  if(!e){toast('Entry not found','error');return;}
+  WS._capActive={...e,signatures:{...(e.signatures||{})}};
+  WS.step='cap_form';renderW();
+};
+
+function renderCapForm(){
+  const e=WS._capActive;
+  if(!e)return '<div class="card">No entry selected.</div>';
+  const totalQty=(e.defects||[]).reduce((a,d)=>a+(parseInt(d.qty)||0),0);
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:14px">'
+    +'<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Hour</div>'
+    +'<div style="font-size:22px;font-weight:700">'+e.hour+' hrs</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(e.moduleName||'')+(e.lineNo?' • Line '+e.lineNo:'')+' • '+e.date+'</div>'
+    +'</div>'
+    +'<div class="card" style="margin-bottom:14px">'
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:10px">Defects ('+totalQty+' total)</div>'
+    +'<table style="width:100%;font-size:12px;border-collapse:collapse">'
+    +'<tr style="color:var(--text3);text-align:left"><th style="padding:4px 0">Code</th><th>Qty</th><th>CPA</th><th>Machine</th></tr>'
+    +(e.defects||[]).map(d=>'<tr style="border-top:1px solid var(--border)">'
+      +'<td style="padding:6px 0;font-weight:600">'+d.code+'</td>'
+      +'<td>'+d.qty+'</td>'
+      +'<td>'+(d.cpa?d.cpa+' — '+(CAP_CPA_LABELS[d.cpa]||''):'—')+'</td>'
+      +'<td style="font-size:11px;color:var(--text2)">'+(d.machineName||d.machineId||'')+'</td></tr>').join('')
+    +'</table></div>'
+    +'<div class="form-group"><label class="form-label">Corrective Action Taken</label>'
+    +'<textarea class="form-input" id="cap-action" rows="3" placeholder="Describe the corrective action...">'+(e.correctiveAction||'')+'</textarea></div>'
+    +'<div class="card" style="margin-bottom:14px">'
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:10px">Digital Sign-offs</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">'
+    +CAP_SIGN_ROLES.map(r=>{
+      const sig=e.signatures?.[r.k];
+      return '<div style="border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">'
+        +'<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+r.l+' Sign.</div>'
+        +(sig
+          ?'<img src="'+sig.img+'" style="width:100%;height:50px;object-fit:contain;background:#fff;border-radius:6px">'
+            +'<div style="font-size:10px;color:var(--green);margin-top:4px">✓ '+sig.name+'</div>'
+            +'<button type="button" class="btn-sm" style="margin-top:4px" onclick="clearCapSig(\''+r.k+'\')">Clear</button>'
+          :'<button type="button" class="btn-sm" style="width:100%" onclick="openCapSigPad(\''+r.k+'\')">✍️ Sign</button>')
+        +'</div>';
+    }).join('')
+    +'</div></div>'
+    +(WS._capSigPad?renderCapSigPad(WS._capSigPad):'')
+    +'<button class="btn-big btn-primary" id="cap-save-btn" onclick="saveCapEntry()">💾 Save CAP Entry</button>'
+    +'<button class="btn-big btn-ghost" onclick="printCapSheet(\''+e.fbKey+'\')">🖨️ Print / PDF</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS._capActive=null;WS.step=\'cap_list\';renderW()">← Back</button>';
+}
+
+function renderCapSigPad(roleKey){
+  const role=CAP_SIGN_ROLES.find(r=>r.k===roleKey);
+  return '<div class="modal-overlay" onclick="if(event.target===this){WS._capSigPad=null;renderW();}">'
+    +'<div class="modal-sheet">'
+    +'<div style="font-size:16px;font-weight:600;margin-bottom:4px">✍️ '+role.l+' Signature</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:14px">Sign with your finger or mouse below</div>'
+    +'<input class="form-input" id="cap-sig-name" placeholder="Type your full name" style="margin-bottom:10px">'
+    +'<canvas id="cap-sig-canvas" width="320" height="140" style="width:100%;height:140px;background:#fff;border-radius:10px;border:1px solid var(--border);touch-action:none"></canvas>'
+    +'<div style="display:flex;gap:10px;margin-top:12px">'
+    +'<button class="btn-big btn-ghost" style="margin:0;flex:1" onclick="clearCapCanvas()">Clear</button>'
+    +'<button class="btn-big btn-ghost" style="margin:0;flex:1" onclick="WS._capSigPad=null;renderW()">Cancel</button>'
+    +'<button class="btn-big btn-primary" style="margin:0;flex:2" onclick="confirmCapSig(\''+roleKey+'\')">Confirm Signature</button>'
+    +'</div></div></div>';
+}
+
+window.openCapSigPad=function(roleKey){WS._capSigPad=roleKey;renderW();};
+window.clearCapSig=function(roleKey){
+  if(!WS._capActive)return;
+  WS._capActive.signatures={...WS._capActive.signatures,[roleKey]:null};
+  renderW();
+};
+
+let capCanvasCtx=null,capDrawing=false,capHasInk=false;
+function bindCapForm(){
+  if(!WS._capSigPad)return;
+  const cv=document.getElementById('cap-sig-canvas');
+  if(!cv)return;
+  capHasInk=false;
+  const ctx=cv.getContext('2d');
+  ctx.lineWidth=2.5;ctx.lineCap='round';ctx.strokeStyle='#111';
+  capCanvasCtx=ctx;
+  const pos=(e)=>{
+    const r=cv.getBoundingClientRect();
+    const t=e.touches?e.touches[0]:e;
+    return {x:(t.clientX-r.left)*(cv.width/r.width),y:(t.clientY-r.top)*(cv.height/r.height)};
+  };
+  const start=(e)=>{e.preventDefault();capDrawing=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);};
+  const move=(e)=>{if(!capDrawing)return;e.preventDefault();const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();capHasInk=true;};
+  const end=()=>{capDrawing=false;};
+  cv.onmousedown=start;cv.onmousemove=move;cv.onmouseup=end;cv.onmouseleave=end;
+  cv.ontouchstart=start;cv.ontouchmove=move;cv.ontouchend=end;
+}
+window.clearCapCanvas=function(){
+  const cv=document.getElementById('cap-sig-canvas');
+  if(cv&&capCanvasCtx)capCanvasCtx.clearRect(0,0,cv.width,cv.height);
+  capHasInk=false;
+};
+window.confirmCapSig=function(roleKey){
+  const name=(document.getElementById('cap-sig-name')?.value||'').trim();
+  const cv=document.getElementById('cap-sig-canvas');
+  if(!name){toast('Type your name first','error');return;}
+  if(!capHasInk){toast('Please draw your signature','error');return;}
+  const img=cv.toDataURL('image/png');
+  WS._capActive.signatures={...WS._capActive.signatures,[roleKey]:{name,img,ts:new Date().toISOString()}};
+  WS._capSigPad=null;
+  renderW();
+};
+
+window.saveCapEntry=async function(){
+  const e=WS._capActive;if(!e)return;
+  const action=document.getElementById('cap-action')?.value||'';
+  const btn=document.getElementById('cap-save-btn');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';}
+  const allSigned=CAP_SIGN_ROLES.every(r=>e.signatures?.[r.k]);
+  try{
+    await window.fbSet('correctiveActions/'+e.fbKey,{
+      moduleId:e.moduleId,moduleName:e.moduleName,lineNo:e.lineNo,team:e.team,
+      date:e.date,hour:e.hour,defects:e.defects,
+      correctiveAction:action,signatures:e.signatures,
+      status:allSigned?'closed':'open',raisedBy:e.raisedBy
+    });
+    toast(allSigned?'CAP closed ✓':'CAP saved — pending more sign-offs');
+    WS._capActive=null;WS.step='cap_list';renderW();
+  }catch(err){
+    toast('Failed: '+err.message,'error');
+    if(btn){btn.disabled=false;btn.innerHTML='💾 Save CAP Entry';}
+  }
+};
+
+function renderCapAdmin(){
+  const all=(WS.capEntries||[]).slice().sort((a,b)=>(a.moduleName||'').localeCompare(b.moduleName||'')||a.hour.localeCompare(b.hour));
+  const open=all.filter(e=>e.status!=='closed').length;
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:14px">'
+    +'<div style="font-size:18px;font-weight:600">📋 CAP Admin — All Modules</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+all.length+' entries today • '+open+' open</div>'
+    +'</div>'
+    +(all.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No CAP entries today.</div>'
+      :all.map(e=>{
+        const signed=CAP_SIGN_ROLES.filter(r=>e.signatures?.[r.k]).length;
+        const closed=e.status==='closed';
+        return '<div class="sub-item" style="align-items:flex-start;cursor:pointer" onclick="openCapEntry(\''+e.fbKey+'\')">'
+          +'<div style="flex:1">'
+          +'<div style="font-weight:700;font-size:13px">'+(e.moduleName||e.moduleId)+' — '+e.hour+' hrs</div>'
+          +'<div style="font-size:11px;color:var(--text3)">'+(e.lineNo?'Line '+e.lineNo+' • ':'')+'Raised by '+(e.raisedBy||'—')+'</div>'
+          +'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'
+          +(e.defects||[]).map(d=>'<span class="badge badge-red">'+d.code+' ×'+d.qty+(d.cpa?' · CPA-'+d.cpa:'')+'</span>').join('')
+          +'</div></div>'
+          +'<div style="text-align:right">'
+          +'<span class="badge badge-'+(closed?'green':'yellow')+'">'+(closed?'Closed':'Open')+'</span>'
+          +'<div style="font-size:11px;color:var(--text3);margin-top:6px">'+signed+'/4 signed</div>'
+          +'<button type="button" class="btn-sm" style="margin-top:6px" onclick="event.stopPropagation();printCapSheet(\''+e.fbKey+'\')">🖨️ Print</button>'
+          +'</div></div>';
+      }).join(''))
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">← Back to Dashboard</button>';
+}
+
+window.printCapSheet=function(fbKey){
+  const e=(WS.capEntries||[]).find(x=>x.fbKey===fbKey)||WS._capActive;
+  if(!e){toast('Entry not found','error');return;}
+  const rows=[e]; // single-hour sheet, matches the paper layout (one row shown, more hours can be added later)
+  const sigCell=(sig)=>sig?('<img src="'+sig.img+'" style="height:32px"><div style="font-size:9px">'+sig.name+'</div>'):'';
+  const html='<html><head><title>Corrective Action Plan — '+e.hour+'</title><style>'
+    +'body{font-family:Arial,sans-serif;padding:24px;color:#111}'
+    +'h1{font-size:16px;margin:0 0 4px}'
+    +'.meta{font-size:11px;color:#444;margin-bottom:14px}'
+    +'table{width:100%;border-collapse:collapse;font-size:11px}'
+    +'th,td{border:1px solid #333;padding:6px 8px;text-align:left;vertical-align:top}'
+    +'th{background:#eee}'
+    +'</style></head><body>'
+    +'<h1>brandix — END LINE REPORT</h1>'
+    +'<div class="meta">Module: '+(e.moduleName||e.moduleId)+' &nbsp; Line: '+(e.lineNo||'—')+' &nbsp; Date: '+e.date+' &nbsp; Raised by: '+(e.raisedBy||'—')+'</div>'
+    +'<table><tr><th>Hour</th><th>Defects</th><th>Corrective Action</th><th>Operator Sign.</th><th>Tech Sign.</th><th>T/L Sign.</th><th>QA Sign.</th></tr>'
+    +rows.map(r=>'<tr>'
+      +'<td>'+r.hour+'</td>'
+      +'<td>'+(r.defects||[]).map(d=>d.code+' ×'+d.qty+(d.cpa?' (CPA-'+d.cpa+')':'')).join('<br>')+'</td>'
+      +'<td>'+(r.correctiveAction||'')+'</td>'
+      +'<td>'+sigCell(r.signatures?.operator)+'</td>'
+      +'<td>'+sigCell(r.signatures?.tech)+'</td>'
+      +'<td>'+sigCell(r.signatures?.tl)+'</td>'
+      +'<td>'+sigCell(r.signatures?.qa)+'</td>'
+      +'</tr>').join('')
+    +'</table></body></html>';
+  const w=window.open('','_blank');
+  w.document.write(html);w.document.close();
+  setTimeout(()=>w.print(),300);
+};
 
 // ==================== EVENT MODAL ====================
 function renderEventModal(){
@@ -1878,6 +2159,7 @@ function renderDash(){
     +'</div>'
     +(rounds.length>0?'<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">'+(rovingMode?'Completed Visits Today':'Completed Checks Today')+'</div><div class="check-pill">'+rounds.map(n=>'<div class="check-btn done">'+(rovingMode?'Visit ':'Check ')+n+' ✓</div>').join('')+'</div></div>':'')
     +roleAction
+    +((isRoving()||isLineHead())?'<button class="btn-big btn-ghost" style="border-color:rgba(224,85,85,.4);color:var(--red)" onclick="WS.step=\'cap_admin\';renderW()">📋 CAP Admin — All Corrective Actions</button>':'')
     +'<div style="font-size:13px;color:var(--text2);margin-bottom:8px;margin-top:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent</div>'
     +(ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No records today</div>'
     :ins.slice().reverse().slice(0,8).map(i=>'<div class="sub-item">'
@@ -1913,6 +2195,7 @@ function bindStep(){
   if(s==='check_form') bindSubmit();
   if(s==='roving_form')        bindRovingSubmit();
   if(s==='roster_manual')      bindManualRoster();
+  if(s==='cap_form')           bindCapForm();
 }
 
 // Bind manual input on Line Head scan screen
