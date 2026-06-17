@@ -181,7 +181,7 @@ const I={grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 function ic(n,s=18){return`<span style="width:${s}px;height:${s}px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${I[n]||I.file}</span>`;}
 
 // STATE
-window.D={page:'loading',user:null,loginLoading:false,collapsed:false,showModal:null,modalData:null,sq:'',notifs:0,inspections:[],modules:[],styles:[],users:[],alerts:[],operations:[],defects:[],rosters:[],machineRosters:[],machines:[],machineEvents:[],aiTickets:[],elDate:null,elModule:'__all',elShift:'__all',elSize:'__all',elColor:'__all',elInspector:'__all',elStyle:'__all',rovingInspections:[],rovingDate:null,rovingModule:'__all',ssDate:'',ssMod:'__all',rosterDate:'',rosterMod:'__all',rosterStatus:'__all',styleReportKey:'',correctiveActions:[],capDate:null,capModule:'__all',capStatus:'__all'};
+window.D={page:'loading',user:null,loginLoading:false,collapsed:false,showModal:null,modalData:null,sq:'',notifs:0,inspections:[],modules:[],styles:[],users:[],alerts:[],operations:[],defects:[],rosters:[],machineRosters:[],machines:[],machineEvents:[],aiTickets:[],elDate:null,elModule:'__all',elShift:'__all',elSize:'__all',elColor:'__all',elInspector:'__all',elStyle:'__all',rovingInspections:[],rovingDate:null,rovingModule:'__all',ssDate:'',ssMod:'__all',rosterDate:'',rosterMod:'__all',rosterStatus:'__all',styleReportKey:'',correctiveActions:[],capDate:null,capModule:'__all',capStatus:'__all',moduleReportKey:''};
 
 const BUYERS=['H&M','Zara','Gap','Next','M&S','Primark','ASOS','Nike','Adidas','Uniqlo'];
 const DEFECTS=['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Shade Variation','Uneven Stitch','Needle Mark','Incorrect SPI','Loose Thread','Missing Button','Seam Pucker','Run-Off','Pleat','Uncut Thread'];
@@ -303,14 +303,14 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'module-report',ic:'layout',l:'Module Report'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
   return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon">BX</div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">Brandix QMS</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
-  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
+  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
   return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
 }
 
@@ -331,6 +331,7 @@ function renderPg(){
   if(p==='reports')return pgReports();
   if(p==='styles')return pgStyles();
   if(p==='style-report')return pgStyleReport();
+  if(p==='module-report')return pgModuleReport();
   if(p==='operations')return pgOps();
   if(p==='defects')return pgDefects();
   if(p==='users')return pgUsers();
@@ -512,6 +513,27 @@ function pgStyleReport(){
     </div>`;}).join('')}
   </div>`:'';
 
+  // --- Line-wise breakdown (one card per module/line running this style) ---
+  // Combines End Line / Inline (checkedQty/defectQty) with Roving (sp/dc) per line.
+  const byLine={};
+  ins.forEach(i=>{const ln=i.module||'—';if(!byLine[ln])byLine[ln]={chk:0,def:0};byLine[ln].chk+=parseInt(i.checkedQty)||0;byLine[ln].def+=parseInt(i.defectQty)||0;});
+  rovIns.forEach(i=>{const ln=i.module||'—';if(!byLine[ln])byLine[ln]={chk:0,def:0};byLine[ln].chk+=parseInt(i.sp)||0;byLine[ln].def+=parseInt(i.dc)||0;});
+  const lineKeys=Object.keys(byLine).sort();
+  const lineHint=lineKeys.length<=1?`<div style="font-size:12px;color:var(--text3);padding:8px 12px;background:var(--bg3);border-radius:8px;border:1px dashed var(--border)">💡 Only ${lineKeys.length} line found for this style. To compare two lines here (e.g. MODULE-10 and 10.1), assign the <b>same style</b> to both modules on the Modules page — they'll then appear side by side automatically.</div>`:'';
+  const lineCards=(lineKeys.length?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+    ${lineKeys.map(ln=>{
+      const g=byLine[ln];const d=g.chk?((g.def/g.chk)*100).toFixed(1):'—';
+      const c=g.chk?(parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
+      const share=totChk?Math.round((g.chk/(totChk||1))*100):0;
+      return`<div class="card" style="padding:16px;border-left:3px solid ${c}">
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px">${ln}</div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Checked</span><span style="font-family:var(--mono);color:var(--text)">${g.chk}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Defects</span><span style="font-family:var(--mono);color:var(--red)">${g.def}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-top:6px"><span>DHU</span><span style="font-family:var(--mono);color:${c}">${d}${g.chk?'%':''}</span></div>
+      </div>`;
+    }).join('')}
+  </div>`:`<div class="card" style="padding:24px;text-align:center;color:var(--text3)">No inspection data for this style yet.</div>`)+lineHint;
+
   // --- Colour-wise breakdown (uses the colour QC selected at End Line) ---
   const byColor={};
   ins.forEach(i=>{const c=(i.color||'').trim();if(!c)return;if(!byColor[c])byColor[c]={chk:0,def:0};byColor[c].chk+=parseInt(i.checkedQty)||0;byColor[c].def+=parseInt(i.defectQty)||0;});
@@ -547,6 +569,8 @@ function pgStyleReport(){
 
   return`<div style="display:flex;flex-direction:column;gap:16px">
     ${selector}${infoCard}${kpis}
+    <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Lines Running This Style (${lineKeys.length})</div>
+    ${lineCards}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${defCard}${modTable}</div>
     <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Colour &amp; Size Analysis</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${colorTable}${sizeTable}</div>
@@ -636,6 +660,172 @@ function styleReportExcel(sel,ins){
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Style Report');
   XLSX.writeFile(wb,`Style_Report_${sel.styleId}_${new Date().toISOString().slice(0,10)}.xlsx`);
   toast('Style Report Excel downloaded');
+}
+
+// ======================== MODULE / LINE REPORT ========================
+// Per-line analysis: pick a module and see its DHU, daily/shift trend,
+// colour & size split, top defects and operator-wise breakdown.
+function pgModuleReport(){
+  const mods=D.modules;
+  const key=D.moduleReportKey||'';
+  const sel=mods.find(m=>m.fbKey===key);
+
+  const selector=`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+    <select class="form-control" style="min-width:260px" onchange="D.moduleReportKey=this.value;render()">
+      <option value="">— Select a Module / Line —</option>
+      ${mods.map(m=>`<option value="${m.fbKey}" ${key===m.fbKey?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}
+    </select>
+    ${sel?`<div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-ghost btn-sm" onclick="rptModuleReport('excel')">${ic('download',14)} Excel</button>
+      <button class="btn btn-ghost btn-sm" onclick="rptModuleReport('pdf')">${ic('pdf',14)} PDF</button>
+    </div>`:''}
+  </div>`;
+
+  if(!sel) return`<div style="display:flex;flex-direction:column;gap:20px">${selector}
+    <div class="card" style="padding:48px;text-align:center;color:var(--text3)">Select a module above to view its full report.</div>
+  </div>`;
+
+  // All inspections + roving for this module (match by module name)
+  const ins=D.inspections.filter(i=>i.module===sel.name);
+  const rovIns=(D.rovingInspections||[]).filter(i=>i.module===sel.name);
+
+  const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rovIns.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
+  const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rovIns.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
+  const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
+  const aql=parseFloat(dhu)<=2.5?'PASS':'REVIEW';
+  const allDates=[...new Set(ins.map(i=>i.date||(i.createdAt||'').split('T')[0]).filter(Boolean))].sort();
+
+  const infoCard=`<div class="card" style="border-color:var(--accent)22">
+    <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between">
+      <div>
+        <div style="font-size:11px;color:var(--text3)">MODULE / LINE</div>
+        <div style="font-size:20px;font-weight:700;font-family:var(--mono)">${sel.name||'—'}</div>
+        <div style="font-size:13px;color:var(--accent);margin-top:2px">${sel.styleName||'— No style assigned —'}</div>
+        <div style="font-size:12px;color:var(--text2)">${sel.buyer||''} ${sel.moduleId?'• '+sel.moduleId:''}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;color:var(--text2)">Shift: <b>${sel.shift||'—'}</b></div>
+        <div style="font-size:12px;color:var(--text2)">${allDates.length} day${allDates.length!==1?'s':''} active</div>
+        <div style="font-size:12px;color:var(--text2)">${ins.length} end/inline • ${rovIns.length} roving</div>
+      </div>
+    </div>
+  </div>`;
+
+  const kpis=`<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+    ${[
+      ['Records',ins.length+rovIns.length,'var(--accent)'],
+      ['Checked',totChk,'var(--blue)'],
+      ['Defects',totDef,'var(--red)'],
+      ['DHU',dhu+'%',parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'],
+      ['AQL',aql,aql==='PASS'?'var(--green)':'var(--red)'],
+    ].map(([l,v,c])=>`<div class="card" style="padding:14px;text-align:center;border-color:${c}22">
+      <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${c}">${v}</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">${l}</div>
+    </div>`).join('')}
+  </div>`;
+
+  // Daily breakdown with A/B shift split
+  const byDate={};
+  ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:{chk:0,def:0},B:{chk:0,def:0}};const c=parseInt(i.checkedQty)||0,df=parseInt(i.defectQty)||0;byDate[d].chk+=c;byDate[d].def+=df;if(!byDate[d][sh])byDate[d][sh]={chk:0,def:0};byDate[d][sh].chk+=c;byDate[d][sh].def+=df;});
+  const dailyRows=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,g])=>{
+    const d2=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';const col=parseFloat(d2)>5?'var(--red)':parseFloat(d2)>3?'var(--yellow)':'var(--green)';
+    return`<tr><td style="font-size:12px">${date}</td><td style="font-family:var(--mono)">${g.chk}</td><td style="font-family:var(--mono);color:${g.def>0?'var(--red)':'inherit'}">${g.def}</td><td style="font-family:var(--mono);color:${col};font-weight:600">${d2}%</td>${['A','B'].map(sh=>{const s=g[sh]||{chk:0,def:0};return`<td style="font-size:11px;text-align:center;color:var(--text3)">${s.chk?s.chk+'/<span style="color:var(--red)">'+s.def+'</span>':'—'}</td>`;}).join('')}</tr>`;
+  }).join('');
+  const dailyTable=`<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Daily Breakdown</div>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Shift A</th><th>Shift B</th></tr></thead>
+    <tbody>${dailyRows||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}</tbody></table></div>
+  </div>`;
+
+  // Operator-wise (this matters most at line level)
+  const byOp={};
+  ins.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.checkedQty)||0;byOp[op].def+=parseInt(i.defectQty)||0;});
+  rovIns.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.sp)||0;byOp[op].def+=parseInt(i.dc)||0;});
+  const opRows=Object.entries(byOp).sort((a,b)=>{const da=a[1].chk?a[1].def/a[1].chk:0,db=b[1].chk?b[1].def/b[1].chk:0;return db-da;}).map(([op,g])=>{
+    const d=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';const col=parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)';
+    return`<tr><td style="font-family:var(--mono);font-weight:500">${op}</td><td style="font-size:12px">${g.operation||'—'}</td><td style="font-family:var(--mono)">${g.chk}</td><td style="font-family:var(--mono);color:var(--red)">${g.def}</td><td style="font-family:var(--mono);color:${col};font-weight:600">${d}%</td></tr>`;
+  }).join('');
+  const opTable=`<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Operator-wise DHU <span style="font-size:11px;color:var(--text3);font-weight:400">(worst first)</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU%</th></tr></thead>
+    <tbody>${opRows||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:24px">No operator data</td></tr>'}</tbody></table></div>
+  </div>`;
+
+  // Colour & size
+  const byColor={};ins.forEach(i=>{const c=(i.color||'').trim();if(!c)return;if(!byColor[c])byColor[c]={chk:0,def:0};byColor[c].chk+=parseInt(i.checkedQty)||0;byColor[c].def+=parseInt(i.defectQty)||0;});
+  const colorRows=Object.entries(byColor).sort((a,b)=>b[1].chk-a[1].chk).map(([c,g])=>{const d=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';const col=parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)';return`<tr><td style="font-weight:500">${c}</td><td style="font-family:var(--mono)">${g.chk}</td><td style="font-family:var(--mono);color:var(--red)">${g.def}</td><td style="font-family:var(--mono);color:${col};font-weight:600">${d}%</td></tr>`;}).join('');
+  const colorTable=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Colour-wise DHU</div><div class="table-wrap"><table><thead><tr><th>Colour</th><th>Checked</th><th>Defects</th><th>DHU%</th></tr></thead><tbody>${colorRows||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No colour data</td></tr>'}</tbody></table></div></div>`;
+  const bySize={};ins.forEach(i=>{const z=(i.size||'').trim();if(!z)return;if(!bySize[z])bySize[z]={chk:0,def:0};bySize[z].chk+=parseInt(i.checkedQty)||0;bySize[z].def+=parseInt(i.defectQty)||0;});
+  const sizeOrder=['XXS','XS','S','M','L','XL','XXL','XXXL','3XL','4XL'];
+  const sizeRows=Object.entries(bySize).sort((a,b)=>{const ia=sizeOrder.indexOf(a[0].toUpperCase()),ib=sizeOrder.indexOf(b[0].toUpperCase());if(ia>=0&&ib>=0)return ia-ib;return b[1].chk-a[1].chk;}).map(([z,g])=>{const d=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';const col=parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)';return`<tr><td style="font-weight:500">${z}</td><td style="font-family:var(--mono)">${g.chk}</td><td style="font-family:var(--mono);color:var(--red)">${g.def}</td><td style="font-family:var(--mono);color:${col};font-weight:600">${d}%</td></tr>`;}).join('');
+  const sizeTable=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Size-wise DHU</div><div class="table-wrap"><table><thead><tr><th>Size</th><th>Checked</th><th>Defects</th><th>DHU%</th></tr></thead><tbody>${sizeRows||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No size data</td></tr>'}</tbody></table></div></div>`;
+
+  // Top defects
+  const defMap={};ins.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)defMap[i.defectType]=(defMap[i.defectType]||0)+(parseInt(i.defectQty)||0);});
+  const top5=Object.entries(defMap).sort((a,b)=>b[1]-a[1]).slice(0,5);const totTopDef=Object.values(defMap).reduce((a,v)=>a+v,0);
+  const defCard=top5.length?`<div class="card"><div style="font-weight:600;margin-bottom:12px">Top Defects</div>${top5.map(([name,cnt])=>{const pct=totTopDef?((cnt/totTopDef)*100).toFixed(0):0;return`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>${name}</span><span style="font-family:var(--mono);color:var(--red)">${cnt} (${pct}%)</span></div><div style="height:6px;background:var(--bg3);border-radius:4px"><div style="height:100%;border-radius:4px;background:var(--red);width:${pct}%"></div></div></div>`;}).join('')}</div>`:'<div class="card" style="text-align:center;color:var(--text3);padding:24px">No defects logged</div>';
+
+  return`<div style="display:flex;flex-direction:column;gap:16px">
+    ${selector}${infoCard}${kpis}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${defCard}${colorTable}</div>
+    ${opTable}
+    <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Size Analysis</div>
+    ${sizeTable}
+    ${dailyTable}
+  </div>`;
+}
+
+function rptModuleReport(fmt){
+  const sel=D.modules.find(m=>m.fbKey===D.moduleReportKey);
+  if(!sel){toast('Select a module first','error');return;}
+  const ins=D.inspections.filter(i=>i.module===sel.name);
+  const rov=(D.rovingInspections||[]).filter(i=>i.module===sel.name);
+  if(!ins.length&&!rov.length){toast('No data for this module','error');return;}
+  if(fmt==='excel')return moduleReportExcel(sel,ins,rov);
+  moduleReportPDF(sel,ins,rov);
+}
+
+function moduleReportPDF(sel,ins,rov){
+  const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  doc.setFillColor(10,12,16);doc.rect(0,0,297,210,'F');
+  doc.setFontSize(14);doc.setTextColor(0,212,168);doc.text('BRANDIX APPAREL INDIA UNIT-3',148,13,{align:'center'});
+  doc.setFontSize(11);doc.setTextColor(220,220,220);doc.text('MODULE REPORT — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),148,20,{align:'center'});
+  const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
+  const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
+  const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
+  doc.setFontSize(9);doc.setTextColor(200,200,200);doc.text(`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}   Generated: ${new Date().toLocaleString()}`,148,27,{align:'center'});
+  // Operator table
+  const byOp={};ins.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.checkedQty)||0;byOp[op].def+=parseInt(i.defectQty)||0;});
+  rov.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.sp)||0;byOp[op].def+=parseInt(i.dc)||0;});
+  const body=Object.entries(byOp).sort((a,b)=>{const da=a[1].chk?a[1].def/a[1].chk:0,db=b[1].chk?b[1].def/b[1].chk:0;return db-da;}).map(([op,g])=>[op,g.operation||'',g.chk,g.def,g.chk?((g.def/g.chk)*100).toFixed(1)+'%':'—']);
+  doc.autoTable({startY:33,head:[['Operator','Operation','Checked','Defects','DHU%']],body,styles:{fontSize:8,cellPadding:2,textColor:[210,210,210],fillColor:[20,22,36]},headStyles:{fillColor:[0,100,80],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[26,28,44]},theme:'grid'});
+  doc.save(`Module_Report_${(sel.name||'module').replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.pdf`);
+  toast('Module Report PDF downloaded');
+}
+
+function moduleReportExcel(sel,ins,rov){
+  const aoa=[];
+  aoa.push(['BRANDIX APPAREL INDIA UNIT-3 — MODULE REPORT']);
+  aoa.push([`Module: ${sel.name}`,`Style: ${sel.styleName||'—'}`,`Buyer: ${sel.buyer||'—'}`,`Shift: ${sel.shift||'—'}`]);
+  const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
+  const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
+  const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
+  aoa.push([`Total Checked: ${totChk}`,`Total Defects: ${totDef}`,`DHU: ${dhu}%`,`AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`]);
+  aoa.push([]);
+  aoa.push(['OPERATOR-WISE']);
+  aoa.push(['Operator','Operation','Checked','Defects','DHU%']);
+  const byOp={};ins.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.checkedQty)||0;byOp[op].def+=parseInt(i.defectQty)||0;});
+  rov.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.sp)||0;byOp[op].def+=parseInt(i.dc)||0;});
+  Object.entries(byOp).sort((a,b)=>{const da=a[1].chk?a[1].def/a[1].chk:0,db=b[1].chk?b[1].def/b[1].chk:0;return db-da;}).forEach(([op,g])=>aoa.push([op,g.operation||'',g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]));
+  aoa.push([]);
+  aoa.push(['ALL INSPECTIONS']);
+  aoa.push(['Date','Time','Type','Shift','Size','Colour','Operator','Operation','Checked','Defects','Defect Type','Inspector']);
+  ins.forEach(i=>aoa.push([i.date||'',i.time||'',i.type||'',i.shift||'',i.size||'',i.color||'',i.operatorId||'',i.operation||'',parseInt(i.checkedQty)||0,parseInt(i.defectQty)||0,i.defectType||'',i.inspector||i.submittedBy||'']));
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:12},{wch:10},{wch:10},{wch:8},{wch:8},{wch:12},{wch:12},{wch:14},{wch:10},{wch:10},{wch:18},{wch:14}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Module Report');
+  XLSX.writeFile(wb,`Module_Report_${(sel.name||'module').replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('Module Report Excel downloaded');
 }
 
 function pgStyles(){
@@ -2198,10 +2388,14 @@ function pgSettings(){
 function renderModal(){
   const m=D.showModal,d=D.modalData;let title='',body='';
   if(m==='addMod'){
-    title='Add Module';const _usedKeys=D.modules.map(mx=>mx.styleKey).filter(Boolean);const sopts=D.styles.filter(s=>s.status!=='Completed'&&!_usedKeys.includes(s.fbKey)).map(s=>`<option value="${s.fbKey}" data-n="${s.name}" data-i="${s.styleId}" data-b="${s.buyer}">${s.styleId} — ${s.name} (${s.buyer||''})</option>`).join('');
+    // A style may run on more than one line (e.g. MODULE-10 and 10.1), so we no
+    // longer hide styles already used by another module — only Completed ones.
+    title='Add Module';const _usedKeys=D.modules.map(mx=>mx.styleKey).filter(Boolean);const sopts=D.styles.filter(s=>s.status!=='Completed').map(s=>`<option value="${s.fbKey}" data-n="${s.name}" data-i="${s.styleId}" data-b="${s.buyer}">${s.styleId} — ${s.name} (${s.buyer||''})${_usedKeys.includes(s.fbKey)?' • also on another line':''}</option>`).join('');
     body=`<form id="mf">${D.styles.length===0?'<div style="padding:12px;background:rgba(212,168,0,.1);border:1px solid rgba(212,168,0,.3);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--yellow)">⚠ Add styles first!</div>':''}<div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" placeholder="MOD-01" required></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" placeholder="Module 1" required></div></div><div class="form-group"><label class="form-label">Style *</label><select class="form-input" name="styleKey" id="ssel" required><option value="">— Pick style —</option>${sopts}</select></div><input type="hidden" name="styleName" id="hsn"><input type="hidden" name="styleId" id="hsi"><input type="hidden" name="buyer" id="hby"><div class="form-row"><div class="form-group"><label class="form-label">Shift</label><select class="form-input" name="shift"><option>A</option><option>B</option></select></div><div class="form-group"><label class="form-label">Session / Section</label><select class="form-input" name="session"><option>1</option><option>2</option><option>Both</option></select></div></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="2.5"></div><button class="btn btn-primary" type="button" onclick="sub('addMod')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
   }else if(m==='editMod'){
-    title='Edit Module';const _usedKeysE=D.modules.filter(mx=>mx.fbKey!==d?.fbKey).map(mx=>mx.styleKey).filter(Boolean);const eo=D.styles.filter(s=>(s.status!=='Completed'&&!_usedKeysE.includes(s.fbKey))||(d?.styleKey===s.fbKey||d?.styleName===s.name)).map(s=>`<option value="${s.fbKey}" ${d?.styleKey===s.fbKey||d?.styleName===s.name?'selected':''}>${s.styleId} — ${s.name}${s.status==='Completed'?' (Completed)':_usedKeysE.includes(s.fbKey)?' (In use)':''}</option>`).join('');
+    // Allow the same style on multiple modules — show all non-Completed styles
+    // (plus the currently-selected one even if Completed).
+    title='Edit Module';const _usedKeysE=D.modules.filter(mx=>mx.fbKey!==d?.fbKey).map(mx=>mx.styleKey).filter(Boolean);const eo=D.styles.filter(s=>s.status!=='Completed'||d?.styleKey===s.fbKey||d?.styleName===s.name).map(s=>`<option value="${s.fbKey}" ${d?.styleKey===s.fbKey||d?.styleName===s.name?'selected':''}>${s.styleId} — ${s.name}${s.status==='Completed'?' (Completed)':_usedKeysE.includes(s.fbKey)?' • also on another line':''}</option>`).join('');
     body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" value="${d?.moduleId||''}"></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div></div><div class="form-group"><label class="form-label">Style</label><select class="form-input" name="styleKey" id="ssel"><option value="">—</option>${eo}</select></div><input type="hidden" name="styleName" id="hsn" value="${d?.styleName||''}"><input type="hidden" name="styleId" id="hsi" value="${d?.styleId||''}"><input type="hidden" name="buyer" id="hby" value="${d?.buyer||''}"><div class="form-row"><div class="form-group"><label class="form-label">Shift</label><select class="form-input" name="shift"><option ${d?.shift==='A'?'selected':''}>A</option><option ${d?.shift==='B'?'selected':''}>B</option></select></div><div class="form-group"><label class="form-label">Session / Section</label><select class="form-input" name="session"><option ${d?.session==='1'?'selected':''}>1</option><option ${d?.session==='2'?'selected':''}>2</option><option ${d?.session==='Both'?'selected':''}>Both</option></select></div></div><div class="form-group"><label class="form-label">DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="${d?.dhu||2.5}"></div><button class="btn btn-primary" type="button" onclick="sub('editMod')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else if(m==='modQR'){
     // The QR sticker is permanent on the machine/line — it must only encode the
