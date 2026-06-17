@@ -444,7 +444,7 @@ function pgStyleReport(){
   ins.forEach(i=>{
     const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;
     const sh=i.shift||'A';
-    if(!byDate[d])byDate[d]={chk:0,def:0,A:{chk:0,def:0},B:{chk:0,def:0},C:{chk:0,def:0},D:{chk:0,def:0}};
+    if(!byDate[d])byDate[d]={chk:0,def:0,A:{chk:0,def:0},B:{chk:0,def:0}};
     const c=parseInt(i.checkedQty)||0,df=parseInt(i.defectQty)||0;
     byDate[d].chk+=c;byDate[d].def+=df;
     if(!byDate[d][sh])byDate[d][sh]={chk:0,def:0};
@@ -458,23 +458,23 @@ function pgStyleReport(){
       <td style="font-family:var(--mono)">${g.chk}</td>
       <td style="font-family:var(--mono);color:${g.def>0?'var(--red)':'inherit'}">${g.def}</td>
       <td style="font-family:var(--mono);color:${color};font-weight:600">${dhu2}%</td>
-      ${['A','B','C','D'].map(sh=>{const s=g[sh]||{chk:0,def:0};return`<td style="font-size:11px;text-align:center;color:var(--text3)">${s.chk?s.chk+'/<span style="color:var(--red)">'+s.def+'</span>':'—'}</td>`;}).join('')}
+      ${['A','B'].map(sh=>{const s=g[sh]||{chk:0,def:0};return`<td style="font-size:11px;text-align:center;color:var(--text3)">${s.chk?s.chk+'/<span style="color:var(--red)">'+s.def+'</span>':'—'}</td>`;}).join('')}
     </tr>`;
   }).join('');
 
   const dailyTable=`<div class="card" style="padding:0;overflow:hidden">
     <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Daily Breakdown</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Shift A</th><th>Shift B</th><th>Shift C</th><th>Shift D</th></tr></thead>
+      <thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Shift A</th><th>Shift B</th></tr></thead>
       <tbody>${dailyRows||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}</tbody>
     </table></div>
   </div>`;
 
   // --- Shift summary ---
-  const byShift={A:{chk:0,def:0},B:{chk:0,def:0},C:{chk:0,def:0},D:{chk:0,def:0}};
+  const byShift={A:{chk:0,def:0},B:{chk:0,def:0}};
   ins.forEach(i=>{const sh=i.shift||'A';if(!byShift[sh])byShift[sh]={chk:0,def:0};byShift[sh].chk+=parseInt(i.checkedQty)||0;byShift[sh].def+=parseInt(i.defectQty)||0;});
-  const shiftCards=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-    ${['A','B','C','D'].map(sh=>{
+  const shiftCards=`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+    ${['A','B'].map(sh=>{
       const g=byShift[sh];const d=g.chk?((g.def/g.chk)*100).toFixed(1):'—';
       const c=g.chk?(parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
       return`<div class="card" style="padding:14px;text-align:center">
@@ -512,9 +512,44 @@ function pgStyleReport(){
     </div>`;}).join('')}
   </div>`:'';
 
+  // --- Colour-wise breakdown (uses the colour QC selected at End Line) ---
+  const byColor={};
+  ins.forEach(i=>{const c=(i.color||'').trim();if(!c)return;if(!byColor[c])byColor[c]={chk:0,def:0};byColor[c].chk+=parseInt(i.checkedQty)||0;byColor[c].def+=parseInt(i.defectQty)||0;});
+  const colorRows=Object.entries(byColor).sort((a,b)=>b[1].chk-a[1].chk).map(([color,g])=>{
+    const d=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';
+    const col=parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)';
+    return`<tr><td style="font-weight:500">${color}</td><td style="font-family:var(--mono)">${g.chk}</td><td style="font-family:var(--mono);color:var(--red)">${g.def}</td><td style="font-family:var(--mono);color:${col};font-weight:600">${d}%</td></tr>`;
+  }).join('');
+  const colorTable=`<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Colour-wise DHU</div>
+    <div class="table-wrap"><table><thead><tr><th>Colour</th><th>Checked</th><th>Defects</th><th>DHU%</th></tr></thead>
+    <tbody>${colorRows||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No colour data — QC must pick a colour at End Line, and the style needs colours defined</td></tr>'}</tbody></table></div>
+  </div>`;
+
+  // --- Size-wise breakdown (uses the size QC selected at End Line) ---
+  const bySize={};
+  ins.forEach(i=>{const z=(i.size||'').trim();if(!z)return;if(!bySize[z])bySize[z]={chk:0,def:0};bySize[z].chk+=parseInt(i.checkedQty)||0;bySize[z].def+=parseInt(i.defectQty)||0;});
+  // Order sizes naturally (XS,S,M,L,XL...) where possible, else by volume
+  const sizeOrder=['XXS','XS','S','M','L','XL','XXL','XXXL','3XL','4XL'];
+  const sizeRows=Object.entries(bySize).sort((a,b)=>{
+    const ia=sizeOrder.indexOf(a[0].toUpperCase()),ib=sizeOrder.indexOf(b[0].toUpperCase());
+    if(ia>=0&&ib>=0)return ia-ib;return b[1].chk-a[1].chk;
+  }).map(([size,g])=>{
+    const d=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';
+    const col=parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)';
+    return`<tr><td style="font-weight:500">${size}</td><td style="font-family:var(--mono)">${g.chk}</td><td style="font-family:var(--mono);color:var(--red)">${g.def}</td><td style="font-family:var(--mono);color:${col};font-weight:600">${d}%</td></tr>`;
+  }).join('');
+  const sizeTable=`<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Size-wise DHU</div>
+    <div class="table-wrap"><table><thead><tr><th>Size</th><th>Checked</th><th>Defects</th><th>DHU%</th></tr></thead>
+    <tbody>${sizeRows||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No size data yet for this style</td></tr>'}</tbody></table></div>
+  </div>`;
+
   return`<div style="display:flex;flex-direction:column;gap:16px">
     ${selector}${infoCard}${kpis}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${defCard}${modTable}</div>
+    <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Colour &amp; Size Analysis</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${colorTable}${sizeTable}</div>
     <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Shift Summary</div>
     ${shiftCards}
     ${dailyTable}
@@ -544,9 +579,9 @@ function styleReportPDF(sel,ins){
   doc.text(`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`,148,32,{align:'center'});
   // Daily table
   const byDate={};
-  ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0,C:0,D:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
-  const body=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,g])=>[date,g.chk,g.def,g.chk?((g.def/g.chk)*100).toFixed(1)+'%':'—',g.A||'',g.B||'',g.C||'',g.D||'']);
-  doc.autoTable({startY:36,head:[['Date','Checked','Defects','DHU%','Shift A def','Shift B def','Shift C def','Shift D def']],body,styles:{fontSize:8,cellPadding:2,textColor:[210,210,210],fillColor:[20,22,36]},headStyles:{fillColor:[0,100,80],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[26,28,44]},theme:'grid'});
+  ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
+  const body=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,g])=>[date,g.chk,g.def,g.chk?((g.def/g.chk)*100).toFixed(1)+'%':'—',g.A||'',g.B||'']);
+  doc.autoTable({startY:36,head:[['Date','Checked','Defects','DHU%','Shift A def','Shift B def']],body,styles:{fontSize:8,cellPadding:2,textColor:[210,210,210],fillColor:[20,22,36]},headStyles:{fillColor:[0,100,80],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[26,28,44]},theme:'grid'});
   // Defect summary
   const defMap={};ins.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)defMap[i.defectType]=(defMap[i.defectType]||0)+(parseInt(i.defectQty)||0);});
   const defRows=Object.entries(defMap).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([n,c])=>[n,c,totDef?((c/totDef)*100).toFixed(1)+'%':'—']);
@@ -564,24 +599,40 @@ function styleReportExcel(sel,ins){
   aoa.push([`Total Checked: ${totChk}`,`Total Defects: ${totDef}`,`DHU: ${dhu}%`,`AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`]);
   aoa.push([]);
   // Daily sheet
-  aoa.push(['Date','Checked','Defects','DHU%','Shift A Def','Shift B Def','Shift C Def','Shift D Def']);
+  aoa.push(['Date','Checked','Defects','DHU%','Shift A Def','Shift B Def']);
   const byDate={};
-  ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0,C:0,D:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
-  Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([date,g])=>aoa.push([date,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0,g.A||0,g.B||0,g.C||0,g.D||0]));
+  ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
+  Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([date,g])=>aoa.push([date,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0,g.A||0,g.B||0]));
   aoa.push([]);
   // Shift summary
   aoa.push(['SHIFT SUMMARY']);
   aoa.push(['Shift','Checked','Defects','DHU%']);
-  const byShift={A:{chk:0,def:0},B:{chk:0,def:0},C:{chk:0,def:0},D:{chk:0,def:0}};
+  const byShift={A:{chk:0,def:0},B:{chk:0,def:0}};
   ins.forEach(i=>{const sh=i.shift||'A';if(!byShift[sh])byShift[sh]={chk:0,def:0};byShift[sh].chk+=parseInt(i.checkedQty)||0;byShift[sh].def+=parseInt(i.defectQty)||0;});
-  ['A','B','C','D'].forEach(sh=>{const g=byShift[sh];aoa.push([`Shift ${sh}`,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]);});
+  ['A','B'].forEach(sh=>{const g=byShift[sh];aoa.push([`Shift ${sh}`,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]);});
+  aoa.push([]);
+  // Colour-wise
+  aoa.push(['COLOUR-WISE']);
+  aoa.push(['Colour','Checked','Defects','DHU%']);
+  const byColorX={};
+  ins.forEach(i=>{const c=(i.color||'').trim();if(!c)return;if(!byColorX[c])byColorX[c]={chk:0,def:0};byColorX[c].chk+=parseInt(i.checkedQty)||0;byColorX[c].def+=parseInt(i.defectQty)||0;});
+  Object.entries(byColorX).sort((a,b)=>b[1].chk-a[1].chk).forEach(([c,g])=>aoa.push([c,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]));
+  if(!Object.keys(byColorX).length)aoa.push(['(no colour data)']);
+  aoa.push([]);
+  // Size-wise
+  aoa.push(['SIZE-WISE']);
+  aoa.push(['Size','Checked','Defects','DHU%']);
+  const bySizeX={};
+  ins.forEach(i=>{const z=(i.size||'').trim();if(!z)return;if(!bySizeX[z])bySizeX[z]={chk:0,def:0};bySizeX[z].chk+=parseInt(i.checkedQty)||0;bySizeX[z].def+=parseInt(i.defectQty)||0;});
+  Object.entries(bySizeX).sort((a,b)=>b[1].chk-a[1].chk).forEach(([z,g])=>aoa.push([z,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]));
+  if(!Object.keys(bySizeX).length)aoa.push(['(no size data)']);
   aoa.push([]);
   // All inspections raw
   aoa.push(['ALL INSPECTIONS']);
-  aoa.push(['Date','Time','Type','Module','Operator','Operation','Shift','Checked','Defects','DHU%','Defect Type','Inspector']);
-  ins.forEach(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0;aoa.push([i.date,i.time||'',i.type||'',i.module||'',i.operatorId||'',i.operation||'',i.shift||'',c,d,c?parseFloat(((d/c)*100).toFixed(2)):0,i.defectType||'',i.inspector||i.submittedBy||'']);});
+  aoa.push(['Date','Time','Type','Module','Operator','Operation','Shift','Size','Colour','Checked','Defects','DHU%','Defect Type','Inspector']);
+  ins.forEach(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0;aoa.push([i.date,i.time||'',i.type||'',i.module||'',i.operatorId||'',i.operation||'',i.shift||'',i.size||'',i.color||'',c,d,c?parseFloat(((d/c)*100).toFixed(2)):0,i.defectType||'',i.inspector||i.submittedBy||'']);});
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:12},{wch:8},{wch:10},{wch:10},{wch:8},{wch:20},{wch:14}];
+  ws['!cols']=[{wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:12},{wch:8},{wch:8},{wch:12},{wch:10},{wch:10},{wch:8},{wch:20},{wch:14}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Style Report');
   XLSX.writeFile(wb,`Style_Report_${sel.styleId}_${new Date().toISOString().slice(0,10)}.xlsx`);
   toast('Style Report Excel downloaded');
@@ -627,7 +678,7 @@ function pgReports(){
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
   <div class="form-group" style="margin:0"><label class="form-label" style="${styleMode?'color:var(--text3)':''}">Date ${styleMode?'<span style="font-size:10px">(ignored when style selected)</span>':''}</label><select class="form-input" ${styleMode?'disabled style="opacity:.4"':''} onchange="D.elDate=this.value;render()">${elDates.length?elDates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No end-line data</option>'}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">Module / Line</label><select class="form-input" onchange="D.elModule=this.value;render()"><option value="__all" ${(!D.elModule||D.elModule==='__all')?'selected':''}>All modules</option>${elMods.map(m=>`<option value="${m}" ${D.elModule===m?'selected':''}>${m}</option>`).join('')}</select></div>
-  <div class="form-group" style="margin:0"><label class="form-label">Shift</label><select class="form-input" onchange="D.elShift=this.value;render()"><option value="__all" ${(!D.elShift||D.elShift==='__all')?'selected':''}>All shifts</option>${['A','B','C','D'].map(s=>`<option value="${s}" ${D.elShift===s?'selected':''}>Shift ${s}</option>`).join('')}</select></div>
+  <div class="form-group" style="margin:0"><label class="form-label">Shift</label><select class="form-input" onchange="D.elShift=this.value;render()"><option value="__all" ${(!D.elShift||D.elShift==='__all')?'selected':''}>All shifts</option>${['A','B'].map(s=>`<option value="${s}" ${D.elShift===s?'selected':''}>Shift ${s}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">Size</label><select class="form-input" onchange="D.elSize=this.value;render()"><option value="__all" ${(!D.elSize||D.elSize==='__all')?'selected':''}>All sizes</option>${elSizes.map(s=>`<option value="${s}" ${D.elSize===s?'selected':''}>${s}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">Colour</label><select class="form-input" onchange="D.elColor=this.value;render()"><option value="__all" ${(!D.elColor||D.elColor==='__all')?'selected':''}>All colours</option>${elColors.map(c=>`<option value="${c}" ${D.elColor===c?'selected':''}>${c}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">QC Inspector</label><select class="form-input" onchange="D.elInspector=this.value;render()"><option value="__all" ${(!D.elInspector||D.elInspector==='__all')?'selected':''}>All inspectors</option>${elInspectors.map(n=>`<option value="${n}" ${D.elInspector===n?'selected':''}>${n}</option>`).join('')}</select></div>
@@ -951,7 +1002,7 @@ function pgEndLine(){
     </select>
     <select class="form-control" style="width:130px" onchange="D.elShift=this.value;render()">
       <option value="__all">All Shifts</option>
-      ${['A','B','C','D'].map(s=>`<option value="${s}" ${fShift===s?'selected':''}>Shift ${s}</option>`).join('')}
+      ${['A','B'].map(s=>`<option value="${s}" ${fShift===s?'selected':''}>Shift ${s}</option>`).join('')}
     </select>
     <div style="margin-left:auto;display:flex;gap:8px">
       <button class="btn btn-ghost btn-sm" onclick="rptEndLine('excel')">${ic('download',14)} Excel</button>
@@ -2083,7 +2134,7 @@ function pgSettings(){
   const rovToday=(D.rovingInspections||[]).filter(i=>i.date===today).length;
   const insToday=(D.inspections||[]).filter(i=>(i.date||(i.createdAt||'').split('T')[0])===today).length;
   const shift=currentShift();
-  const shiftColors={A:'var(--blue)',B:'var(--yellow)',C:'var(--text2)'};
+  const shiftColors={A:'var(--blue)',B:'var(--yellow)'};
   return`<div style="max-width:680px;display:flex;flex-direction:column;gap:16px">
   <div class="card"><div class="card-header"><span class="card-title">Profile</span></div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2098,7 +2149,7 @@ function pgSettings(){
     <div class="card-header"><span class="card-title">⏰ Current Shift Status</span>
       <span style="font-size:13px;font-weight:700;color:${shiftColors[shift]};background:rgba(255,255,255,.06);padding:4px 12px;border-radius:20px">SHIFT ${shift}</span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
       <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
         <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT A</div>
         <div style="font-size:13px;font-weight:600;color:${shift==='A'?'var(--blue)':'var(--text3)'}">06:00 – 14:00${shift==='A'?' ◀ NOW':''}</div>
@@ -2106,10 +2157,6 @@ function pgSettings(){
       <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
         <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT B</div>
         <div style="font-size:13px;font-weight:600;color:${shift==='B'?'var(--yellow)':'var(--text3)'}">14:00 – 22:00${shift==='B'?' ◀ NOW':''}</div>
-      </div>
-      <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT C</div>
-        <div style="font-size:13px;font-weight:600;color:${shift==='C'?'var(--text2)':'var(--text3)'}">22:00 – 06:00${shift==='C'?' ◀ NOW':''}</div>
       </div>
     </div>
   </div>
@@ -2177,9 +2224,9 @@ function renderModal(){
   }else if(m==='addAlert'){
     title='Create Alert';body=`<form id="mf"><div class="form-group"><label class="form-label">Title</label><input class="form-input" name="title" required></div><div class="form-group"><label class="form-label">Message</label><textarea class="form-input" name="message" rows="3" required></textarea></div><div class="form-row"><div class="form-group"><label class="form-label">Level</label><select class="form-input" name="level"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div><div class="form-group"><label class="form-label">Module</label><input class="form-input" name="module"></div></div><button class="btn btn-primary" type="button" onclick="sub('addAlert')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Create</button></form>`;
   }else if(m==='addUser'){
-    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>Line Head</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option><option>A</option><option>B</option><option>C</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
+    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>Line Head</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option><option>A</option><option>B</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
   }else if(m==='editUser'){
-    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${['Admin','Manager','Supervisor','Line Head','QC End Line Inspector','QC Roving Inspector'].map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option>${['A','B','C'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${['Admin','Manager','Supervisor','Line Head','QC End Line Inspector','QC Roving Inspector'].map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option>${['A','B'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else{title='Info';body='<button class="btn btn-ghost" onclick="closeModal()">Close</button>';}
   return`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-header"><div class="modal-title">${title}</div><button class="btn-icon" onclick="closeModal()">${ic('x',18)}</button></div>${body}</div></div>`;
 }
@@ -2246,8 +2293,10 @@ window.markRead=async function(k){try{await window.fbUpd('alerts',k,{read:true})
 window.seedOps=async function(){try{for(const o of DEF_OPS)await window.fbAdd('operations',{name:o});toast('Loaded');render();}catch(e){toast('Error: '+e.message,'error');}};
 
 // Shift auto-detection (A=06:00–14:00, B=14:00–22:00, C=22:00–06:00)
-function currentShift(){const h=new Date().getHours();if(h>=6&&h<14)return'A';if(h>=14&&h<22)return'B';return'C';}
-function shiftLabel(){const s=currentShift();const hrs={A:'06:00–14:00',B:'14:00–22:00',C:'22:00–06:00'};return`Shift ${s} (${hrs[s]})`;}
+// Two-shift factory: A = 06:00–14:00, B = 14:00–22:00.
+// Off-hours (22:00–06:00) fold into B, the last active shift.
+function currentShift(){const h=new Date().getHours();return(h>=6&&h<14)?'A':'B';}
+function shiftLabel(){const s=currentShift();const hrs={A:'06:00–14:00',B:'14:00–22:00'};return`Shift ${s} (${hrs[s]})`;}
 
 // ======================== DATA MANAGEMENT ========================
 async function _deleteCollection(col){
