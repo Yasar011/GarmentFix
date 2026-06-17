@@ -458,9 +458,12 @@ window.pickModule=function(k){
   if(mod)proceedWithModule(mod);
 };
 
-// Module lock: a user bound to a different active module needs supervisor approval to switch
+// Module lock: a user bound to a different active module needs supervisor approval to switch.
+// Line Heads are exempt — they routinely set up multiple lines (e.g. Line 10 and 10.1
+// running the same style), so they can switch modules freely.
 function proceedWithModule(mod){
   const enriched=window._enrichMod?window._enrichMod(mod):mod;
+  if(isLineHead()){WS.scannedModule=enriched;WS.step='verify';renderW();return;}
   if(WS.user?.changeRequest){WS.scannedModule=enriched;WS.step='waiting';renderW();return;}
   let locked=null;try{locked=WS.user?.activeModule?JSON.parse(WS.user.activeModule):null;}catch(e){}
   const same=locked&&(locked.fbKey===enriched.fbKey||(locked.moduleId&&locked.moduleId===enriched.moduleId)||locked.name===enriched.name);
@@ -505,7 +508,12 @@ function bindVerify(){
     if(ok){
       await window._update(window._ref(window._db,'users/'+WS.user.fbKey),{activeModule:JSON.stringify(m)});
       toast('Verified ✓');
-      if(isLineHead())      WS.step='lh_scan';
+      if(isLineHead()){
+        // Load any roster already saved for this module today so the Line Head
+        // can keep adding / editing operators instead of starting from scratch.
+        await loadExistingLHRoster();
+        WS.step='lh_scan';
+      }
       else if(isEndline())  WS.step='endline_home';
       else if(isRoving())   WS.step='roving_home';
       else                  WS.step='check_home';
@@ -532,9 +540,12 @@ function renderLHScan(){
   const entries=WS._lhEntries||[];
   const saved=entries.filter(e=>e.saved);
 
+  const isEditing=saved.length>0;
   return '<div class="card card-yellow" style="margin-bottom:12px">'
     +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">👷 Line Setup — '+( m?.name||'')+'</div>'
-    +'<div style="font-size:12px;color:var(--text2)">Scan each machine QR on the line then assign its operator</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(isEditing
+        ?'Editing today\'s roster — scan more machines to add, or edit existing below'
+        :'Scan each machine QR on the line then assign its operator')+'</div>'
     +'</div>'
 
     // Progress strip
@@ -566,6 +577,7 @@ function renderLHScan(){
     +(saved.length>0
       ?'<button class="btn-big btn-primary" onclick="WS.step=\'lh_roster\';renderW()">✅ Done — View Full Roster ('+saved.length+')</button>'
       :'')
+    +'<button class="btn-big btn-ghost" onclick="lhChangeLine()">🔄 Switch to Another Line / Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
@@ -575,6 +587,26 @@ function handleLHScanQR(text){
   WS._lhCurrentMachine=mach||{fbKey:machId,name:'Machine '+machId.slice(-4),type:'Unknown'};
   toast(WS._lhCurrentMachine.name+' scanned ✓');
   WS.step='lh_fill';renderW();
+}
+
+// Load the roster already saved for today's module into _lhEntries (marked saved:true)
+// so the Line Head can edit / append after submitting. Returns true if one existed.
+async function loadExistingLHRoster(){
+  const m=WS.scannedModule;if(!m){WS._lhEntries=[];return false;}
+  const date=new Date().toISOString().split('T')[0];
+  const rKey=(m.fbKey||m.moduleId)+'_'+date;
+  try{
+    const snap=await window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers'));
+    if(snap.exists()){
+      WS._lhEntries=Object.values(snap.val()).map(w=>({
+        machineId:w.machineId,machineName:w.machineName,
+        operatorId:w.operatorId,operation:w.operation,saved:true
+      }));
+      return true;
+    }
+  }catch(e){}
+  WS._lhEntries=[];
+  return false;
 }
 
 function renderLHFill(){
@@ -711,9 +743,19 @@ function renderLHDone(){
       +'<span class="badge badge-green">✓</span>'
       +'</div>').join('')
     +'</div>'
-    +'<button class="btn-big btn-ghost" onclick="WS._lhEntries=[];WS.step=\'lh_scan\';renderW()">🔄 New Line Setup</button>'
+    +'<button class="btn-big btn-primary" onclick="WS.step=\'lh_scan\';renderW()">➕ Add / Edit More Operators</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'lh_roster\';renderW()">📋 Review / Edit Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="lhChangeLine()">🔄 Switch to Another Line / Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
+
+// Line Head manages more than one line (e.g. Line 10 and 10.1 run the same style).
+// Let them jump straight to scanning a different module QR without the single-module
+// lock that applies to QC inspectors.
+window.lhChangeLine=function(){
+  WS._lhEntries=[];WS._lhCurrentMachine=null;
+  WS.scannedModule=null;WS.step='scan';renderW();
+};
 
 // ==================== GET MACHINES ====================
 function getModuleMachines(){
