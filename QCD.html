@@ -163,7 +163,10 @@ td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}tr:las
 .ai-finding{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px}
 .ai-bar{background:var(--bg4);height:6px;border-radius:3px;overflow:hidden;margin:6px 0}.ai-bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--purple),var(--accent2))}
 .qr-container{background:#fff;padding:16px;border-radius:12px;display:inline-block;margin:12px 0}
-.report-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:20px;cursor:pointer;transition:all .2s;text-align:center}.report-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.report-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:18px 14px;cursor:pointer;transition:all .18s;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:6px;min-height:120px}
+.report-card:hover{border-color:var(--accent);background:var(--bg3);transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.35)}
+.report-card>div:first-child{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.04);transition:transform .18s}
+.report-card:hover>div:first-child{transform:scale(1.08)}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .spinner{width:18px;height:18px;border:2px solid rgba(0,212,168,.3);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
@@ -232,15 +235,17 @@ window.toggleSB=function(){D.collapsed=!D.collapsed;document.getElementById('sb'
 window.showModal=function(t,d=null){D.showModal=t;D.modalData=d;render();};
 window.closeModal=function(){D.showModal=null;D.modalData=null;render();};
 
-// Show/hide Line Head extra fields in modal
+// Roles that work within a specific shift + module/line, so they get those fields.
+const SHIFT_MODULE_ROLES=['Line Head','QC Roving Inspector','QC End Line Inspector'];
+// Show/hide shift + module fields in the user modal based on role
 window.toggleLineField=function(prefix){
   const sel=document.getElementById(prefix+'-role-sel');
   const lg=document.getElementById(prefix+'-line-group');
   const sg=document.getElementById(prefix+'-shift-group');
   if(!sel||!lg||!sg)return;
-  const isLH=sel.value==='Line Head';
-  lg.style.display=isLH?'block':'none';
-  sg.style.display=isLH?'block':'none';
+  const needs=SHIFT_MODULE_ROLES.includes(sel.value);
+  lg.style.display=needs?'block':'none';
+  sg.style.display=needs?'block':'none';
 };
 window.logout=function(){D.user=null;D.page='login';render();};
 
@@ -360,7 +365,9 @@ function modLiveDHU(m){
 }
 
 function pgMods(){
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><button class="btn btn-primary" onclick="showModal('addMod')">${ic('plus',14)} Add Module</button><span style="font-size:12px;color:var(--text3)">${D.modules.length} modules — click for QR</span></div>${D.modules.length===0?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No modules. Add styles first, then create modules.</div>`:`<div class="module-grid">${D.modules.map(m=>{
+  const q=(D.sq||'').toLowerCase();
+  const list=q?D.modules.filter(m=>(m.name||'').toLowerCase().includes(q)||(m.moduleId||'').toLowerCase().includes(q)||(m.styleName||'').toLowerCase().includes(q)||(m.buyer||'').toLowerCase().includes(q)):D.modules;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary" onclick="showModal('addMod')">${ic('plus',14)} Add Module</button><input class="search-input" style="width:180px" placeholder="Search module, style..." value="${D.sq||''}" oninput="onSearch(this.value)"></div><span style="font-size:12px;color:var(--text3)">${list.length} / ${D.modules.length} modules — click for QR</span></div>${list.length===0?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No modules match.</div>`:`<div class="module-grid">${list.map(m=>{
     const live=modLiveDHU(m);
     const d=live.dhu;
     const color=!live.hasData?'var(--text3)':d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)';
@@ -591,25 +598,23 @@ function rptStyleReport(fmt){
 
 function styleReportPDF(sel,ins){
   const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  doc.setFillColor(10,12,16);doc.rect(0,0,297,210,'F');
-  doc.setFontSize(14);doc.setTextColor(0,212,168);doc.text('BRANDIX APPAREL INDIA UNIT-3',148,13,{align:'center'});
-  doc.setFontSize(11);doc.setTextColor(220,220,220);doc.text('STYLE REPORT — '+sel.styleId+' '+sel.name,148,20,{align:'center'});
-  doc.setFontSize(8);doc.setTextColor(150,150,150);doc.text(`Buyer: ${sel.buyer||'—'}  |  Colour: ${sel.color||'—'}  |  Status: ${sel.status}  |  Target DHU: ${sel.targetDhu||'—'}%  |  Generated: ${new Date().toLocaleString()}`,148,26,{align:'center'});
+  pdfHeader(doc,'Style Report — '+sel.styleId+' '+sel.name,`Buyer: ${sel.buyer||'—'}  |  Colour: ${sel.color||'—'}  |  Status: ${sel.status}  |  Target DHU: ${sel.targetDhu||'—'}%`,`Generated: ${new Date().toLocaleString()}`);
   // Totals
   const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
   const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
   const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
-  doc.setFontSize(9);doc.setTextColor(200,200,200);
-  doc.text(`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`,148,32,{align:'center'});
+  doc.setFontSize(9);doc.setTextColor(40,40,40);
+  doc.text(`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`,148,37,{align:'center'});
   // Daily table
   const byDate={};
   ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
   const body=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,g])=>[date,g.chk,g.def,g.chk?((g.def/g.chk)*100).toFixed(1)+'%':'—',g.A||'',g.B||'']);
-  doc.autoTable({startY:36,head:[['Date','Checked','Defects','DHU%','Shift A def','Shift B def']],body,styles:{fontSize:8,cellPadding:2,textColor:[210,210,210],fillColor:[20,22,36]},headStyles:{fillColor:[0,100,80],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[26,28,44]},theme:'grid'});
+  doc.autoTable({startY:41,head:[['Date','Checked','Defects','DHU%','Shift A def','Shift B def']],body,styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
   // Defect summary
   const defMap={};ins.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)defMap[i.defectType]=(defMap[i.defectType]||0)+(parseInt(i.defectQty)||0);});
   const defRows=Object.entries(defMap).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([n,c])=>[n,c,totDef?((c/totDef)*100).toFixed(1)+'%':'—']);
-  if(defRows.length){let y=doc.lastAutoTable.finalY+6;if(y>170){doc.addPage('a4','landscape');y=14;}doc.setFontSize(10);doc.setTextColor(0,212,168);doc.text('Top Defects',14,y);doc.autoTable({startY:y+2,head:[['Defect Type','Count','% of Total']],body:defRows,styles:{fontSize:8,cellPadding:2,textColor:[210,210,210],fillColor:[20,22,36]},headStyles:{fillColor:[80,30,80],textColor:[255,255,255],fontStyle:'bold'},theme:'grid',margin:{left:14,right:180}});}
+  if(defRows.length){let y=doc.lastAutoTable.finalY+6;if(y>170){doc.addPage('a4','landscape');y=14;}doc.setFontSize(10);doc.setTextColor(0,150,120);doc.text('Top Defects',14,y);doc.autoTable({startY:y+2,head:[['Defect Type','Count','% of Total']],body:defRows,styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[120,60,140],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',margin:{left:14,right:180}});}
+  pdfStamp(doc);
   doc.save(`Style_Report_${sel.styleId}_${new Date().toISOString().slice(0,10)}.pdf`);toast('Style Report PDF downloaded');
 }
 
@@ -787,18 +792,16 @@ function rptModuleReport(fmt){
 
 function moduleReportPDF(sel,ins,rov){
   const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  doc.setFillColor(10,12,16);doc.rect(0,0,297,210,'F');
-  doc.setFontSize(14);doc.setTextColor(0,212,168);doc.text('BRANDIX APPAREL INDIA UNIT-3',148,13,{align:'center'});
-  doc.setFontSize(11);doc.setTextColor(220,220,220);doc.text('MODULE REPORT — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),148,20,{align:'center'});
   const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
   const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
   const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
-  doc.setFontSize(9);doc.setTextColor(200,200,200);doc.text(`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}   Generated: ${new Date().toLocaleString()}`,148,27,{align:'center'});
+  pdfHeader(doc,'Module Report — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`,`Generated: ${new Date().toLocaleString()}`);
   // Operator table
   const byOp={};ins.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.checkedQty)||0;byOp[op].def+=parseInt(i.defectQty)||0;});
   rov.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.sp)||0;byOp[op].def+=parseInt(i.dc)||0;});
   const body=Object.entries(byOp).sort((a,b)=>{const da=a[1].chk?a[1].def/a[1].chk:0,db=b[1].chk?b[1].def/b[1].chk:0;return db-da;}).map(([op,g])=>[op,g.operation||'',g.chk,g.def,g.chk?((g.def/g.chk)*100).toFixed(1)+'%':'—']);
-  doc.autoTable({startY:33,head:[['Operator','Operation','Checked','Defects','DHU%']],body,styles:{fontSize:8,cellPadding:2,textColor:[210,210,210],fillColor:[20,22,36]},headStyles:{fillColor:[0,100,80],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[26,28,44]},theme:'grid'});
+  doc.autoTable({startY:38,head:[['Operator','Operation','Checked','Defects','DHU%']],body,styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
+  pdfStamp(doc);
   doc.save(`Module_Report_${(sel.name||'module').replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.pdf`);
   toast('Module Report PDF downloaded');
 }
@@ -832,7 +835,9 @@ function pgStyles(){
   const running=D.styles.filter(s=>s.status==='Running');
   const planned=D.styles.filter(s=>s.status==='Planned');
   const completed=D.styles.filter(s=>s.status==='Completed');
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="showModal('addStyle')">${ic('plus',14)} Add Style</button><button class="btn btn-ghost" onclick="triggerCSV('styles')">📄 Import CSV</button></div><div style="display:flex;gap:8px"><span class="badge badge-green">${running.length} Running</span><span class="badge badge-yellow">${planned.length} Planned</span><span class="badge badge-blue">${completed.length} Completed</span></div></div>${D.styles.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No styles. Add styles first.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Style ID</th><th>Name</th><th>Buyer</th><th>Colors</th><th>Sizes</th><th>Status</th><th>Target DHU</th><th>Completed</th><th></th></tr></thead><tbody>${D.styles.map(s=>{const allColors=(s.colors||s.color||'').split(',').map(c=>c.trim()).filter(Boolean);const allSizes=(s.sizes||'').split(',').map(x=>x.trim()).filter(Boolean);return`<tr><td style="font-family:var(--mono);font-size:12px">${s.styleId||''}</td><td style="font-weight:500">${s.name||''}</td><td>${s.buyer||''}</td><td><div style="display:flex;gap:4px;flex-wrap:wrap">${allColors.length>0?allColors.map(c=>`<span class="chip" style="font-size:10px;padding:2px 6px">${c}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><div style="display:flex;gap:3px;flex-wrap:wrap">${allSizes.length>0?allSizes.map(z=>`<span style="font-size:10px;background:rgba(68,136,255,.12);color:var(--blue);border-radius:4px;padding:1px 5px">${z}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><span class="badge badge-${s.status==='Running'?'green':s.status==='Completed'?'blue':'yellow'}">${s.status||''}</span></td><td style="font-family:var(--mono)">${s.targetDhu||''}%</td><td style="font-size:12px">${s.completedDate?fd(s.completedDate):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-sm" style="color:var(--accent)" onclick="D.styleReportKey='${s.fbKey}';nav('style-report')">📊</button><button class="btn-icon" onclick="showModal('editStyle',${JSON.stringify(s).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>${s.status!=='Completed'?`<button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="completeStyle('${s.fbKey}')">✓ Complete</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('styles','${s.fbKey}')">${ic('trash',14)}</button></div></td></tr>`;}).join('')}</tbody></table></div></div>`}</div>`;
+  const q=(D.sq||'').toLowerCase();
+  const list=q?D.styles.filter(s=>(s.name||'').toLowerCase().includes(q)||(s.styleId||'').toLowerCase().includes(q)||(s.buyer||'').toLowerCase().includes(q)||(s.status||'').toLowerCase().includes(q)):D.styles;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary" onclick="showModal('addStyle')">${ic('plus',14)} Add Style</button><input class="search-input" style="width:180px" placeholder="Search style, buyer..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-ghost" onclick="triggerCSV('styles')">📄 Import CSV</button></div><div style="display:flex;gap:8px"><span class="badge badge-green">${running.length} Running</span><span class="badge badge-yellow">${planned.length} Planned</span><span class="badge badge-blue">${completed.length} Completed</span></div></div>${list.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No styles match.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Style ID</th><th>Name</th><th>Buyer</th><th>Colors</th><th>Sizes</th><th>Status</th><th>Target DHU</th><th>Completed</th><th></th></tr></thead><tbody>${list.map(s=>{const allColors=(s.colors||s.color||'').split(',').map(c=>c.trim()).filter(Boolean);const allSizes=(s.sizes||'').split(',').map(x=>x.trim()).filter(Boolean);return`<tr><td style="font-family:var(--mono);font-size:12px">${s.styleId||''}</td><td style="font-weight:500">${s.name||''}</td><td>${s.buyer||''}</td><td><div style="display:flex;gap:4px;flex-wrap:wrap">${allColors.length>0?allColors.map(c=>`<span class="chip" style="font-size:10px;padding:2px 6px">${c}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><div style="display:flex;gap:3px;flex-wrap:wrap">${allSizes.length>0?allSizes.map(z=>`<span style="font-size:10px;background:rgba(68,136,255,.12);color:var(--blue);border-radius:4px;padding:1px 5px">${z}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><span class="badge badge-${s.status==='Running'?'green':s.status==='Completed'?'blue':'yellow'}">${s.status||''}</span></td><td style="font-family:var(--mono)">${s.targetDhu||''}%</td><td style="font-size:12px">${s.completedDate?fd(s.completedDate):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-sm" style="color:var(--accent)" onclick="D.styleReportKey='${s.fbKey}';nav('style-report')">📊</button><button class="btn-icon" onclick="showModal('editStyle',${JSON.stringify(s).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>${s.status!=='Completed'?`<button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="completeStyle('${s.fbKey}')">✓ Complete</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('styles','${s.fbKey}')">${ic('trash',14)}</button></div></td></tr>`;}).join('')}</tbody></table></div></div>`}</div>`;
 }
 
 window.completeStyle = async function(key){
@@ -877,6 +882,28 @@ function pgReports(){
 }
 
 // ============ PDF REPORTS ============
+// Shared branding: a faded credit line on EVERY page of EVERY report.
+const PDF_CREDIT='Developed by Yasar, Anirudra — NIFT Jodhpur';
+function pdfStamp(doc){
+  try{
+    const n=doc.internal.getNumberOfPages();
+    const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight();
+    for(let p=1;p<=n;p++){
+      doc.setPage(p);
+      doc.setFontSize(7);doc.setTextColor(165,165,165);
+      doc.text(PDF_CREDIT,W/2,H-5,{align:'center'});
+    }
+  }catch(e){}
+}
+// Standard light-theme branded header for a landscape report.
+function pdfHeader(doc,title,subtitle,extra){
+  const W=doc.internal.pageSize.getWidth();
+  doc.setFontSize(15);doc.setTextColor(0,150,120);doc.text('BRANDIX QMS',W/2,13,{align:'center'});
+  doc.setFontSize(12);doc.setTextColor(40,40,40);doc.text(title,W/2,20,{align:'center'});
+  if(subtitle){doc.setFontSize(9);doc.setTextColor(110,110,110);doc.text(subtitle,W/2,26,{align:'center'});}
+  if(extra){doc.setFontSize(8);doc.setTextColor(130,130,130);doc.text(extra,W/2,31,{align:'center'});}
+}
+
 function makePDF(title,headers,rows,summary){
   const{jsPDF}=window.jspdf;
   const doc=new jsPDF();
@@ -885,6 +912,7 @@ function makePDF(title,headers,rows,summary){
   doc.setFontSize(9);doc.setTextColor(120,120,120);doc.text('Generated: '+new Date().toLocaleString('en-GB'),14,34);
   if(summary){doc.setFontSize(10);doc.setTextColor(40,40,40);let y=42;summary.forEach(s=>{doc.text(s,14,y);y+=5;});}
   doc.autoTable({head:[headers],body:rows,startY:summary?42+summary.length*5+4:40,theme:'grid',styles:{fontSize:8,cellPadding:3},headStyles:{fillColor:[0,180,140],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},margin:{left:14,right:14}});
+  pdfStamp(doc);
   doc.save(title.replace(/\s/g,'_')+'_'+new Date().toISOString().split('T')[0]+'.pdf');
   toast('PDF downloaded');
 }
@@ -1050,6 +1078,7 @@ function elPDF(R){
   doc.setFontSize(8);doc.setTextColor(60,60,60);
   doc.text('Corrective Actions:  1. Repair    2. Restitch    3. Operator Awareness',14,y);y+=8;
   doc.text('QC SUP: __________________        PROD SUP: __________________        AQM: __________________',14,y);
+  pdfStamp(doc);
   doc.save(`End_Line_Report_${(R.styleId||R.styleName||'report').toString().replace(/\s/g,'_')}_${R.date}.pdf`);
   toast('End Line Report PDF downloaded');
 }
@@ -1404,6 +1433,14 @@ function pgRoving(){
 // fed from worker_9.html, which auto-creates one record per module+date+hour
 // whenever a Roving QC logs a defect (path: correctiveActions/{moduleId}_{date}_{hour}).
 const CAP_SIGN_COLS=[{k:'operator',l:'Operator Sign.'},{k:'tech',l:'Tech Sign.'},{k:'tl',l:'T/L Sign.'},{k:'qa',l:'QA Sign.'}];
+// Sign-offs each action level needs (must match the worker app): A→Operator; B/C→Operator+Tech; D→Operator+QA.
+const CAP_CPA_SIGN={A:['operator'],B:['operator','tech'],C:['operator','tech'],D:['operator','qa']};
+function capRequiredKeys(entry){
+  const set=new Set();
+  (entry?.defects||[]).forEach(d=>{(CAP_CPA_SIGN[d.cpa]||['operator']).forEach(r=>set.add(r));});
+  if(set.size===0)set.add('operator');
+  return set;
+}
 
 function pgCap(){
   const all=D.correctiveActions||[];
@@ -1417,18 +1454,19 @@ function pgCap(){
   const openCount=all.filter(e=>e.date===curDate&&e.status!=='closed').length;
   const totalDef=rows.reduce((a,e)=>a+(e.defects||[]).reduce((s,d)=>s+(parseInt(d.qty)||0),0),0);
 
-  const sigCell=(sig)=>sig
+  const sigCell=(sig,required)=>sig
     ?`<div style="text-align:center"><img src="${sig.img}" style="height:28px;background:#fff;border-radius:4px;display:block;margin:0 auto"><div style="font-size:9px;color:var(--green)">${sig.name}</div></div>`
-    :'<div style="text-align:center;color:var(--text3);font-size:11px">— pending —</div>';
+    :(required?'<div style="text-align:center;color:var(--text3);font-size:11px">— pending —</div>':'<div style="text-align:center;color:var(--text3);font-size:10px;opacity:.5">n/a</div>');
 
   const tableRows=rows.map(e=>{
     const closed=e.status==='closed';
+    const reqKeys=capRequiredKeys(e);
     return`<tr>
       <td style="font-weight:600;font-family:var(--mono)">${e.hour}</td>
       <td style="font-size:11px;color:var(--text3)">${e.moduleName||e.moduleId||''}${e.lineNo?' • L'+e.lineNo:''}</td>
-      <td>${(e.defects||[]).map(d=>`<span class="badge badge-red" style="margin:1px 2px 1px 0">${d.code} ×${d.qty}${d.cpa?' · '+d.cpa:''}</span>`).join('')}</td>
+      <td>${(e.defects||[]).map(d=>`<span class="badge badge-red" style="margin:1px 2px 1px 0">${d.code} ×${d.qty}${d.cpa?' · '+d.cpa:''}</span>`).join('')}${(e.reasons&&e.reasons.length)?`<div style="font-size:10px;color:var(--yellow);margin-top:3px">⚠ ${e.reasons.join(' · ')}</div>`:''}</td>
       <td style="font-size:12px;max-width:220px">${e.correctiveAction||'<span style="color:var(--text3)">—</span>'}</td>
-      ${CAP_SIGN_COLS.map(c=>`<td>${sigCell(e.signatures?.[c.k])}</td>`).join('')}
+      ${CAP_SIGN_COLS.map(c=>`<td>${sigCell(e.signatures?.[c.k],reqKeys.has(c.k))}</td>`).join('')}
       <td><span class="badge badge-${closed?'green':'yellow'}">${closed?'Closed':'Open'}</span></td>
     </tr>`;
   }).join('');
@@ -1482,10 +1520,7 @@ function rptCap(fmt){
 
 function capPDF(rows){
   const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  doc.setFillColor(10,12,16);doc.rect(0,0,297,210,'F');
-  doc.setFontSize(14);doc.setTextColor(224,85,85);doc.text('BRANDIX — END LINE REPORT',148,13,{align:'center'});
-  doc.setFontSize(11);doc.setTextColor(220,220,220);doc.text('CORRECTIVE ACTION PLAN',148,20,{align:'center'});
-  doc.setFontSize(8);doc.setTextColor(150,150,150);doc.text(`Generated: ${new Date().toLocaleString()}`,148,26,{align:'center'});
+  pdfHeader(doc,'Roving QC — Corrective Action Plan',null,`Generated: ${new Date().toLocaleString()}`);
   const sigText=(sig)=>sig?`Y — ${sig.name}`:'Pending';
   const body=rows.map(e=>[
     e.hour,
@@ -1495,11 +1530,12 @@ function capPDF(rows){
     sigText(e.signatures?.operator),sigText(e.signatures?.tech),sigText(e.signatures?.tl),sigText(e.signatures?.qa),
     e.status==='closed'?'Closed':'Open'
   ]);
-  doc.autoTable({startY:32,head:[['Hour','Module','Defects','Corrective Action','Operator','Tech','T/L','QA','Status']],body,
-    styles:{fontSize:7,cellPadding:2,textColor:[210,210,210],fillColor:[20,22,36]},
-    headStyles:{fillColor:[120,30,30],textColor:[255,255,255],fontStyle:'bold'},
-    alternateRowStyles:{fillColor:[26,28,44]},theme:'grid',
+  doc.autoTable({startY:37,head:[['Hour','Module','Defects','Corrective Action','Operator','Tech','T/L','QA','Status']],body,
+    styles:{fontSize:7,cellPadding:2,textColor:[40,40,40]},
+    headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',
     columnStyles:{2:{cellWidth:50},3:{cellWidth:55}}});
+  pdfStamp(doc);
   doc.save(`Corrective_Action_Plan_${new Date().toISOString().slice(0,10)}.pdf`);
   toast('Corrective Action Plan PDF downloaded');
 }
@@ -1570,6 +1606,7 @@ function rovingPDF(rows,date){
   doc.text('(a) 1 defect → check 6 more pcs  (b) No defects in 2nd 6 → allow proceed  (c) 1+ defects 2nd 6 → stop, repair all, then proceed  (d) 1+ defects first 6 → follow c',14,y);y+=5;
   doc.text('A=Inline QC  B=Supervisor/Mechanic  C=Senior Technician  D=Production/Quality Executive',14,y);y+=7;
   doc.text('Technician: ____________________________      QA.Exe: ____________________________',14,y);
+  pdfStamp(doc);
   doc.save(`Roving_Report_${(style||'report').toString().replace(/\s/g,'_')}_${date}.pdf`);
   toast('Roving Report PDF downloaded');
 }
@@ -1727,10 +1764,7 @@ function rptShiftSummary(fmt){
 
 function shiftSummaryPDF(rows){
   const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  doc.setFillColor(30,30,46);doc.rect(0,0,297,297,'F');
-  doc.setFontSize(14);doc.setTextColor(0,212,168);doc.text('BRANDIX APPAREL INDIA UNIT-3',148,14,{align:'center'});
-  doc.setFontSize(10);doc.setTextColor(200,200,200);doc.text('Shift End Summary Report',148,21,{align:'center'});
-  doc.setFontSize(8);doc.text(`Generated: ${new Date().toLocaleString()}`,148,27,{align:'center'});
+  pdfHeader(doc,'Shift End Summary Report',null,`Generated: ${new Date().toLocaleString()}`);
   const redByOp2={};
   rows.forEach(g=>{Object.entries(g.operatorDHU||{}).forEach(([opId,od])=>{if(od.chk&&(od.def/od.chk)*100>5)redByOp2[opId]=(redByOp2[opId]||0)+1;});});
   const body=rows.map(g=>{
@@ -1741,7 +1775,8 @@ function shiftSummaryPDF(rows){
     const top3=Object.entries(g.defectTypes).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([dt,n])=>`${dt}(${n})`).join(', ')||'—';
     return[g.date,g.module,g.checkQty,g.defectQty,endPer+'%',redOps.map(([opId])=>opId).join(', ')||'—',redOps.length,repRed,redReasons,g.module,g.rejections,top3,g.shift];
   });
-  doc.autoTable({startY:32,head:[['Date','Line','Check Qty','Def Qty','End %','Red Operators','#Red','Rep.Red','Reasons','Zone','Rej.','Top 3 Defects','Shift']],body,styles:{fontSize:7,cellPadding:2,textColor:[220,220,220],fillColor:[20,22,36]},headStyles:{fillColor:[180,30,30],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[26,28,44]},theme:'grid'});
+  doc.autoTable({startY:37,head:[['Date','Line','Check Qty','Def Qty','End %','Red Operators','#Red','Rep.Red','Reasons','Zone','Rej.','Top 3 Defects','Shift']],body,styles:{fontSize:7,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
+  pdfStamp(doc);
   doc.save(`ShiftEndSummary_${new Date().toISOString().slice(0,10)}.pdf`);
   toast('Shift End Summary PDF downloaded');
 }
@@ -1771,7 +1806,7 @@ function pgAlerts(){return`<div style="display:flex;flex-direction:column;gap:20
 function pgInsp(){
   let ins=D.inspections.slice().reverse();const q=D.sq.toLowerCase();
   if(q)ins=ins.filter(i=>(i.type||'').includes(q)||(i.module||'').toLowerCase().includes(q)||(i.inspector||'').toLowerCase().includes(q)||(i.operatorId||'').toLowerCase().includes(q));
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search..." value="${D.sq}" oninput="D.sq=this.value;render()"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td>${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('inspections','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td>${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('inspections','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
 }
 
 function pgSuper(){
@@ -1824,8 +1859,10 @@ function pgMachines(){
     return parts.join(' › ');
   }
 
+  const q=(D.sq||'').toLowerCase();
+  const fmachines=q?machines.filter(m=>(m.name||'').toLowerCase().includes(q)||(m.type||'').toLowerCase().includes(q)||resolveModuleName(m).toLowerCase().includes(q)||resolveLocation(m).toLowerCase().includes(q)):machines;
   const groups={};
-  machines.forEach(m=>{
+  fmachines.forEach(m=>{
     const loc=resolveLocation(m)||'Unassigned';
     if(!groups[loc])groups[loc]=[];
     groups[loc].push(m);
@@ -1835,10 +1872,11 @@ function pgMachines(){
   return`<div style="display:flex;flex-direction:column;gap:20px">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn btn-primary" onclick="syncMachines()">${ic('refresh',14)} Sync from Factory App</button>
-      <span style="font-size:12px;color:var(--text3)">${machines.length} machines</span>
+      <input class="search-input" style="width:200px" placeholder="Search machine, type, module..." value="${D.sq||''}" oninput="onSearch(this.value)">
+      <span style="font-size:12px;color:var(--text3)">${fmachines.length} / ${machines.length} machines</span>
     </div>
-    ${machines.length===0
-      ?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)"><div style="font-size:32px;margin-bottom:12px">&#127981;</div><div style="font-weight:600">No machines yet</div><div style="font-size:12px;margin-top:8px">Click Sync from Factory App to import.</div></div>`
+    ${fmachines.length===0
+      ?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)"><div style="font-size:32px;margin-bottom:12px">&#127981;</div><div style="font-weight:600">${machines.length?'No machines match':'No machines yet'}</div><div style="font-size:12px;margin-top:8px">${machines.length?'Try a different search.':'Click Sync from Factory App to import.'}</div></div>`
       :`<div class="card" style="padding:0;overflow:hidden">
           <div class="card-header" style="padding:16px;display:flex;justify-content:space-between;align-items:center"><span class="card-title">Machine Registry</span><span style="font-size:12px;color:var(--text3)">${Object.keys(groups).length} locations</span></div>
           <div class="table-wrap"><table><thead><tr><th>#</th><th>Machine Name</th><th>Type</th><th>Module</th><th>Location</th><th>Last Event</th><th></th></tr></thead>
@@ -2258,9 +2296,9 @@ function pgAI(){
   </div>`;
 }
 
-function pgOps(){const ops=D.operations;return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><div><span class="card-title">Operations</span><div style="font-size:12px;color:var(--text3);margin-top:4px">These appear in worker dropdown</div></div><div><button class="btn btn-primary btn-sm" onclick="showModal('addOp')">${ic('plus',14)} Add</button><button class="btn btn-ghost btn-sm" onclick="triggerCSV('operations')" style="margin-left:4px">📄 Import CSV</button></div></div>${ops.length===0?`<div style="padding:20px;text-align:center;color:var(--text3)">No custom operations. <button class="btn btn-ghost btn-sm" onclick="seedOps()">Load Defaults</button></div>`:`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Added</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td style="font-weight:500">${o.name||''}</td><td style="font-size:12px;color:var(--text3)">${fd(o.createdAt)}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('operations','${o.fbKey}')">${ic('trash',14)}</button></td></tr>`).join('')}</tbody></table></div>`}</div></div>`;}
+function pgOps(){const q=(D.sq||'').toLowerCase();const ops=q?D.operations.filter(o=>(o.name||'').toLowerCase().includes(q)):D.operations;return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><div><span class="card-title">Operations</span><div style="font-size:12px;color:var(--text3);margin-top:4px">These appear in worker dropdown</div></div><div style="display:flex;gap:6px;align-items:center"><input class="search-input" style="width:170px" placeholder="Search operation..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-primary btn-sm" onclick="showModal('addOp')">${ic('plus',14)} Add</button><button class="btn btn-ghost btn-sm" onclick="triggerCSV('operations')">📄 Import CSV</button></div></div>${ops.length===0?`<div style="padding:20px;text-align:center;color:var(--text3)">${q?'No operations match.':'No custom operations.'} <button class="btn btn-ghost btn-sm" onclick="seedOps()">Load Defaults</button></div>`:`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Added</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td style="font-weight:500">${o.name||''}</td><td style="font-size:12px;color:var(--text3)">${fd(o.createdAt)}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('operations','${o.fbKey}')">${ic('trash',14)}</button></td></tr>`).join('')}</tbody></table></div>`}</div></div>`;}
 
-function pgDefects(){const defs=D.defects||[];return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="showModal('addDefect')">${ic('plus',14)} Add Defect</button><button class="btn btn-ghost" onclick="triggerCSV('defects')">📄 Import CSV</button></div></div>${defs.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No defects. Add one.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Defect ID</th><th>Name</th><th>Type</th><th></th></tr></thead><tbody>${defs.map(d=>`<tr><td style="font-family:var(--mono);font-size:12px">${d.defectId||''}</td><td style="font-weight:500">${d.name||''}</td><td><span class="badge badge-${d.type==='Inline'?'blue':d.type==='Endline'?'purple':'green'}">${d.type||'Both'}</span></td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editDefect',${JSON.stringify(d).replace(/"/g,'&quot;')})">${ic('edit',14)}</button><button class="btn-icon" style="color:var(--red)" onclick="del('defects','${d.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;}
+function pgDefects(){const q=(D.sq||'').toLowerCase();const defs=(q?(D.defects||[]).filter(d=>(d.name||'').toLowerCase().includes(q)||(d.defectId||'').toLowerCase().includes(q)||(d.type||'').toLowerCase().includes(q)):(D.defects||[]));return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary" onclick="showModal('addDefect')">${ic('plus',14)} Add Defect</button><input class="search-input" style="width:180px" placeholder="Search defect..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-ghost" onclick="triggerCSV('defects')">📄 Import CSV</button></div></div>${defs.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No defects match.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Defect ID</th><th>Name</th><th>Type</th><th></th></tr></thead><tbody>${defs.map(d=>`<tr><td style="font-family:var(--mono);font-size:12px">${d.defectId||''}</td><td style="font-weight:500">${d.name||''}</td><td><span class="badge badge-${d.type==='Inline'?'blue':d.type==='Endline'?'purple':'green'}">${d.type||'Both'}</span></td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editDefect',${JSON.stringify(d).replace(/"/g,'&quot;')})">${ic('edit',14)}</button><button class="btn-icon" style="color:var(--red)" onclick="del('defects','${d.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;}
 
 function roleBadge(role){
   if(!role)return'gray';
@@ -2276,12 +2314,15 @@ function roleBadge(role){
 function pgUsers(){
   const lineHeads=D.users.filter(u=>u.role==='Line Head');
   const others=D.users.filter(u=>u.role!=='Line Head');
-  const sorted=[...lineHeads,...others];
+  let sorted=[...lineHeads,...others];
+  const q=(D.sq||'').toLowerCase();
+  if(q)sorted=sorted.filter(u=>(u.name||'').toLowerCase().includes(q)||(u.username||'').toLowerCase().includes(q)||(u.email||'').toLowerCase().includes(q)||(u.role||'').toLowerCase().includes(q)||(u.assignedLine||'').toLowerCase().includes(q));
   return`<div style="display:flex;flex-direction:column;gap:20px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary" onclick="showModal('addUser')">${ic('plus',14)} Add User</button>
-        <span style="font-size:12px;color:var(--text3)">${D.users.length} users — ${lineHeads.length} Line Heads</span>
+        <input class="search-input" placeholder="Search name, username, role, line..." value="${D.sq||''}" oninput="onSearch(this.value)">
+        <span style="font-size:12px;color:var(--text3)">${sorted.length} / ${D.users.length} users</span>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         ${['Admin','Manager','Supervisor','Line Head','QC End Line Inspector','QC Roving Inspector'].map(r=>{
@@ -2418,9 +2459,9 @@ function renderModal(){
   }else if(m==='addAlert'){
     title='Create Alert';body=`<form id="mf"><div class="form-group"><label class="form-label">Title</label><input class="form-input" name="title" required></div><div class="form-group"><label class="form-label">Message</label><textarea class="form-input" name="message" rows="3" required></textarea></div><div class="form-row"><div class="form-group"><label class="form-label">Level</label><select class="form-input" name="level"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div><div class="form-group"><label class="form-label">Module</label><input class="form-input" name="module"></div></div><button class="btn btn-primary" type="button" onclick="sub('addAlert')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Create</button></form>`;
   }else if(m==='addUser'){
-    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>Line Head</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option><option>A</option><option>B</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
+    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option><option>A</option><option>B</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
   }else if(m==='editUser'){
-    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${['Admin','Manager','Supervisor','Line Head','QC End Line Inspector','QC Roving Inspector'].map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${d?.role==='Line Head'?'block':'none'}"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option>${['A','B'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${(['Admin','Manager','Supervisor','QC End Line Inspector','QC Roving Inspector'].concat(d?.role==='Line Head'?['Line Head']:[])).map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option>${['A','B'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else{title='Info';body='<button class="btn btn-ghost" onclick="closeModal()">Close</button>';}
   return`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-header"><div class="modal-title">${title}</div><button class="btn-icon" onclick="closeModal()">${ic('x',18)}</button></div>${body}</div></div>`;
 }
@@ -2584,6 +2625,7 @@ window.printQR=function(){
       <div class="mid">${mid}</div>
       <div class="qr-box">${el.innerHTML}</div>
       <div class="foot">Scan with the worker app<br>Style is always looked up live — never printed here</div>
+      <div style="margin-top:18px;font-size:9px;color:#bbb">Developed by Yasar, Anirudra — NIFT Jodhpur</div>
     </div>
   </body></html>`);
   w.document.close();
@@ -2715,7 +2757,15 @@ function afterRender(){
   bindSsel();bindSeed();
   requestAnimationFrame(()=>{renderCharts();renderQR();});
   document.onkeydown=e=>{if(e.key==='Escape'&&D.showModal)closeModal();};
+  // Keep the cursor in the search box across the re-render it triggers.
+  if(D._searchFocus){
+    const el=document.querySelector('.search-input');
+    if(el){el.focus();const v=el.value;el.value='';el.value=v;}
+    D._searchFocus=false;
+  }
 }
+// Shared search handler: updates the query and re-renders, preserving focus.
+window.onSearch=function(v){D.sq=v;D._searchFocus=true;render();};
 
 render();
 </script>
