@@ -15,6 +15,7 @@
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
         "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
@@ -34,7 +35,7 @@
           LayoutDashboard, PlusCircle, Factory, Printer, QrCode, 
           Building, Trash2, Loader2, LogOut, Wrench, AlertTriangle, 
           CheckCircle, Settings, Layers, Zap, ChevronDown, ChevronRight, 
-          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3, ScanLine, X, Search, History, Archive, RefreshCw, RotateCcw, FileSpreadsheet, DollarSign, Tag, Upload, TrendingDown, Copy, Move, Warehouse, ArrowRightLeft
+          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3, ScanLine, X, Search, History, Archive, RefreshCw, RotateCcw, FileSpreadsheet, DollarSign, Tag, Upload, TrendingDown, Copy, Move, Warehouse, ArrowRightLeft, MapPin
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
         import { getAuth, signInAnonymously } from "firebase/auth";
@@ -230,7 +231,7 @@
             );
         }
 
-        const MachineDetailsModal = ({ machine, logs, onClose }) => {
+        const MachineDetailsModal = ({ machine, logs, buildings, sections, modules, onClose }) => {
             if (!machine) return null;
 
             const intervalDays = parseInt(machine.interval) || 30;
@@ -240,6 +241,18 @@
             const pmStatus = isPmValid ? "Valid" : "Expired / Due";
             
             const history = logs.filter(l => l.machineId === machine.id).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            let locationString = "Machine Yard (Spare)";
+            if (machine.moduleId && machine.moduleId !== 'yard') {
+                const mod = modules?.find(m => m.id === machine.moduleId);
+                const section = sections?.find(s => s.id === mod?.sectionId);
+                const building = buildings?.find(b => b.id === section?.buildingId);
+                if (mod && section && building) {
+                    locationString = `${building.name} > ${section.name} > ${mod.name}`;
+                } else {
+                    locationString = "Unknown Floor Location";
+                }
+            }
 
             return (
                  <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -252,7 +265,16 @@
                         <div className="p-6 overflow-y-auto space-y-6">
                             <div className="text-center">
                                 <h2 className="text-2xl font-bold text-slate-900">{machine.name}</h2>
-                                <p className="text-slate-500 text-sm font-mono mt-1">ID: {machine.id} • {machine.type || "Universal"}</p>
+                                <p className="text-indigo-600 text-sm font-bold font-mono mt-1 bg-indigo-50 inline-block px-3 py-1 rounded">Service Barcode: {machine.id}</p>
+                                <p className="text-slate-500 text-sm mt-2">{machine.type || "Universal"} {machine.brand && `• ${machine.brand}`}</p>
+                            </div>
+
+                            <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex items-start gap-3">
+                                <MapPin className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
+                                <div>
+                                    <div className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">Current Location</div>
+                                    <div className="font-bold text-indigo-900">{locationString}</div>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -367,56 +389,57 @@
             return { ...data, ...maps, loading };
         };
 
-        const handlePrintQRs = (title, machinesList) => {
-            if(!machinesList || machinesList.length === 0) return alert("No machines found to print.");
-            
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(`
-                <html>
-                <head>
-                    <title>Asset Labels - ${title}</title>
-                    <style>
-                        body { font-family: sans-serif; padding: 20px; background: #f8fafc; }
-                        .grid { display: grid; grid-template-columns: repeat(auto-fill, 220px); gap: 20px; justify-content: center; }
-                        .card { background: white; border: 2px solid #0f172a; padding: 15px; page-break-inside: avoid; border-radius: 8px; width: 200px; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
-                        .header { text-align: center; margin-bottom: 12px; width: 100%; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
-                        .name { font-weight: 900; font-size: 16px; text-align: center; line-height: 1.3; word-wrap: break-word; color: #0f172a; width: 100%; }
-                        img { width: 130px; height: 130px; object-fit: contain; margin-bottom: 12px; border: 1px solid #cbd5e1; padding: 4px; border-radius: 4px; }
-                        .details { width: 100%; font-size: 12px; line-height: 1.6; color: #334155; }
-                        .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #cbd5e1; padding: 4px 0; }
-                        .lbl { font-weight: 700; color: #64748b; }
-                        .val { text-align: right; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #0f172a; }
-                        @media print { .no-print { display: none; } body { padding: 0; background: white; } .card { box-shadow: none; border: 1px solid #000; } }
-                    </style>
-                </head>
-                <body>
-                    <div class="no-print" style="text-align:center; margin-bottom:20px;">
-                        <h1>${title} Labels</h1>
-                        <p style="color: #64748b; margin-bottom: 15px;">Print these cards or save as PDF to download them.</p>
-                        <button onclick="window.print()" style="padding:12px 24px; background:#4f46e5; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:16px;">Print / Download Labels</button>
-                    </div>
-                    <div class="grid">
-                        ${machinesList.map(m => `
-                            <div class="card">
-                                <div class="header">
-                                    <div class="name" title="${m.name}">${m.name}</div>
-                                </div>
-                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${m.id}" alt="${m.name}" />
-                                <div class="details">
-                                    <div class="row"><span class="lbl">Model:</span><span class="val" title="${m.model}">${m.model || '-'}</span></div>
-                                    <div class="row"><span class="lbl">Serial No:</span><span class="val" title="${m.serial}">${m.serial || '-'}</span></div>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </body>
-                </html>
-            `);
-            printWindow.document.close();
-        };
-
         const FactoryManagerApp = () => {
             const { buildings, sections, modules, machines, users, logs, archived_machines, sectionsMap, modulesMap, machinesMap, loading } = useFactoryData();
+            
+            const handlePrintQRs = (title, machinesList) => {
+                if(!machinesList || machinesList.length === 0) return alert("No machines found to print.");
+                
+                const printWindow = window.open('', '_blank');
+                printWindow.document.write(`
+                    <html>
+                    <head>
+                        <title>Asset Labels - ${title}</title>
+                        <style>
+                            body { font-family: sans-serif; padding: 20px; background: #f8fafc; }
+                            .grid { display: grid; grid-template-columns: repeat(auto-fill, 220px); gap: 20px; justify-content: center; }
+                            .card { background: white; border: 2px solid #0f172a; padding: 15px; page-break-inside: avoid; border-radius: 8px; width: 200px; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+                            .header { text-align: center; margin-bottom: 12px; width: 100%; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+                            .name { font-weight: 900; font-size: 16px; text-align: center; line-height: 1.3; word-wrap: break-word; color: #0f172a; width: 100%; }
+                            img { width: 130px; height: 130px; object-fit: contain; margin-bottom: 12px; border: 1px solid #cbd5e1; padding: 4px; border-radius: 4px; }
+                            .details { width: 100%; font-size: 12px; line-height: 1.6; color: #334155; }
+                            .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #cbd5e1; padding: 4px 0; }
+                            .lbl { font-weight: 700; color: #64748b; }
+                            .val { text-align: right; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #0f172a; }
+                            @media print { .no-print { display: none; } body { padding: 0; background: white; } .card { box-shadow: none; border: 1px solid #000; } }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="no-print" style="text-align:center; margin-bottom:20px;">
+                            <h1>${title} Labels</h1>
+                            <p style="color: #64748b; margin-bottom: 15px;">Print these cards or save as PDF to download them.</p>
+                            <button onclick="window.print()" style="padding:12px 24px; background:#4f46e5; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:16px;">Print / Download Labels</button>
+                        </div>
+                        <div class="grid">
+                            ${machinesList.map(m => `
+                                <div class="card">
+                                    <div class="header">
+                                        <div class="name" title="${m.name}">${m.name}</div>
+                                    </div>
+                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${m.id}" alt="${m.name}" />
+                                    <div class="details">
+                                        <div class="row"><span class="lbl">Model:</span><span class="val" title="${m.model}">${m.model || '-'}</span></div>
+                                        <div class="row"><span class="lbl">Serial No:</span><span class="val" title="${m.serial}">${m.serial || '-'}</span></div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </body>
+                    </html>
+                `);
+                printWindow.document.close();
+            };
+
             const [isAuthenticated, setIsAuthenticated] = useState(false);
             const [expandedBuildings, setExpandedBuildings] = useState({});
             const [highlightedMachine, setHighlightedMachine] = useState(null);
@@ -491,7 +514,6 @@
             };
 
             const handleUpdateMachine = (id, updatedData) => {
-                // Adjust status if moved to/from yard
                 if (updatedData.moduleId === 'yard' && updatedData.status !== 'In Yard') updatedData.status = 'In Yard';
                 else if (updatedData.moduleId !== 'yard' && updatedData.status === 'In Yard') updatedData.status = 'Running';
 
@@ -552,7 +574,6 @@
             const handleRestore = (machine) => {
                 const restoreData = { ...machine };
                 delete restoreData.archivedAt; delete restoreData.deletionReason; delete restoreData.deletedBy;
-                // Default to yard when restored to prevent breaking floor UI
                 restoreData.moduleId = 'yard';
                 restoreData.status = 'In Yard';
                 set(ref(db, `machines/${machine.id}`), restoreData)
@@ -605,7 +626,7 @@
 
                         if (!mName) continue;
 
-                        let modId = 'yard'; // default to yard if no location
+                        let modId = 'yard'; 
                         if (bName && bName.toUpperCase() !== 'YARD' && sName && modName) {
                             let bId = bMap[bName] || (await push(ref(db, 'buildings'), { name: bName })).key; bMap[bName] = bId;
                             let sId = sMap[`${bId}_${sName}`] || (await push(ref(db, 'sections'), { name: sName, buildingId: bId })).key; sMap[`${bId}_${sName}`] = sId;
@@ -692,7 +713,7 @@
             return (
                 <div className="min-h-screen flex flex-col md:flex-row">
                     <AuthModal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setAuthError(""); }} onConfirm={handleAuthSubmit} error={authError} />
-                    <MachineDetailsModal machine={scannedMachineDetails} logs={logs} onClose={() => setScannedMachineDetails(null)} />
+                    <MachineDetailsModal machine={scannedMachineDetails} logs={logs} buildings={buildings} sections={sections} modules={modules} onClose={() => setScannedMachineDetails(null)} />
                     <EditMachineModal machine={editingMachine} modulesMap={modulesMap} sections={sections} buildings={buildings} onClose={() => setEditingMachine(null)} onSave={handleUpdateMachine} />
                     {showScanner && <QRScanner onScan={handleScanFind} onClose={() => setShowScanner(false)} title="Scan to Find Machine" />}
 
