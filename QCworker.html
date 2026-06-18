@@ -99,7 +99,14 @@
   window.fbGet=async(path)=>{const s=await get(ref(db,path));return s.exists()?s.val():null;};
   window.fbOnValue=(path,cb)=>{onValue(ref(db,path),s=>cb(s.exists()?s.val():null));};
 
-  setTimeout(()=>{if(WS.step==='loading'){WS.step='login';renderW();}},2000);
+  // On boot: try to restore a saved session (keeps operators logged in across a
+  // mobile tab reload / Chrome discard). Otherwise fall through to the login screen.
+  if(typeof restoreSession==='function' && restoreSession()){
+    loadWorkerData();
+    renderW();
+  } else {
+    setTimeout(()=>{if(WS.step==='loading'){WS.step='login';renderW();}},2000);
+  }
 </script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -253,6 +260,50 @@ function isLineHead(){const r=(WS.user?.role||'').toLowerCase();return r.include
 function isEndline(){return (WS.user?.role||'').toLowerCase().includes('end');}
 function isRoving(){return (WS.user?.role||'').toLowerCase().includes('roving');}
 
+// ==================== SESSION PERSISTENCE ====================
+// Mobile Chrome discards/reloads the tab under memory pressure (e.g. while the QR
+// camera runs), which would otherwise wipe the in-memory login and kick the operator
+// back to the login screen. We persist a lightweight session so a reload keeps them
+// logged in and returns them to the right screen.
+const BX_SESSION_KEY='bx_qms_session';
+// In-progress work that must survive a tab reload / Chrome discard. These are the
+// accumulating drafts (hour tally, roster being built, round data) that otherwise
+// only reach Firebase at the final Submit. Saved to localStorage on every change.
+const BX_DRAFT_FIELDS=['step','elShift','elSize','elColor','elHourDefects','elCheckedQty',
+  'elAddOp','elAddDefCat','elAddDefCode','elAddDefQty','elAddDefOp','elAddDefName',
+  '_lhEntries','_rosterCarriedFrom','_lhCurrentMachine',
+  'checkRound','checkMachineIdx','checkRoundData','checkRoundResults','_currentCheckMachine',
+  'rovingRound','rovingRoundData','rovingRoundResults','_scannedForForm','_scanMode'];
+function saveSession(){
+  try{
+    if(!WS.user||!WS.user.fbKey){localStorage.removeItem(BX_SESSION_KEY);return;}
+    const draft={};BX_DRAFT_FIELDS.forEach(k=>{if(WS[k]!==undefined)draft[k]=WS[k];});
+    localStorage.setItem(BX_SESSION_KEY,JSON.stringify({
+      user:{fbKey:WS.user.fbKey,username:WS.user.username,name:WS.user.name,role:WS.user.role,shift:WS.user.shift,dept:WS.user.dept,email:WS.user.email},
+      scannedModule:WS.scannedModule||null,
+      draft,
+      ts:Date.now()
+    }));
+  }catch(e){}
+}
+function clearSession(){try{localStorage.removeItem(BX_SESSION_KEY);}catch(e){}}
+// Restore on boot. 16h max age so a stale session doesn't linger across days.
+function restoreSession(){
+  try{
+    const raw=localStorage.getItem(BX_SESSION_KEY);if(!raw)return false;
+    const s=JSON.parse(raw);
+    if(!s||!s.user||!s.user.fbKey)return false;
+    if(s.ts&&Date.now()-s.ts>16*60*60*1000){clearSession();return false;}
+    WS.user=s.user;WS.scannedModule=s.scannedModule||null;
+    // Bring back all the in-progress drafts so nothing the operator entered is lost.
+    if(s.draft){BX_DRAFT_FIELDS.forEach(k=>{if(s.draft[k]!==undefined)WS[k]=s.draft[k];});}
+    // Land on the role's home screen — it shows the preserved tally / roster / round
+    // so the operator continues, without restoring a half-filled single-machine form.
+    WS.step=!WS.scannedModule?'scan':isLineHead()?'lh_scan':isEndline()?'endline_home':isRoving()?'roving_home':'check_home';
+    return true;
+  }catch(e){return false;}
+}
+
 // ==================== RENDER ====================
 window.renderW = function(){
   stopQR();
@@ -265,6 +316,7 @@ window.renderW = function(){
   app.innerHTML='<div class="page">'+renderHeader()+'<div class="body fade-in">'+renderStep()+'</div></div>';
   bindStep();
   startQRIfNeeded();
+  saveSession();
 };
 
 function renderStep(){
@@ -319,6 +371,7 @@ function renderHeader(){
 }
 
 function doLogout(){
+  clearSession();
   WS.user=null;WS.step='login';WS.scannedModule=null;WS.myMachine=null;
   WS.checkRound=1;WS.checkRoundData=[];
   renderW();
@@ -2459,6 +2512,14 @@ function bindLHScan(){
     if(e.key==='Enter')document.getElementById('lh-manual-btn')?.click();
   });
 }
+
+// Release the camera when the tab is backgrounded — cuts the memory pressure that
+// makes mobile Chrome discard/reload the tab. The session is persisted, so when the
+// operator returns they stay logged in and just re-open the scanner.
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){try{stopQR();}catch(e){}saveSession();}
+  else if(WS.user){startQRIfNeeded();}
+});
 
 renderW();
 </script>
