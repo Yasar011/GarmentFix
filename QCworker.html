@@ -296,6 +296,7 @@ function renderStep(){
   if(s==='cap_form')         return renderCapForm();
   if(s==='cap_admin')        return renderCapAdmin();
   // Shared
+  if(s==='my_report')       return renderMyReport();
   if(s==='roster_manual')   return renderRosterManual();
   if(s==='dashboard')       return renderDash();
   if(s==='waiting')         return renderWaiting();
@@ -541,12 +542,17 @@ function renderLHScan(){
   const saved=entries.filter(e=>e.saved);
 
   const isEditing=saved.length>0;
+  const carried=WS._rosterCarriedFrom;
   return '<div class="card card-yellow" style="margin-bottom:12px">'
-    +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">👷 Line Setup — '+( m?.name||'')+'</div>'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">👷 Roster Setup — '+( m?.name||'')+' · Shift '+activeShift()+'</div>'
     +'<div style="font-size:12px;color:var(--text2)">'+(isEditing
-        ?'Editing today\'s roster — scan more machines to add, or edit existing below'
-        :'Scan each machine QR on the line then assign its operator')+'</div>'
+        ?'Scan more machines to add, or edit the operators below'
+        :'Scan each machine QR then assign its operator')+'</div>'
     +'</div>'
+    +(carried?'<div class="card" style="margin-bottom:12px;padding:12px;border-color:rgba(0,212,168,.4);background:rgba(0,212,168,.06)">'
+       +'<div style="font-size:13px;font-weight:600;color:var(--accent)">↩ Carried over from '+carried+'</div>'
+       +'<div style="font-size:12px;color:var(--text2);margin-top:2px">Operator IDs are pre-filled. Check each one — change only the operators/machines that are different today, then save.</div>'
+       +'</div>':'')
 
     // Progress strip
     +(saved.length>0
@@ -593,18 +599,11 @@ function handleLHScanQR(text){
 // so the Line Head can edit / append after submitting. Returns true if one existed.
 async function loadExistingLHRoster(){
   const m=WS.scannedModule;if(!m){WS._lhEntries=[];return false;}
-  const date=new Date().toISOString().split('T')[0];
-  const rKey=(m.fbKey||m.moduleId)+'_'+date;
-  try{
-    const snap=await window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers'));
-    if(snap.exists()){
-      WS._lhEntries=Object.values(snap.val()).map(w=>({
-        machineId:w.machineId,machineName:w.machineName,
-        operatorId:w.operatorId,operation:w.operation,saved:true
-      }));
-      return true;
-    }
-  }catch(e){}
+  const w=await fetchRosterWorkers(m);
+  if(w&&w.length&&w.some(x=>x.operatorId!==undefined)){
+    WS._lhEntries=w.map(x=>({machineId:x.machineId,machineName:x.machineName,operatorId:x.operatorId||'',operation:x.operation||'',saved:true}));
+    return WS._lhEntries.length>0;
+  }
   WS._lhEntries=[];
   return false;
 }
@@ -649,9 +648,9 @@ function bindLHFill(){
     WS._lhEntries=WS._lhEntries.filter(e=>e.machineId!==mach.fbKey);
     WS._lhEntries.push({
       machineId:mach.fbKey,machineName:mach.name,
-      operatorId:opId,operation:op,saved:true
+      operatorId:opId,operation:op,saved:true,verified:true
     });
-    toast(mach.name+' → '+opId+' saved ✓');
+    toast(mach.name+' → '+opId+' ✓ verified');
     WS._lhCurrentMachine=null;
     WS.step='lh_scan';renderW();
   };
@@ -663,36 +662,52 @@ function renderLHRoster(){
   const entries=WS._lhEntries||[];
   const ops=WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack','Tacking'];
 
+  const total=entries.length;
+  const ver=entries.filter(e=>e.verified).length;
+  const pending=total-ver;
+
   return '<div class="card card-yellow" style="margin-bottom:12px">'
-    +'<div style="font-size:16px;font-weight:700;margin-bottom:2px">📋 Full Line Roster — '+(m?.name||'')+'</div>'
-    +'<div style="font-size:12px;color:var(--text2)">Review, edit, then save to Firebase</div>'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:2px">📋 Roster — '+(m?.name||'')+' · Shift '+activeShift()+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">Check each machine — confirm same operator, or change it. If a machine changed, just edit its name (the operator stays).</div>'
+    +(total>0?'<div style="margin-top:8px;font-size:13px;font-weight:600;color:'+(pending>0?'var(--yellow)':'var(--accent)')+'">'+ver+' / '+total+' verified'+(pending>0?' — '+pending+' to check':' ✓ all checked')+'</div>':'')
     +'</div>'
 
+    +(pending>0?'<button class="btn-big" style="background:var(--accent);color:#000;margin-bottom:10px" onclick="lhVerifyAll()">✓ All Unchanged — Confirm Everyone</button>':'')
+
     +'<div id="lh-roster-rows" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">'
-    +entries.map((e,i)=>'<div class="card" style="padding:12px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
-      +'<div style="font-size:13px;font-weight:700">'+e.machineName+'</div>'
+    +entries.map((e,i)=>'<div class="card" style="padding:12px;border:1px solid '+(e.verified?'rgba(0,212,168,.35)':'rgba(212,168,0,.55)')+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">'
+      +'<input class="form-input" style="padding:8px 10px;font-size:13px;font-weight:700;flex:1" value="'+(e.machineName||'')+'" oninput="WS._lhEntries['+i+'].machineName=this.value;WS._lhEntries['+i+'].verified=true">'
+      +(e.verified
+        ?'<span class="badge badge-green" style="font-size:11px;white-space:nowrap">✓ verified</span>'
+        :'<button class="btn-sm" style="background:var(--accent);color:#000;border:none;white-space:nowrap" onclick="lhVerifyEntry('+i+')">✓ Same</button>')
       +'<button class="btn-sm" style="color:var(--red)" onclick="lhRemoveEntry('+i+')">✕</button>'
       +'</div>'
-      +'<div class="form-row" style="margin-bottom:8px">'
+      +'<div class="form-row" style="margin-bottom:0">'
       +'<div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operator ID</label>'
-      +'<input class="form-input" style="padding:10px;font-size:14px" value="'+e.operatorId+'" oninput="WS._lhEntries['+i+'].operatorId=this.value"></div>'
+      +'<input class="form-input" style="padding:10px;font-size:14px" value="'+(e.operatorId||'')+'" oninput="WS._lhEntries['+i+'].operatorId=this.value;WS._lhEntries['+i+'].verified=true"></div>'
       +'<div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Operation</label>'
-      +'<select class="form-input" style="padding:10px;font-size:14px" onchange="WS._lhEntries['+i+'].operation=this.value">'
+      +'<select class="form-input" style="padding:10px;font-size:14px" onchange="WS._lhEntries['+i+'].operation=this.value;WS._lhEntries['+i+'].verified=true">'
       +ops.map(op=>'<option value="'+op+'"'+(e.operation===op?' selected':'')+'>'+op+'</option>').join('')
       +'</select></div>'
       +'</div>'
       +'</div>').join('')
-    +(entries.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No machines added yet</div>':'')
+    +(entries.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No machines yet — scan to add</div>':'')
     +'</div>'
 
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'lh_scan\';renderW()">➕ Scan More Machines</button>'
-    +(entries.length>0?'<button class="btn-big btn-primary" id="lh-roster-save">💾 Save Roster to Firebase</button>':'')
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'lh_scan\';renderW()">📷 Scan / Add New Machine</button>'
+    +(entries.length>0?'<button class="btn-big btn-primary" id="lh-roster-save">💾 Save Roster ('+ver+'/'+total+' verified)</button>':'')
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
 window.lhRemoveEntry=function(i){
   WS._lhEntries.splice(i,1);renderW();
+};
+window.lhVerifyEntry=function(i){
+  if(WS._lhEntries[i])WS._lhEntries[i].verified=true;renderW();
+};
+window.lhVerifyAll=function(){
+  (WS._lhEntries||[]).forEach(e=>e.verified=true);renderW();
 };
 
 function bindLHRoster(){
@@ -702,8 +717,8 @@ function bindLHRoster(){
     if(entries.length===0){toast('Add at least one machine','error');return;}
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
     const m=WS.scannedModule;
-    const date=new Date().toISOString().split('T')[0];
-    const rKey=(m.fbKey||m.moduleId)+'_'+date;
+    const date=rosterDate();const shift=activeShift();
+    const rKey=rosterKeyFor(m,date,shift);
     try{
       const workers={};
       entries.forEach(e=>{
@@ -711,16 +726,16 @@ function bindLHRoster(){
           machineId:e.machineId,machineName:e.machineName,
           operatorId:e.operatorId,operation:e.operation,
           moduleId:m.fbKey,moduleName:m.name,
-          date,registeredBy:WS.user?.username,registeredAt:new Date().toISOString()
+          date,shift,registeredBy:WS.user?.username,registeredAt:new Date().toISOString()
         };
       });
       await window._set(window._ref(window._db,'machineRosters/'+rKey+'/workers'),workers);
       await window._update(window._ref(window._db,'machineRosters/'+rKey),{
-        moduleId:m.fbKey,moduleName:m.name,date,shift:m.shift||WS.user?.shift||'',
+        moduleId:m.fbKey,moduleName:m.name,date,shift,
         status:'Pending Approval',createdBy:WS.user?.username,
         updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
       });
-      toast('✅ Roster saved — '+entries.length+' machines registered!');
+      toast('✅ Roster saved — '+entries.length+' machines · Shift '+shift+'!');
       WS.step='lh_done';renderW();
     }catch(e){toast('Error: '+e.message,'error');btn.disabled=false;btn.innerHTML='💾 Save Roster to Firebase';}
   };
@@ -743,7 +758,8 @@ function renderLHDone(){
       +'<span class="badge badge-green">✓</span>'
       +'</div>').join('')
     +'</div>'
-    +'<button class="btn-big btn-primary" onclick="WS.step=\'lh_scan\';renderW()">➕ Add / Edit More Operators</button>'
+    +(isRoving()?'<button class="btn-big btn-primary" onclick="WS.step=\'roving_home\';renderW()">▶ Start Roving Visits</button>':'')
+    +'<button class="btn-big '+(isRoving()?'btn-ghost':'btn-primary')+'" onclick="WS.step=\'lh_scan\';renderW()">➕ Add / Edit More Operators</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'lh_roster\';renderW()">📋 Review / Edit Roster</button>'
     +'<button class="btn-big btn-ghost" onclick="lhChangeLine()">🔄 Switch to Another Line / Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
@@ -757,12 +773,61 @@ window.lhChangeLine=function(){
   WS.scannedModule=null;WS.step='scan';renderW();
 };
 
+// ==================== ROSTER KEYING (per module + date + shift) ====================
+// Rosters are saved per shift so Shift A and Shift B keep separate operator lists.
+function activeShift(){return (WS.user&&WS.user.shift)?WS.user.shift:wkCurrentShift();}
+function rosterDate(){return new Date().toISOString().split('T')[0];}
+function rosterKeyFor(m,date,shift){date=date||rosterDate();shift=shift||activeShift();return (m.fbKey||m.moduleId)+'_'+date+'_'+shift;}
+function mapRosterWorkers(obj){return Object.values(obj).map(w=>({machineId:w.machineId,machineName:w.machineName,operatorId:w.operatorId,operation:w.operation,saved:true}));}
+
+// Fetch today's roster workers for a module: this shift's key first, then a legacy
+// (no-shift) key, then the in-memory fallback. Used by start-round flows.
+async function fetchRosterWorkers(m){
+  const date=rosterDate();
+  const keys=[rosterKeyFor(m,date),(m.fbKey||m.moduleId)+'_'+date];
+  for(const k of keys){
+    try{const snap=await window._get(window._ref(window._db,'machineRosters/'+k+'/workers'));if(snap.exists()){const v=Object.values(snap.val());if(v.length)return v;}}catch(e){}
+  }
+  return getModuleMachines();
+}
+
+// Build the roster-setup entries: today's shift roster if it exists, otherwise carry
+// over the most recent prior roster for this module+shift so operator IDs transfer
+// automatically and the QC only edits what changed. Sets WS._rosterCarriedFrom (date).
+async function loadRosterForSetup(){
+  const m=WS.scannedModule;WS._rosterCarriedFrom=null;
+  if(!m){WS._lhEntries=[];return;}
+  const date=rosterDate(),shift=activeShift();
+  const base=(m.fbKey||m.moduleId)+'_';
+  const todayKey=base+date+'_'+shift;
+  const setVer=(arr,v)=>arr.map(e=>({...e,verified:v}));
+  // 1) today's roster for this shift — already done today, treat as verified
+  let r=WS.machineRosters.find(x=>x.fbKey===todayKey&&x.workers);
+  if(r){WS._lhEntries=setVer(mapRosterWorkers(r.workers),true);return;}
+  // 2) carry over most recent prior roster for this module + SAME shift — needs checking
+  const prior=WS.machineRosters.filter(x=>x.workers&&x.fbKey.startsWith(base)&&x.fbKey.endsWith('_'+shift)&&x.fbKey!==todayKey).sort((a,b)=>b.fbKey.localeCompare(a.fbKey));
+  if(prior.length){WS._lhEntries=setVer(mapRosterWorkers(prior[0].workers),false);WS._rosterCarriedFrom=prior[0].fbKey.split('_').slice(-2,-1)[0];return;}
+  // 3) legacy roster (module_date, no shift suffix) as a last resort
+  const legacy=WS.machineRosters.filter(x=>x.workers&&x.fbKey.startsWith(base)&&/_\d{4}-\d{2}-\d{2}$/.test(x.fbKey)).sort((a,b)=>b.fbKey.localeCompare(a.fbKey));
+  if(legacy.length){WS._lhEntries=setVer(mapRosterWorkers(legacy[0].workers),false);WS._rosterCarriedFrom=legacy[0].fbKey.split('_').slice(-1)[0];return;}
+  WS._lhEntries=[];
+}
+
+// Roving QC opens the scan-based roster setup (with carry-over) from their home.
+window.openRosterSetup=async function(){
+  if(!WS.scannedModule){toast('Scan a module first','error');return;}
+  await loadRosterForSetup();
+  WS._lhCurrentMachine=null;
+  WS.step='lh_scan';renderW();
+};
+
 // ==================== GET MACHINES ====================
 function getModuleMachines(){
   const m=WS.scannedModule;if(!m)return[];
-  const date=new Date().toISOString().split('T')[0];
-  const rKey=(m.fbKey||m.moduleId)+'_'+date;
-  const roster=WS.machineRosters.find(r=>r.fbKey===rKey);
+  const date=rosterDate();
+  // Prefer this shift's roster; fall back to a legacy module_date roster.
+  const roster=WS.machineRosters.find(r=>r.fbKey===rosterKeyFor(m,date))
+            || WS.machineRosters.find(r=>r.fbKey===(m.fbKey||m.moduleId)+'_'+date);
   if(roster?.workers&&Object.keys(roster.workers).length>0) return Object.values(roster.workers);
   const norm=s=>(s||'').toString().trim().toLowerCase();
   const mName=norm(m.name);
@@ -788,9 +853,9 @@ function renderCheckHome(){
   WS.checkRound=nextRound;
   const noMachines=machines.length===0;
 
-  // Trigger fresh Firebase read so roster shows after LH saves
+  // Trigger fresh Firebase read so roster shows after it's saved
   const date=today;
-  const rKey=m?(m.fbKey||m.moduleId)+'_'+date:null;
+  const rKey=m?rosterKeyFor(m,date):null;
   if(rKey&&noMachines){
     window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers')).then(snap=>{
       if(snap.exists()){
@@ -829,12 +894,13 @@ function renderCheckHome(){
        +'</div>'
       :'<div class="card card-yellow" style="margin-bottom:16px">'
        +'<div style="font-weight:600;margin-bottom:6px">⚠ No Machines Registered Yet</div>'
-       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Line Head scans machine QRs at shift start. Or add manually.</div>'
+       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">The Roving QC sets up the roster at shift start. Or add manually.</div>'
        +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Machines Manually</button>'
        +'</div>')
     +'<button class="btn-big btn-primary" onclick="startCheckRound('+nextRound+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'▶ Start Check '+nextRound+'</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Machine Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
@@ -843,17 +909,8 @@ window.startCheckRound=async function(roundNum){
   const m=WS.scannedModule;
   if(!m){toast('No module selected','error');return;}
   // Fresh fetch from Firebase so roster is always up to date
-  const date=new Date().toISOString().split('T')[0];
-  const rKey=(m.fbKey||m.moduleId)+'_'+date;
   try{
-    const snap=await window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers'));
-    let machines=[];
-    if(snap.exists()){
-      machines=Object.values(snap.val());
-    } else {
-      // fallback to in-memory
-      machines=getModuleMachines();
-    }
+    let machines=await fetchRosterWorkers(m);
     if(machines.length===0){toast('No machines in roster — set up roster first','error');return;}
     WS.checkRound=roundNum;
     WS.checkRoundData=machines.map(w=>({...w}));
@@ -1096,6 +1153,7 @@ function renderEndlineHome(){
     +'➕ Add Defect</button>'
     +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
@@ -1290,7 +1348,7 @@ function renderRovingHome(){
   const noMachines=machines.length===0;
   return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — Roving QC</div>'
-    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+' • Shift '+activeShift()+'</div>'
     +'</div>'
     +'<div style="margin-bottom:16px">'
     +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Visits</div>'
@@ -1305,8 +1363,9 @@ function renderRovingHome(){
        +'</div>'
       :'<div class="card card-yellow" style="margin-bottom:16px">'
        +'<div style="font-weight:600;margin-bottom:6px">⚠ No Operators Yet</div>'
-       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Line Head must register operators first. Or set up manually.</div>'
-       +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Manually</button>'
+       +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Scan each machine and assign its operator. Tomorrow it loads back automatically — you only edit what changed.</div>'
+       +'<button class="btn-big btn-primary" style="margin:0" onclick="openRosterSetup()">📷 Scan & Set Up Roster</button>'
+       +'<button class="btn-big btn-ghost" style="margin:8px 0 0" onclick="openManualRoster()">⌨️ Or Enter Manually</button>'
        +'</div>')
     // Pending CPA/AB updates
     +(myRounds.filter(r=>!r.cpa&&!r.absent).length>0
@@ -1325,7 +1384,9 @@ function renderRovingHome(){
     +'<button class="btn-big btn-primary" onclick="startRovingRound('+nextVisit+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'▶ Start Visit '+nextVisit+'</button>'
     +renderCapNavButton()
-    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
+    +'<button class="btn-big btn-ghost" onclick="openRosterSetup()">📷 '+(noMachines?'Set Up':'Edit')+' Roster (scan)</button>'
+    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⌨️ Edit Roster Manually</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
@@ -1340,13 +1401,8 @@ function renderCapNavButton(){
 window.startRovingRound=async function(visitNum){
   const m=WS.scannedModule;
   if(!m){toast('No module selected','error');return;}
-  const date=new Date().toISOString().split('T')[0];
-  const rKey=(m.fbKey||m.moduleId)+'_'+date;
   try{
-    const snap=await window._get(window._ref(window._db,'machineRosters/'+rKey+'/workers'));
-    let machines=[];
-    if(snap.exists()){machines=Object.values(snap.val());}
-    else{machines=getModuleMachines();}
+    let machines=await fetchRosterWorkers(m);
     if(machines.length===0){toast('No operators in roster — set up roster first','error');return;}
     WS.rovingRound=visitNum;WS.rovingRoundData=machines.map(w=>({...w}));
     WS.checkMachineIdx=0;WS.rovingRoundResults=[];WS._currentCheckMachine=null;
@@ -1434,8 +1490,10 @@ function renderRovingForm(){
   const m=WS.scannedModule;
   const done=WS.rovingRoundResults;
   const remaining=WS.rovingRoundData.filter(x=>!done.some(d=>d.machineId===x.machineId)&&x.machineId!==w?.machineId);
-  const myDefs=WS.defects.length
-    ?WS.defects.map(d=>'<option value="'+d.name+'">'+(d.defectId?d.defectId+' - ':'')+d.name+'</option>').join('')
+  // Roving uses the same defects as Inline — exclude End Line-only defects.
+  const rovDefs=WS.defects.filter(d=>d.type==='Inline'||d.type==='Both');
+  const myDefs=rovDefs.length
+    ?rovDefs.map(d=>'<option value="'+d.name+'">'+(d.defectId?d.defectId+' - ':'')+d.name+'</option>').join('')
     :['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Uneven Stitch','Needle Mark','Loose Thread','Seam Pucker','Run-Off','Uncut Thread'].map(d=>'<option value="'+d+'">'+d+'</option>').join('');
   return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:16px">'
     +'<div style="display:flex;justify-content:space-between;align-items:center">'
@@ -1467,11 +1525,11 @@ function renderRovingForm(){
     +'<select class="form-input" name="absent">'
     +'<option value="0">Present ✓</option><option value="1">Absent (AB)</option>'
     +'</select></div>'
-    // SP picker (9–18) and DC
+    // SP picker (6–8) and DC
     +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">Sample Qty (SP)</label>'
-    +'<input type="hidden" name="sp" id="sp-val" value="12">'
-    +'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px" id="sp-grid">'
-    +[9,10,11,12,13,14,15,16,17,18].map(n=>'<button type="button" class="sp-btn'+(n===12?' sp-sel':'')+'" onclick="pickSP('+n+')">'+n+'</button>').join('')
+    +'<input type="hidden" name="sp" id="sp-val" value="6">'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px" id="sp-grid">'
+    +[6,7,8].map(n=>'<button type="button" class="sp-btn'+(n===6?' sp-sel':'')+'" onclick="pickSP('+n+')">'+n+'</button>').join('')
     +'</div></div>'
     +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">Defects Found (D/C)</label>'
     +'<input class="form-input" name="dc" type="number" min="0" value="0" oninput="calcRovingDHU()" style="font-size:24px;font-weight:700;text-align:center;padding:14px"></div>'
@@ -1693,7 +1751,10 @@ function bindRovingSubmit(){
           message:(data.defectType||'Defect')+' on '+data.operation+' ('+data.machineName+')',
           level:parseInt(data.dc)>=2?'high':'medium',module:data.module,read:false,createdBy:'roving-auto'
         });
-        await addRovingDefectToCAP(data);
+        // CAP is only raised when the rule is met: 3+ defects in one visit,
+        // OR the same defect repeats in a later visit for the same operator.
+        const capReason=rovingCAPReason(data);
+        if(capReason){await addRovingDefectToCAP(data,capReason);toast('⚠ CAP raised: '+capReason,'error');}
       }
       WS.rovingRoundResults.push({...data,dc:parseInt(data.dc)||0,sp:parseInt(data.sp)||0});
       toast('Saved ✓');
@@ -1709,12 +1770,46 @@ function bindRovingSubmit(){
 // one row per hour, defects found, corrective action taken, 4 sign-offs.
 const CAP_CPA_LABELS={A:'Solved by Inline QC',B:'Solved with Supervisor / Mechanic',C:'Solved with Senior Technician',D:'Informed Production / Quality Executive'};
 const CAP_SIGN_ROLES=[{k:'operator',l:'Operator'},{k:'tech',l:'Tech'},{k:'tl',l:'T/L'},{k:'qa',l:'QA'}];
+// Which sign-offs each action level needs (Operator always + the level's person).
+// A → Operator; B/C → Operator + Tech; D → Operator + QA.
+const CAP_CPA_SIGN={A:['operator'],B:['operator','tech'],C:['operator','tech'],D:['operator','qa']};
+// Required sign roles for a CAP entry = union across its defects' chosen CPA levels.
+function capRequiredRoles(entry){
+  const set=new Set();
+  (entry?.defects||[]).forEach(d=>{(CAP_CPA_SIGN[d.cpa]||['operator']).forEach(r=>set.add(r));});
+  if(set.size===0)set.add('operator');
+  return CAP_SIGN_ROLES.filter(r=>set.has(r.k));
+}
 
 function capHourKey(d){return String(d.getHours()).padStart(2,'0')+':00';}
 function capDateKey(d){return d.toISOString().split('T')[0];}
 function capRecordKey(moduleId,date,hour){return (moduleId||'NOMOD')+'_'+date+'_'+hour.replace(':','');}
 
-async function addRovingDefectToCAP(data){
+// Decide whether this roving submission must raise a Corrective Action Plan.
+// Returns a human reason string, or null if no CAP is needed.
+//  Rule 1: 3 or more defects found in a single visit.
+//  Rule 2: the SAME defect repeats in a later visit for the same operator today.
+function rovingCAPReason(data){
+  const dc=parseInt(data.dc)||0;
+  if(dc<=0)return null;
+  if(dc>=3)return dc+' defects in one visit';
+  const dtype=(data.defectType||'').trim();
+  if(dtype){
+    const prior=(WS.myRovingInspections||[]).filter(i=>
+      (parseInt(i.dc)||0)>0 &&
+      (i.operatorId===data.operatorId||(data.machineId&&i.machineId===data.machineId)) &&
+      (i.defectType||'').trim()===dtype &&
+      parseInt(i.visitNum)!==parseInt(data.visitNum)
+    );
+    if(prior.length>0){
+      const visits=[...new Set(prior.map(p=>p.visitNum).concat([data.visitNum]))].sort().join(' & ');
+      return 'Repeat defect "'+dtype+'" (visits '+visits+')';
+    }
+  }
+  return null;
+}
+
+async function addRovingDefectToCAP(data,reason){
   const dc=parseInt(data.dc)||0;
   if(dc<=0)return;
   const now=new Date();
@@ -1726,16 +1821,19 @@ async function addRovingDefectToCAP(data){
   const defects=existing?.defects?[...existing.defects]:[];
   defects.push({
     code:data.defectType||'Unspecified',qty:dc,cpa:data.cpa||'',
+    reason:reason||'',visit:parseInt(data.visitNum)||WS.rovingRound,
     machineId:data.machineId||'',machineName:data.machineName||'',
     operatorId:data.operatorId||'',operation:data.operation||'',
     time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(now)
   });
+  // Collect distinct reasons at the entry level for quick scanning.
+  const reasons=[...new Set((existing?.reasons||[]).concat(reason?[reason]:[]))];
   await window.fbSet(path,{
     moduleId,moduleName:WS.scannedModule?.name||data.module||'',
     lineNo:WS.scannedModule?.lineNo||WS.scannedModule?.line||'',
     team:WS.scannedModule?.team||'',
     date,hour,
-    defects,
+    defects,reasons,
     correctiveAction:existing?.correctiveAction||'',
     signatures:existing?.signatures||{operator:null,tech:null,tl:null,qa:null},
     status:existing?.status||'open',
@@ -1755,7 +1853,8 @@ function renderCapList(){
     +(mine.length===0
       ?'<div style="text-align:center;padding:32px;color:var(--text3)">No defects logged yet today.<br>Entries appear automatically when a defect is found during a roving visit.</div>'
       :mine.map(e=>{
-        const signed=CAP_SIGN_ROLES.filter(r=>e.signatures?.[r.k]).length;
+        const req=capRequiredRoles(e);
+        const signed=req.filter(r=>e.signatures?.[r.k]).length;
         const closed=e.status==='closed';
         return '<div class="sub-item" style="align-items:flex-start;cursor:pointer" onclick="openCapEntry(\''+e.fbKey+'\')">'
           +'<div style="flex:1">'
@@ -1763,11 +1862,12 @@ function renderCapList(){
           +'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'
           +(e.defects||[]).map(d=>'<span class="badge badge-red">'+d.code+' ×'+d.qty+(d.cpa?' · CPA-'+d.cpa:'')+'</span>').join('')
           +'</div>'
+          +((e.reasons&&e.reasons.length)?'<div style="font-size:11px;color:var(--yellow);margin-top:6px">⚠ '+e.reasons.join(' · ')+'</div>':'')
           +(e.correctiveAction?'<div style="font-size:11px;color:var(--text2);margin-top:6px">↳ '+e.correctiveAction+'</div>':'')
           +'</div>'
           +'<div style="text-align:right">'
           +'<span class="badge badge-'+(closed?'green':'yellow')+'">'+(closed?'Closed':'Open')+'</span>'
-          +'<div style="font-size:11px;color:var(--text3);margin-top:6px">'+signed+'/4 signed</div>'
+          +'<div style="font-size:11px;color:var(--text3);margin-top:6px">'+signed+'/'+req.length+' signed</div>'
           +'</div></div>';
       }).join(''))
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'roving_home\';renderW()">← Back</button>';
@@ -1802,9 +1902,10 @@ function renderCapForm(){
     +'<div class="form-group"><label class="form-label">Corrective Action Taken</label>'
     +'<textarea class="form-input" id="cap-action" rows="3" placeholder="Describe the corrective action...">'+(e.correctiveAction||'')+'</textarea></div>'
     +'<div class="card" style="margin-bottom:14px">'
-    +'<div style="font-size:13px;font-weight:600;margin-bottom:10px">Digital Sign-offs</div>'
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:4px">Digital Sign-offs</div>'
+    +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">Required by action level: '+capRequiredRoles(e).map(r=>r.l).join(', ')+'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">'
-    +CAP_SIGN_ROLES.map(r=>{
+    +capRequiredRoles(e).map(r=>{
       const sig=e.signatures?.[r.k];
       return '<div style="border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">'
         +'<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+r.l+' Sign.</div>'
@@ -1885,11 +1986,11 @@ window.saveCapEntry=async function(){
   const action=document.getElementById('cap-action')?.value||'';
   const btn=document.getElementById('cap-save-btn');
   if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';}
-  const allSigned=CAP_SIGN_ROLES.every(r=>e.signatures?.[r.k]);
+  const allSigned=capRequiredRoles(e).every(r=>e.signatures?.[r.k]);
   try{
     await window.fbSet('correctiveActions/'+e.fbKey,{
       moduleId:e.moduleId,moduleName:e.moduleName,lineNo:e.lineNo,team:e.team,
-      date:e.date,hour:e.hour,defects:e.defects,
+      date:e.date,hour:e.hour,defects:e.defects,reasons:e.reasons||[],
       correctiveAction:action,signatures:e.signatures,
       status:allSigned?'closed':'open',raisedBy:e.raisedBy
     });
@@ -1910,7 +2011,8 @@ function renderCapAdmin(){
     +'</div>'
     +(all.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No CAP entries today.</div>'
       :all.map(e=>{
-        const signed=CAP_SIGN_ROLES.filter(r=>e.signatures?.[r.k]).length;
+        const req=capRequiredRoles(e);
+        const signed=req.filter(r=>e.signatures?.[r.k]).length;
         const closed=e.status==='closed';
         return '<div class="sub-item" style="align-items:flex-start;cursor:pointer" onclick="openCapEntry(\''+e.fbKey+'\')">'
           +'<div style="flex:1">'
@@ -1921,7 +2023,7 @@ function renderCapAdmin(){
           +'</div></div>'
           +'<div style="text-align:right">'
           +'<span class="badge badge-'+(closed?'green':'yellow')+'">'+(closed?'Closed':'Open')+'</span>'
-          +'<div style="font-size:11px;color:var(--text3);margin-top:6px">'+signed+'/4 signed</div>'
+          +'<div style="font-size:11px;color:var(--text3);margin-top:6px">'+signed+'/'+req.length+' signed</div>'
           +'<button type="button" class="btn-sm" style="margin-top:6px" onclick="event.stopPropagation();printCapSheet(\''+e.fbKey+'\')">🖨️ Print</button>'
           +'</div></div>';
       }).join(''))
@@ -1934,14 +2036,17 @@ window.printCapSheet=function(fbKey){
   const rows=[e]; // single-hour sheet, matches the paper layout (one row shown, more hours can be added later)
   const sigCell=(sig)=>sig?('<img src="'+sig.img+'" style="height:32px"><div style="font-size:9px">'+sig.name+'</div>'):'';
   const html='<html><head><title>Corrective Action Plan — '+e.hour+'</title><style>'
-    +'body{font-family:Arial,sans-serif;padding:24px;color:#111}'
-    +'h1{font-size:16px;margin:0 0 4px}'
+    +'body{font-family:Arial,sans-serif;padding:24px;color:#111;background:#fff}'
+    +'.brand{font-size:13px;font-weight:700;letter-spacing:.06em;color:#00977a}'
+    +'h1{font-size:16px;margin:2px 0 4px}'
     +'.meta{font-size:11px;color:#444;margin-bottom:14px}'
     +'table{width:100%;border-collapse:collapse;font-size:11px}'
     +'th,td{border:1px solid #333;padding:6px 8px;text-align:left;vertical-align:top}'
     +'th{background:#eee}'
+    +'.credit{margin-top:28px;text-align:center;font-size:9px;color:#aaa}'
     +'</style></head><body>'
-    +'<h1>brandix — END LINE REPORT</h1>'
+    +'<div class="brand">BRANDIX QMS</div>'
+    +'<h1>Roving QC — Corrective Action Plan</h1>'
     +'<div class="meta">Module: '+(e.moduleName||e.moduleId)+' &nbsp; Line: '+(e.lineNo||'—')+' &nbsp; Date: '+e.date+' &nbsp; Raised by: '+(e.raisedBy||'—')+'</div>'
     +'<table><tr><th>Hour</th><th>Defects</th><th>Corrective Action</th><th>Operator Sign.</th><th>Tech Sign.</th><th>T/L Sign.</th><th>QA Sign.</th></tr>'
     +rows.map(r=>'<tr>'
@@ -1953,7 +2058,9 @@ window.printCapSheet=function(fbKey){
       +'<td>'+sigCell(r.signatures?.tl)+'</td>'
       +'<td>'+sigCell(r.signatures?.qa)+'</td>'
       +'</tr>').join('')
-    +'</table></body></html>';
+    +'</table>'
+    +'<div class="credit">Developed by Yasar, Anirudra — NIFT Jodhpur</div>'
+    +'</body></html>';
   const w=window.open('','_blank');
   w.document.write(html);w.document.close();
   setTimeout(()=>w.print(),300);
@@ -2155,19 +2262,19 @@ function bindManualRoster(){
     if(valid.length===0){toast('Add at least one machine or operator','error');return;}
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
     const m=WS.scannedModule;
-    const date=new Date().toISOString().split('T')[0];
-    const rKey=(m.fbKey||m.moduleId)+'_'+date;
+    const date=rosterDate();const shift=activeShift();
+    const rKey=rosterKeyFor(m,date,shift);
     try{
       const workers={};
       valid.forEach((row,i)=>{
         const key=row.machineId||(row.machineName.replace(/\s+/g,'-').toLowerCase()||'machine-'+(i+1));
         workers[key]={machineId:key,machineName:row.machineName||key,operatorId:row.operatorId||'',
           operation:row.operation||'',moduleId:m.fbKey,moduleName:m.name,
-          date,registeredBy:WS.user?.username,registeredAt:new Date().toISOString()};
+          date,shift,registeredBy:WS.user?.username,registeredAt:new Date().toISOString()};
       });
       await window._set(window._ref(window._db,'machineRosters/'+rKey+'/workers'),workers);
       await window._update(window._ref(window._db,'machineRosters/'+rKey),{
-        moduleId:m.fbKey,moduleName:m.name,date,shift:m.shift||WS.user?.shift||'',
+        moduleId:m.fbKey,moduleName:m.name,date,shift,
         status:'Pending Approval',createdBy:WS.user?.username,
         updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
       });
@@ -2220,6 +2327,100 @@ window.goStartCheck=function(){
   else WS.step='scan';
   renderW();
 };
+
+// ==================== MY LINE REPORT (worker side) ====================
+// Same analysis the admin sees, but scoped to the QC's own module/line and role.
+window.openMyReport=async function(){
+  const m=WS.scannedModule;
+  if(!m){toast('Scan a module first','error');return;}
+  WS._reportBack=WS.step;
+  WS.step='my_report';WS._reportLoading=true;renderW();
+  try{
+    const [si,sr]=await Promise.all([
+      window._get(window._ref(window._db,'inspections')),
+      window._get(window._ref(window._db,'rovingInspections'))
+    ]);
+    const allIns=si.exists()?Object.values(si.val()):[];
+    const allRov=sr.exists()?Object.values(sr.val()):[];
+    WS._report={ins:allIns.filter(i=>i.module===m.name),rov:allRov.filter(i=>i.module===m.name)};
+  }catch(e){WS._report={ins:[],rov:[],error:e.message};}
+  WS._reportLoading=false;renderW();
+};
+
+function renderMyReport(){
+  const m=WS.scannedModule||{};
+  const back=WS._reportBack||(isRoving()?'roving_home':isEndline()?'endline_home':'check_home');
+  if(WS._reportLoading)
+    return '<div class="card" style="text-align:center;padding:40px"><div class="spinner" style="width:32px;height:32px;margin:0 auto 14px"></div><div style="color:var(--text2)">Loading line report…</div></div>';
+  const rep=WS._report||{ins:[],rov:[]};
+  const roving=isRoving();
+  const dhuCol=v=>parseFloat(v)>5?'var(--red)':parseFloat(v)>3?'var(--yellow)':'var(--green)';
+
+  // Pick the dataset + field names for this role
+  const data = roving ? (rep.rov||[]) : (rep.ins||[]).filter(i=>isEndline()?i.type==='endline':true);
+  const getChk = i => roving ? (parseInt(i.sp)||0) : (parseInt(i.checkedQty)||0);
+  const getDef = i => roving ? (parseInt(i.dc)||0) : (parseInt(i.defectQty)||0);
+  const totChk=data.reduce((a,i)=>a+getChk(i),0);
+  const totDef=data.reduce((a,i)=>a+getDef(i),0);
+  const dhu=totChk?((totDef/totChk)*100).toFixed(1):'0.0';
+
+  // Operator-wise (worst first)
+  const byOp={};
+  data.forEach(i=>{const op=i.operatorId||'—';if(!byOp[op])byOp[op]={op:i.operation||'',chk:0,def:0};byOp[op].chk+=getChk(i);byOp[op].def+=getDef(i);});
+  const opRows=Object.entries(byOp).sort((a,b)=>{const da=a[1].chk?a[1].def/a[1].chk:0,db=b[1].chk?b[1].def/b[1].chk:0;return db-da;});
+
+  // Daily trend
+  const byDate={};
+  data.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;if(!byDate[d])byDate[d]={chk:0,def:0};byDate[d].chk+=getChk(i);byDate[d].def+=getDef(i);});
+  const dateRows=Object.entries(byDate).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,7);
+
+  // Top defects (defectType)
+  const defMap={};
+  data.forEach(i=>{const t=roving?i.defectType:i.defectType;if(t&&getDef(i)>0)defMap[t]=(defMap[t]||0)+getDef(i);});
+  const topDef=Object.entries(defMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  let html='<div class="card card-accent" style="margin-bottom:12px">'
+    +'<div style="font-size:16px;font-weight:700">📊 Line Report — '+(m.name||'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(roving?'Roving':isEndline()?'End Line':'Inline')+' data for your line'+(m.styleName?' • '+m.styleName:'')+'</div>'
+    +'</div>';
+
+  html+='<div class="stats-row" style="margin-bottom:14px">'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--blue)">'+totChk+'</div><div class="stat-label">'+(roving?'Inspected':'Checked')+'</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:var(--red)">'+totDef+'</div><div class="stat-label">Defects</div></div>'
+    +'<div class="stat-card"><div class="stat-val" style="color:'+dhuCol(dhu)+'">'+dhu+'%</div><div class="stat-label">DHU</div></div>'
+    +'</div>';
+
+  // Operator-wise card
+  html+='<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:10px">Operator-wise DHU <span style="font-size:11px;color:var(--text3);font-weight:400">(worst first)</span></div>';
+  if(opRows.length===0) html+='<div style="text-align:center;color:var(--text3);padding:16px;font-size:13px">No data yet</div>';
+  else html+=opRows.map(([op,g])=>{const d=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';return '<div class="sub-item" style="padding:9px 12px">'
+      +'<div><div style="font-size:13px;font-weight:600">'+op+'</div><div style="font-size:11px;color:var(--text2)">'+(g.op||'—')+' • '+g.chk+' chk</div></div>'
+      +'<div style="text-align:right"><div style="font-weight:700;font-family:var(--mono);color:'+dhuCol(d)+'">'+d+'%</div><div style="font-size:11px;color:var(--red)">'+g.def+' def</div></div>'
+      +'</div>';}).join('');
+  html+='</div>';
+
+  // Top defects card
+  if(topDef.length){
+    const tot=topDef.reduce((a,[_,c])=>a+c,0);
+    html+='<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:10px">Top Defects</div>'
+      +topDef.map(([n,c])=>{const pct=tot?Math.round(c/tot*100):0;return '<div style="margin-bottom:9px">'
+        +'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>'+n+'</span><span style="font-family:var(--mono);color:var(--red)">'+c+' ('+pct+'%)</span></div>'
+        +'<div style="height:6px;background:var(--bg3);border-radius:4px"><div style="height:100%;border-radius:4px;background:var(--red);width:'+pct+'%"></div></div></div>';}).join('')
+      +'</div>';
+  }
+
+  // Daily trend card
+  html+='<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:10px">Daily Trend</div>';
+  if(dateRows.length===0) html+='<div style="text-align:center;color:var(--text3);padding:16px;font-size:13px">No data yet</div>';
+  else html+=dateRows.map(([d,g])=>{const v=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';return '<div class="sub-item" style="padding:8px 12px">'
+      +'<div style="font-size:13px">'+d+'</div>'
+      +'<div style="display:flex;gap:14px;align-items:center;font-size:12px;font-family:var(--mono)"><span style="color:var(--text2)">'+g.chk+' chk</span><span style="color:var(--red)">'+g.def+'</span><span style="color:'+dhuCol(v)+';font-weight:700">'+v+'%</span></div>'
+      +'</div>';}).join('');
+  html+='</div>';
+
+  html+='<button class="btn-big btn-ghost" onclick="WS.step=\''+back+'\';renderW()">← Back</button>';
+  return html;
+}
 
 // ==================== WAITING ====================
 function renderWaiting(){
