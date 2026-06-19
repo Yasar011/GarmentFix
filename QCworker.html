@@ -513,15 +513,22 @@ window.pickModule=function(k){
 };
 
 // Module lock: a user bound to a different active module needs supervisor approval to switch.
-// Line Heads are exempt — they routinely set up multiple lines (e.g. Line 10 and 10.1
-// running the same style), so they can switch modules freely.
+// Line Heads are exempt — they routinely set up multiple lines running the same style.
+// Roving inspectors are also exempt when switching to a module with the same style —
+// two lines on the same style share the same roving QC, so no approval needed.
 function proceedWithModule(mod){
   const enriched=window._enrichMod?window._enrichMod(mod):mod;
   if(isLineHead()){WS.scannedModule=enriched;WS.step='verify';renderW();return;}
   if(WS.user?.changeRequest){WS.scannedModule=enriched;WS.step='waiting';renderW();return;}
   let locked=null;try{locked=WS.user?.activeModule?JSON.parse(WS.user.activeModule):null;}catch(e){}
   const same=locked&&(locked.fbKey===enriched.fbKey||(locked.moduleId&&locked.moduleId===enriched.moduleId)||locked.name===enriched.name);
-  if(locked&&!same){requestModuleChange(enriched);return;}
+  if(locked&&!same){
+    // Roving QC: free to switch when both modules share the same style
+    const sameStyle=isRoving()
+      &&locked.styleName&&enriched.styleName
+      &&locked.styleName.trim().toLowerCase()===enriched.styleName.trim().toLowerCase();
+    if(!sameStyle){requestModuleChange(enriched);return;}
+  }
   WS.scannedModule=enriched;WS.step='verify';renderW();
 }
 async function requestModuleChange(mod){
@@ -1224,12 +1231,16 @@ function renderEndlineAddDefect(){
   const btnT='padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:2px solid ';
   const stepBtn='width:52px;height:52px;border-radius:10px;font-size:24px;font-weight:700;cursor:pointer;border:none;';
 
-  const opButtons=machines.length===0
-    ?'<div style="padding:12px;color:var(--yellow);font-size:12px;background:rgba(212,168,0,.08);border-radius:8px">No operators in roster — set up roster first</div>'
+  const oilStandBtn=`<button onclick="elSelectOp('OIL-STAND','Oil Stand / Unknown')" style="${btnT}${selOp==='OIL-STAND'?'var(--yellow);background:rgba(212,168,0,.15);color:var(--yellow)':'var(--border);background:var(--bg3);color:var(--text2)'};width:100%;text-align:left;grid-column:1/-1">
+      <div style="font-weight:700;font-size:13px">🛢 Oil Stand / Unknown</div>
+      <div style="font-size:10px;opacity:.75">Operator not identifiable at inspection point</div>
+    </button>`;
+  const opButtons=oilStandBtn+(machines.length===0
+    ?'<div style="padding:12px;color:var(--yellow);font-size:12px;background:rgba(212,168,0,.08);border-radius:8px;grid-column:1/-1">No roster operators — tap Oil Stand above or set up roster first</div>'
     :machines.map(w=>`<button onclick="elSelectOp('${(w.operatorId||'').replace(/'/g,"\\'")}','${(w.operation||'').replace(/'/g,"\\'")}') " style="${btnT}${selOp===w.operatorId?'var(--accent);background:rgba(0,212,168,.15);color:var(--accent)':'var(--border);background:var(--bg3);color:var(--text2)'};width:100%;text-align:left">
         <div style="font-weight:700;font-size:13px">${w.operatorId||'—'}</div>
         <div style="font-size:10px;opacity:.75">${w.operation||'—'}</div>
-      </button>`).join('');
+      </button>`).join(''));
 
   const catTabs=Object.entries(CAT_LABELS).map(([k,v])=>`<button onclick="WS.elAddDefCat='${k}';WS.elAddDefCode=null;renderW()" style="padding:8px 10px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;border:2px solid ${activeCat===k?'var(--purple);background:rgba(153,102,255,.18);color:#c4a5ff':'var(--border);background:var(--bg3);color:var(--text3)'}">${k} ${v}</button>`).join('');
 
@@ -1261,7 +1272,7 @@ function renderEndlineAddDefect(){
       <div style="font-size:11px;color:var(--text3);margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">3 — How Many?</div>
       <div style="display:flex;align-items:center;justify-content:center;gap:24px">
         <button onclick="elAddDefStepQty(-1)" style="${stepBtn}background:var(--bg3);color:var(--text1)">−</button>
-        <span style="font-size:52px;font-weight:700;font-family:var(--mono);min-width:70px;text-align:center">${qty}</span>
+        <input type="number" id="qty-direct" min="1" value="${qty}" oninput="WS.elAddDefQty=Math.max(1,parseInt(this.value)||1)" style="width:86px;text-align:center;font-size:36px;font-weight:700;background:var(--bg3);border:2px solid var(--border);border-radius:10px;color:var(--text);padding:6px 4px;font-family:var(--font)">
         <button onclick="elAddDefStepQty(1)" style="${stepBtn}background:var(--accent);color:#000">+</button>
       </div>
     </div>
@@ -1336,7 +1347,11 @@ function renderEndlineHourEnd(){
 window.elGoAddDefect=function(){WS.elAddOp=null;WS.elAddDefOp=null;WS.elAddDefCode=null;WS.elAddDefQty=1;WS.elAddDefCat='S';WS.step='endline_add_defect';renderW();};
 window.elSelectOp=function(operatorId,operation){WS.elAddOp=operatorId;WS.elAddDefOp={operatorId,operation};renderW();};
 window.elSelectAddCode=function(code,name){WS.elAddDefCode=code;WS.elAddDefName=name;renderW();};
-window.elAddDefStepQty=function(delta){WS.elAddDefQty=Math.max(1,(WS.elAddDefQty||1)+delta);renderW();};
+window.elAddDefStepQty=function(delta){
+  WS.elAddDefQty=Math.max(1,(WS.elAddDefQty||1)+delta);
+  const inp=document.getElementById('qty-direct');
+  if(inp){inp.value=WS.elAddDefQty;}else{renderW();}
+};
 window.elAddDefConfirm=function(){
   const op=WS.elAddOp;const code=WS.elAddDefCode;const name=WS.elAddDefName||'';
   const operation=WS.elAddDefOp?.operation||'';const qty=WS.elAddDefQty||1;
@@ -1421,10 +1436,10 @@ function renderRovingHome(){
        +'<button class="btn-big btn-ghost" style="margin:8px 0 0" onclick="openManualRoster()">⌨️ Or Enter Manually</button>'
        +'</div>')
     // Pending CPA/AB updates
-    +(myRounds.filter(r=>!r.cpa&&!r.absent).length>0
+    +(myRounds.filter(r=>r.capRequired&&!(r.ab||r.cpa)&&!r.absent).length>0
       ?'<div class="card" style="border-color:rgba(255,180,0,.4);background:rgba(255,180,0,.04);margin-bottom:4px">'
-       +'<div style="font-size:12px;font-weight:600;color:var(--yellow);margin-bottom:10px">⏳ Pending CPA / AB Updates</div>'
-       +myRounds.filter(r=>!r.cpa&&!r.absent).map(r=>`
+       +'<div style="font-size:12px;font-weight:600;color:var(--yellow);margin-bottom:10px">⏳ CPA Required — AB Not Selected</div>'
+       +myRounds.filter(r=>r.capRequired&&!(r.ab||r.cpa)&&!r.absent).map(r=>`
          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border-radius:10px;margin-bottom:6px">
            <div>
              <div style="font-weight:600;font-size:13px">${r.operatorId||r.machineName||'—'}</div>
@@ -1585,21 +1600,31 @@ function renderRovingForm(){
     +[6,7,8].map(n=>'<button type="button" class="sp-btn'+(n===6?' sp-sel':'')+'" onclick="pickSP('+n+')">'+n+'</button>').join('')
     +'</div></div>'
     +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">Defects Found (D/C)</label>'
-    +'<input class="form-input" name="dc" type="number" min="0" value="0" oninput="calcRovingDHU()" style="font-size:24px;font-weight:700;text-align:center;padding:14px"></div>'
+    +'<input class="form-input" name="dc" id="dc-input" type="number" min="0" value="0" oninput="calcRovingDHU();updateCPASection()" style="font-size:24px;font-weight:700;text-align:center;padding:14px"></div>'
     +'<div class="dhu-box" id="dhu-box"><div style="font-size:12px;color:var(--text2)">Defect %</div>'
     +'<div id="dhu-val" style="font-size:28px;font-weight:700"></div></div>'
     // Defect type
     +'<div class="form-group"><label class="form-label">Defect Type</label>'
     +'<select class="form-input" name="defectType"><option value="">— No Defect —</option>'+myDefs+'</select></div>'
-    // CPA
-    +'<div class="form-group"><label class="form-label">CPA — Corrective Action Taken</label>'
-    +'<select class="form-input" name="cpa">'
-    +'<option value="">— None —</option>'
-    +'<option value="A">A — Solved by Inline QC</option>'
-    +'<option value="B">B — Solved with Supervisor / Mechanic</option>'
-    +'<option value="C">C — Solved with Senior Technician</option>'
-    +'<option value="D">D — Informed Production / Quality Executive</option>'
-    +'</select></div>'
+    // CPA — new 7-piece check + AB (Action By) logic replaces the old dropdown
+    +'<input type="hidden" name="ab" id="ab-val" value="">'
+    +'<input type="hidden" name="capRequired" id="cap-required-val" value="0">'
+    +'<div id="cpa-none-section" style="padding:10px 14px;border-radius:10px;border:1px solid var(--border);margin-bottom:14px;text-align:center;color:var(--text3);font-size:13px;background:var(--bg3)">✓ No CPA required</div>'
+    +'<div id="seven-piece-section" style="display:none;background:rgba(212,168,0,.06);border:1px solid rgba(212,168,0,.4);border-radius:12px;padding:14px;margin-bottom:14px">'
+    +'<div style="font-size:12px;color:var(--yellow);font-weight:700;margin-bottom:10px;letter-spacing:.04em">⚠ 1 DEFECT FOUND — CHECK 7 MORE PIECES</div>'
+    +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">Inspect 7 additional pieces. How many defects found?</div>'
+    +'<input type="number" id="dc7-input" name="dc7" min="0" max="7" value="0" oninput="updateCPA7()" style="width:100%;padding:14px;border-radius:10px;border:2px solid rgba(212,168,0,.4);background:var(--bg3);color:var(--text);font-size:28px;font-weight:700;text-align:center;font-family:var(--font)">'
+    +'<div id="seven-piece-result" style="margin-top:10px;padding:10px 14px;border-radius:8px;font-weight:600;font-size:13px;display:none"></div>'
+    +'</div>'
+    +'<div id="cap-required-section" style="display:none;background:rgba(224,85,85,.06);border:2px solid rgba(224,85,85,.5);border-radius:12px;padding:14px;margin-bottom:14px">'
+    +'<div style="font-weight:700;color:var(--red);font-size:15px;margin-bottom:6px">⛔ STOP — CPA Required</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:14px">Stop the operation. Select Action By (AB) below — or leave empty and update later.</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Action By (AB) <span style="font-weight:400;opacity:.7">— optional, can update later</span></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    +[{v:'A',l:'A',d:'Inline QC'},{v:'B',l:'B',d:'Supervisor / Mechanic'},{v:'C',l:'C',d:'Senior Technician'},{v:'D',l:'D',d:'Production / QA Exec'}]
+      .map(o=>'<button type="button" class="ab-btn" data-ab="'+o.v+'" onclick="selectAB(\''+o.v+'\')" style="padding:12px 8px;border-radius:10px;cursor:pointer;border:2px solid var(--border);background:var(--bg3);color:var(--text2);text-align:left;font-size:13px;font-family:var(--font)"><div style="font-weight:700;font-size:18px;margin-bottom:2px">'+o.l+'</div><div style="font-size:10px;line-height:1.3;color:var(--text3)">'+o.d+'</div></button>')
+      .join('')
+    +'</div></div>'
     +'<div class="form-group"><label class="form-label">Notes</label>'
     +'<textarea class="form-input" name="comments" rows="2" placeholder="Additional notes..."></textarea></div>'
     +'<button class="btn-big btn-primary" type="button" id="sub-btn">'
@@ -1648,11 +1673,67 @@ window.calcRovingDHU=function(){
   else box.style.display='none';
 };
 
+// CPA 7-piece check + AB (Action By) logic
+window.updateCPASection=function(){
+  const dc=parseInt(document.getElementById('dc-input')?.value)||0;
+  const s7=document.getElementById('seven-piece-section');
+  const sc=document.getElementById('cap-required-section');
+  const sn=document.getElementById('cpa-none-section');
+  const crv=document.getElementById('cap-required-val');
+  if(!s7)return;
+  if(dc===0){
+    s7.style.display='none';sc.style.display='none';sn.style.display='block';
+    if(crv)crv.value='0';
+  }else if(dc===1){
+    s7.style.display='block';sc.style.display='none';sn.style.display='none';
+    updateCPA7();
+  }else{
+    // 2+ defects → immediate CPA required
+    s7.style.display='none';sc.style.display='block';sn.style.display='none';
+    if(crv)crv.value='1';
+  }
+};
+
+window.updateCPA7=function(){
+  const dc7=parseInt(document.getElementById('dc7-input')?.value)||0;
+  const r=document.getElementById('seven-piece-result');
+  const sc=document.getElementById('cap-required-section');
+  const crv=document.getElementById('cap-required-val');
+  if(!r)return;
+  r.style.display='block';
+  if(dc7===0){
+    r.style.background='rgba(0,212,168,.1)';r.style.border='1px solid var(--accent)';r.style.color='var(--accent)';
+    r.textContent='✓ No defects in 7 pieces — Operator may continue';
+    if(sc)sc.style.display='none';if(crv)crv.value='0';
+  }else{
+    r.style.background='rgba(224,85,85,.1)';r.style.border='1px solid var(--red)';r.style.color='var(--red)';
+    r.textContent='⛔ '+dc7+' defect'+(dc7>1?'s':'')+' in 7 pieces — CPA Required!';
+    if(sc)sc.style.display='block';if(crv)crv.value='1';
+  }
+};
+
+window.selectAB=function(ab){
+  document.querySelectorAll('.ab-btn').forEach(b=>{
+    const me=b.dataset.ab===ab;
+    b.style.borderColor=me?'var(--yellow)':'var(--border)';
+    b.style.background=me?'rgba(212,168,0,.15)':'var(--bg3)';
+    b.style.color=me?'var(--yellow)':'var(--text2)';
+    b.style.fontWeight=me?'700':'400';
+  });
+  const inp=document.getElementById('ab-val');if(inp)inp.value=ab;
+};
+
 function renderRovingEnd(){
   const results=WS.rovingRoundResults||[];
   const tSP=results.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
   const tDC=results.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
   const pct=tSP?((tDC/tSP)*100).toFixed(1):'0.0';
+  // Check for CPA records from this visit still missing AB
+  const today=new Date().toISOString().split('T')[0];
+  const pendingAB=(WS.myRovingInspections||[]).filter(r=>
+    String(r.visitNum)===String(WS.rovingRound)&&r.date===today&&r.capRequired&&!(r.ab||r.cpa)
+  );
+  const canProceed=pendingAB.length===0;
   return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);text-align:center;padding:24px;margin-bottom:16px">'
     +'<div style="font-size:40px;margin-bottom:8px">✅</div>'
     +'<div style="font-size:20px;font-weight:700;color:var(--red)">Visit '+WS.rovingRound+' Complete!</div>'
@@ -1668,10 +1749,28 @@ function renderRovingEnd(){
       +'<div style="font-size:11px;color:var(--text2)">'+(r.operation||'')+' | TRIM:'+(r.trim==='pass'?'✓':'✗')+' | SP:'+r.sp+'</div></div>'
       +'<div style="text-align:right">'
       +'<div style="color:'+((parseInt(r.dc)||0)>0?'var(--red)':'var(--green)')+';font-weight:600">'+(r.dc||0)+' def</div>'
-      +(r.cpa?'<div style="font-size:11px;color:var(--text3)">CPA-'+r.cpa+'</div>':'')
+      +((r.ab||r.cpa)?'<div style="font-size:11px;color:var(--yellow)">AB-'+(r.ab||r.cpa)+'</div>':r.capRequired?'<div style="font-size:11px;color:var(--red)">⚠ AB missing</div>':'')
       +'</div></div>').join('')
     +'</div>'
-    +(WS.rovingRound<4?'<button class="btn-big btn-primary" onclick="WS.rovingRound++;WS.rovingRoundResults=[];WS._currentCheckMachine=null;WS.step=\'roving_scan_pick\';renderW()">▶ Start Visit '+(WS.rovingRound+1)+'</button>':'')
+    // Pending AB warning block — must clear before next visit
+    +(!canProceed
+      ?'<div style="background:rgba(224,85,85,.1);border:2px solid var(--red);border-radius:12px;padding:14px;margin-bottom:14px">'
+        +'<div style="font-weight:700;color:var(--red);font-size:14px;margin-bottom:6px">⛔ '+pendingAB.length+' CPA record'+(pendingAB.length>1?'s':'')+' missing Action By (AB)</div>'
+        +'<div style="font-size:12px;color:var(--text2);margin-bottom:12px">You must fill in AB for all CPA operators before starting Visit '+(WS.rovingRound+1)+'.</div>'
+        +'<div style="display:flex;flex-direction:column;gap:8px">'
+        +pendingAB.map(r=>'<button onclick="openRovingUpdate(\''+r.fbKey+'\')" style="padding:12px 14px;border-radius:10px;cursor:pointer;border:2px solid var(--red);background:rgba(224,85,85,.08);color:var(--text);text-align:left;font-family:var(--font)">'
+          +'<div style="font-weight:700;font-size:13px">'+( r.operatorId||r.machineName||'—')+'</div>'
+          +'<div style="font-size:11px;color:var(--text3)">'+(r.operation||'')+'  — Tap to select AB →</div>'
+          +'</button>').join('')
+        +'</div></div>'
+      :'')
+    // Next visit button — blocked until AB cleared
+    +(WS.rovingRound<4
+      ?(canProceed
+        ?'<button class="btn-big btn-primary" onclick="WS.rovingRound++;WS.rovingRoundResults=[];WS._currentCheckMachine=null;WS.step=\'roving_scan_pick\';renderW()">▶ Start Visit '+(WS.rovingRound+1)+'</button>'
+        :'<button class="btn-big btn-primary" disabled style="opacity:.45;cursor:not-allowed;pointer-events:none">⛔ Clear AB to unlock Visit '+(WS.rovingRound+1)+'</button>'
+      )
+      :'')
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'roving_home\';renderW()">← Back to Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
@@ -1686,16 +1785,11 @@ window.openRovingUpdate=function(fbKey){
 function renderRovingUpdate(){
   const r=WS._rovingUpdateRec;
   if(!r)return'<div class="card">No record selected.</div>';
-  const cpaOptions=[
-    {v:'',l:'— None yet —'},
-    {v:'A',l:'A — Solved by Inline QC'},
-    {v:'B',l:'B — Solved with Supervisor / Mechanic'},
-    {v:'C',l:'C — Solved with Senior Technician'},
-    {v:'D',l:'D — Informed Production / Quality Executive'},
-  ];
+  const curAB=r._ab??r.ab??r.cpa??'';
+  const abOpts=[{v:'A',l:'A',d:'Inline QC'},{v:'B',l:'B',d:'Supervisor / Mechanic'},{v:'C',l:'C',d:'Senior Technician'},{v:'D',l:'D',d:'Production / QA Exec'}];
   return`
     <div style="background:rgba(255,180,0,.07);border:1px solid rgba(255,180,0,.4);border-radius:12px;padding:14px;margin-bottom:14px">
-      <div style="font-size:11px;color:var(--yellow);font-weight:600;margin-bottom:6px">UPDATE CPA / AB</div>
+      <div style="font-size:11px;color:var(--yellow);font-weight:600;margin-bottom:6px">UPDATE AB / STATUS</div>
       <div style="font-size:17px;font-weight:700">${r.operatorId||r.machineName||'—'}</div>
       <div style="font-size:12px;color:var(--text2)">Visit ${r.visitNum} • ${r.operation||'—'} • ${r.date||''}</div>
       <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
@@ -1703,20 +1797,31 @@ function renderRovingUpdate(){
         ${r.spi?`<span class="badge badge-blue">SPI ${r.spi}</span>`:''}
         <span class="badge badge-blue">SP ${r.sp}</span>
         <span class="badge badge-${(r.dc||0)>0?'red':'green'}">DC ${r.dc||0}</span>
+        ${r.dc7!=null?`<span class="badge badge-yellow">7-pc: ${r.dc7}</span>`:''}
+        ${r.capRequired?'<span class="badge badge-red">CPA Required</span>':''}
         ${r.defectType?`<span class="badge badge-purple">${r.defectType}</span>`:''}
       </div>
     </div>
 
+    ${r.capRequired||r.ab||r.cpa?`
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">CPA — Corrective Action Taken</div>
-      ${cpaOptions.map(o=>`
-        <button onclick="WS._rovingUpdateRec={...WS._rovingUpdateRec,_cpa:'${o.v}'};renderW()"
-          style="width:100%;text-align:left;padding:13px 14px;margin-bottom:6px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:${(r._cpa??r.cpa)===o.v?'700':'400'};
-          border:2px solid ${(r._cpa??r.cpa)===o.v?'var(--yellow)':'var(--border)'};
-          background:${(r._cpa??r.cpa)===o.v?'rgba(255,180,0,.12)':'var(--bg3)'};
-          color:${(r._cpa??r.cpa)===o.v?'var(--yellow)':'var(--text1)'}">
-          ${o.l}
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">AB — Action By</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${abOpts.map(o=>`<button onclick="WS._rovingUpdateRec={...WS._rovingUpdateRec,_ab:'${o.v}'};renderW()"
+          style="padding:12px 8px;border-radius:10px;cursor:pointer;border:2px solid ${curAB===o.v?'var(--yellow)':'var(--border)'};
+          background:${curAB===o.v?'rgba(212,168,0,.15)':'var(--bg3)'};
+          color:${curAB===o.v?'var(--yellow)':'var(--text2)'};text-align:left">
+          <div style="font-weight:700;font-size:18px">${o.l}</div>
+          <div style="font-size:10px;color:var(--text3)">${o.d}</div>
         </button>`).join('')}
+      </div>
+    </div>`:''}
+
+    <div style="background:rgba(224,85,85,.05);border:1px solid rgba(224,85,85,.25);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">7-Piece Check Result</div>
+      <input type="number" id="dc7-update" min="0" max="7" value="${r._dc7??r.dc7??0}"
+        placeholder="Defects in 7 pieces"
+        style="width:100%;padding:12px 14px;border-radius:10px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:22px;font-weight:700;text-align:center;font-family:var(--font)">
     </div>
 
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
@@ -1753,19 +1858,20 @@ function renderRovingUpdate(){
 window.saveRovingUpdate=async function(){
   const r=WS._rovingUpdateRec;
   if(!r?.fbKey){toast('Record not found','error');return;}
-  const cpa=r._cpa??r.cpa??'';
+  const ab=r._ab??r.ab??r.cpa??'';
+  const dc7=parseInt(document.getElementById('dc7-update')?.value)||(r._dc7??r.dc7??0);
   const absent=r._absent??r.absent??false;
   const notes=(document.getElementById('update-notes')?.value||r.comments||'').trim();
   const btn=document.querySelector('[onclick="saveRovingUpdate()"]');
   if(btn){btn.disabled=true;btn.textContent='Saving...';}
   try{
     await window._update(window._ref(window._db,'rovingInspections/'+r.fbKey),{
-      cpa,absent,comments:notes,updatedAt:new Date().toISOString(),
+      ab,cpa:ab,dc7,absent,comments:notes,updatedAt:new Date().toISOString(),
       updatedBy:WS.user?.username||WS.user?.name
     });
     // Update local cache
     const idx=(WS.myRovingInspections||[]).findIndex(x=>x.fbKey===r.fbKey);
-    if(idx>=0){WS.myRovingInspections[idx]={...WS.myRovingInspections[idx],cpa,absent,comments:notes};}
+    if(idx>=0){WS.myRovingInspections[idx]={...WS.myRovingInspections[idx],ab,cpa:ab,dc7,absent,comments:notes};}
     WS._rovingUpdateRec=null;
     toast('Updated ✓');
     WS.step='roving_home';renderW();
@@ -1782,32 +1888,35 @@ function bindRovingSubmit(){
     const fd=new FormData(f);const data=Object.fromEntries(fd.entries());
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
     try{
+      const dc=parseInt(data.dc)||0;
+      const dc7=parseInt(data.dc7)||0;
+      const capRequired=data.capRequired==='1';
+      const ab=data.ab||'';
       await window.fbAdd('rovingInspections',{
         id:'ROV-'+Date.now(),
         visitNum:parseInt(data.visitNum)||WS.rovingRound,
         date:new Date().toISOString().split('T')[0],
         time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
-        shift:WS.scannedModule?.shift||'',
+        shift:activeShift(),   // record the inspector's actual shift (like End Line), not the module's stored field
         module:data.module,style:data.style,
         machineId:data.machineId,machineName:data.machineName,
         operatorId:data.operatorId,operation:data.operation,
         trim:data.trim,absent:data.absent==='1',
         spi:parseFloat(data.spi)||0,
-        sp:parseInt(data.sp)||0,dc:parseInt(data.dc)||0,
-        defectType:data.defectType||'',cpa:data.cpa||'',
+        sp:parseInt(data.sp)||0,dc,dc7,
+        defectType:data.defectType||'',
+        capRequired,ab,cpa:ab,   // cpa kept for admin backward compat
         comments:data.comments||'',
         submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
       });
-      if(parseInt(data.dc)>0){
+      if(dc>0){
         await window.fbAddAlert({
           title:'Roving Visit '+WS.rovingRound+' — Defect: '+data.operatorId,
-          message:(data.defectType||'Defect')+' on '+data.operation+' ('+data.machineName+')',
-          level:parseInt(data.dc)>=2?'high':'medium',module:data.module,read:false,createdBy:'roving-auto'
+          message:(data.defectType||'Defect')+' on '+data.operation+' ('+data.machineName+')'+(capRequired?' — CPA Required':''),
+          level:dc>=2||capRequired?'high':'medium',module:data.module,read:false,createdBy:'roving-auto'
         });
-        // CAP is only raised when the rule is met: 3+ defects in one visit,
-        // OR the same defect repeats in a later visit for the same operator.
-        const capReason=rovingCAPReason(data);
-        if(capReason){await addRovingDefectToCAP(data,capReason);toast('⚠ CAP raised: '+capReason,'error');}
+        if(capRequired&&!ab){toast('⚠ CPA recorded — update AB later');}
+        else if(capRequired){toast('⚠ CPA — AB-'+ab+' recorded');}
       }
       WS.rovingRoundResults.push({...data,dc:parseInt(data.dc)||0,sp:parseInt(data.sp)||0});
       toast('Saved ✓');
