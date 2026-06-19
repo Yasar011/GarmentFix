@@ -354,14 +354,22 @@ function pgDash(){
 }
 
 // ======================== MODULES ========================
-// Real, live DHU for a module — computed from actual inspections, never a stored/typed field.
+// Real, live DHU for a module — returns separate End Line and Roving metrics.
 function modLiveDHU(m){
   const matches=(i)=>i.module===m.name||i.module===m.moduleId||i.module===m.fbKey;
   const ins=(D.inspections||[]).filter(matches);
   const rov=(D.rovingInspections||[]).filter(matches);
-  const chk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
-  const def=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
-  return chk>0?{hasData:true,dhu:parseFloat(((def/chk)*100).toFixed(1)),chk,def}:{hasData:false,dhu:0,chk:0,def:0};
+  const elChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const elDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const rovChk=rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
+  const rovDef=rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
+  const chk=elChk+rovChk,def=elDef+rovDef;
+  return {
+    hasData:chk>0,
+    dhu:chk>0?parseFloat(((def/chk)*100).toFixed(1)):0,chk,def,
+    elDhu:elChk>0?parseFloat(((elDef/elChk)*100).toFixed(1)):null,elChk,elDef,
+    rovDhu:rovChk>0?parseFloat(((rovDef/rovChk)*100).toFixed(1)):null,rovChk,rovDef
+  };
 }
 
 function pgMods(){
@@ -371,7 +379,10 @@ function pgMods(){
     const live=modLiveDHU(m);
     const d=live.dhu;
     const color=!live.hasData?'var(--text3)':d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)';
-    return`<div class="module-card" style="border-left:3px solid ${color}" onclick="showModal('modQR',${JSON.stringify(m).replace(/"/g,'&quot;')})"><span class="status-dot dot-${!live.hasData?'yellow':d>5?'red':d>3?'yellow':'green'}" style="position:absolute;top:10px;right:10px;${!live.hasData?'opacity:.3':''}"></span><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${m.moduleId||''}</div><div style="font-size:14px;font-weight:600;margin:4px 0">${m.name||''}</div><div style="font-size:12px;color:var(--accent)">${m.styleName||'— No style assigned —'}</div><div style="font-size:11px;color:var(--text3)">${m.buyer||''}</div><div style="margin-top:8px;font-family:var(--mono);font-size:12px;color:${color}">${live.hasData?`DHU ${d}% (${live.chk} checked)`:'No data yet'}</div><div class="progress" style="margin-top:4px"><div class="progress-fill" style="width:${live.hasData?Math.min(d*10,100):0}%;background:${color}"></div></div><div style="display:flex;gap:4px;margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showModal('modQR',${JSON.stringify(m).replace(/"/g,'&quot;')})">${ic('qr',12)}</button><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showModal('editMod',${JSON.stringify(m).replace(/"/g,'&quot;')})">${ic('edit',12)}</button><button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="event.stopPropagation();del('modules','${m.fbKey}')">${ic('trash',12)}</button></div></div>`;}).join('')}</div>`}</div>`;
+    return`<div class="module-card" style="border-left:3px solid ${color}" onclick="showModal('modQR',${JSON.stringify(m).replace(/"/g,'&quot;')})"><span class="status-dot dot-${!live.hasData?'yellow':d>5?'red':d>3?'yellow':'green'}" style="position:absolute;top:10px;right:10px;${!live.hasData?'opacity:.3':''}"></span><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${m.moduleId||''}</div><div style="font-size:14px;font-weight:600;margin:4px 0">${m.name||''}</div><div style="font-size:12px;color:var(--accent)">${m.styleName||'— No style assigned —'}</div><div style="font-size:11px;color:var(--text3)">${m.buyer||''}</div><div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${live.hasData?`
+  ${live.elDhu!=null?`<div style="font-size:11px;display:flex;justify-content:space-between"><span style="color:var(--text3)">End Line</span><span style="font-family:var(--mono);font-weight:700;color:${live.elDhu>5?'var(--red)':live.elDhu>3?'var(--yellow)':'var(--green)'}">${live.elDhu}% <span style="color:var(--text3);font-weight:400">(${live.elChk} chk)</span></span></div>`:''}
+  ${live.rovDhu!=null?`<div style="font-size:11px;display:flex;justify-content:space-between"><span style="color:var(--text3)">Roving</span><span style="font-family:var(--mono);font-weight:700;color:${live.rovDhu>5?'var(--red)':live.rovDhu>3?'var(--yellow)':'var(--green)'}">${live.rovDhu}% <span style="color:var(--text3);font-weight:400">(${live.rovChk} sp)</span></span></div>`:''}
+  `:'<div style="font-size:11px;color:var(--text3)">No data yet</div>'}</div><div class="progress" style="margin-top:4px"><div class="progress-fill" style="width:${live.hasData?Math.min(d*10,100):0}%;background:${color}"></div></div><div style="display:flex;gap:4px;margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showModal('modQR',${JSON.stringify(m).replace(/"/g,'&quot;')})">${ic('qr',12)}</button><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showModal('editMod',${JSON.stringify(m).replace(/"/g,'&quot;')})">${ic('edit',12)}</button><button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="event.stopPropagation();del('modules','${m.fbKey}')">${ic('trash',12)}</button></div></div>`;}).join('')}</div>`}</div>`;
 }
 
 // ======================== STYLES ========================
@@ -1323,7 +1334,9 @@ function pgRoving(){
   const dates=[...new Set(rovIns.map(i=>i.date||'').filter(Boolean))].sort().reverse();
   const curDate=D.rovingDate||dates[0]||new Date().toISOString().split('T')[0];
   const mods=[...new Set(rovIns.map(i=>i.module).filter(Boolean))];
+  const shiftsForDate=[...new Set(rovIns.filter(i=>i.date===curDate).map(i=>i.shift||'').filter(Boolean))].sort();
   let rows=rovIns.filter(i=>i.date===curDate);
+  if(D.rovingShift&&D.rovingShift!=='__all') rows=rows.filter(i=>i.shift===D.rovingShift);
   if(D.rovingModule&&D.rovingModule!=='__all') rows=rows.filter(i=>i.module===D.rovingModule);
   const opMap={};
   rows.forEach(r=>{
@@ -1340,9 +1353,14 @@ function pgRoving(){
   return`<div style="display:flex;flex-direction:column;gap:20px">
     <div class="card" style="border-color:var(--red)">
       <div class="card-header"><span class="card-title" style="color:var(--red)">🏃 Roving Inspection Report — Brandix paper format</span><span class="fb">🔥 ${rovIns.length} records</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
         <div class="form-group" style="margin:0"><label class="form-label">Date</label>
-          <select class="form-input" onchange="D.rovingDate=this.value;render()">${dates.length?dates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No data yet</option>'}</select></div>
+          <select class="form-input" onchange="D.rovingDate=this.value;D.rovingShift='__all';render()">${dates.length?dates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No data yet</option>'}</select></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Shift</label>
+          <select class="form-input" onchange="D.rovingShift=this.value;render()">
+            <option value="__all" ${(!D.rovingShift||D.rovingShift==='__all')?'selected':''}>All shifts</option>
+            ${shiftsForDate.map(s=>`<option value="${s}" ${D.rovingShift===s?'selected':''}>Shift ${s}</option>`).join('')}
+          </select></div>
         <div class="form-group" style="margin:0"><label class="form-label">Module / Team</label>
           <select class="form-input" onchange="D.rovingModule=this.value;render()">
             <option value="__all" ${(!D.rovingModule||D.rovingModule==='__all')?'selected':''}>All modules</option>
@@ -1372,7 +1390,7 @@ function pgRoving(){
           <tr>
             <th rowspan="2" style="min-width:80px">Operator</th>
             <th rowspan="2" style="min-width:120px">Operation</th>
-            ${[1,2,3,4].map(v=>`<th colspan="5" style="text-align:center;border-left:2px solid var(--border2)">${v==='1'?'1st':v==='2'?'2nd':v==='3'?'3rd':'4th'} Visit</th>`).join('')}
+            ${[1,2,3,4].map(v=>`<th colspan="5" style="text-align:center;border-left:2px solid var(--border2)">${v===1?'1st':v===2?'2nd':v===3?'3rd':'4th'} Visit</th>`).join('')}
             <th style="border-left:2px solid var(--border2)">INSP</th><th>DEF</th>
           </tr>
           <tr>
@@ -1394,8 +1412,8 @@ function pgRoving(){
                   ?`<td style="${bl}">${vi.trim==='pass'?'<span class="badge badge-green" style="font-size:10px;padding:1px 5px">✓</span>':'<span class="badge badge-red" style="font-size:10px;padding:1px 5px">✗</span>'}</td>
                     <td style="font-family:var(--mono);font-size:12px">${vi.sp||''}</td>
                     <td style="font-family:var(--mono);font-size:12px;color:${(parseInt(vi.dc)||0)>0?'var(--red)':'var(--green)'}">${vi.dc||0}</td>
-                    <td style="font-size:11px;color:var(--text2)">${vi.cpa||'—'}</td>
-                    <td style="font-size:11px;color:var(--text3)">${vi.absent?'AB':''}</td>`
+                    <td style="font-size:11px">${vi.capRequired?`<span style="color:var(--red);font-weight:700">⚠</span>`:`<span style="color:var(--text3)">—</span>`}</td>
+                    <td style="font-size:11px;color:${(vi.ab||vi.cpa)?'var(--yellow)':'var(--text2)'};font-weight:${(vi.ab||vi.cpa)?'700':'400'}">${vi.absent?`<span style="color:var(--text3);font-weight:400">Abs</span>`:vi.ab||vi.cpa||'—'}</td>`
                   :`<td style="${bl}"></td><td></td><td></td><td></td><td></td>`;
               }).join('')}
               <td style="font-family:var(--mono);font-weight:600;border-left:2px solid var(--border2)">${totalOpSP}</td>
@@ -1419,10 +1437,10 @@ function pgRoving(){
     </div>`}
     <div class="card" style="font-size:12px;color:var(--text2);line-height:1.8">
       <div style="font-weight:600;margin-bottom:6px;color:var(--text)">Corrective and Preventive Action</div>
-      <div>(a) If 1 defect found, check another 6 Pcs</div>
-      <div>(b) If no defects found in 2nd 6 Pcs, allow the operator to proceed &nbsp;<b>B</b></div>
-      <div>(c) If 1 or more defects found 2nd 6 Pcs — stop the operation, let the operator check all garments stitched, defects found to be repaired, allow the operator to proceed after corrective and preventive actions</div>
-      <div>(d) If 1 or more defects found in first 6 pcs, follow c</div>
+      <div>(a) If 1 defect found → check another 7 pieces</div>
+      <div>(b) If no defects found in those 7 pieces → allow the operator to continue (no CPA)</div>
+      <div>(c) If 1 or more defects found in those 7 pieces → stop the operation, operator checks all stitched garments, repair defects, complete CPA before resuming</div>
+      <div>(d) If 2 or more defects found in original sample → immediate CPA required (no 7-piece check needed)</div>
       <div style="margin-top:8px"><span style="font-weight:600;color:var(--text)">Action By:</span> &nbsp;A — Solved by the Inline QC &nbsp;|&nbsp; B — Solved with the help of Supervisor / Mechanic &nbsp;|&nbsp; C — Solved with the help of Senior Technician &nbsp;|&nbsp; D — Informed to Production Executive / Quality Executive</div>
     </div>
   </div>`;
@@ -1565,6 +1583,7 @@ window.rptRoving=function(fmt){
   const rovIns=D.rovingInspections||[];
   const curDate=D.rovingDate||new Date().toISOString().split('T')[0];
   let rows=rovIns.filter(i=>i.date===curDate);
+  if(D.rovingShift&&D.rovingShift!=='__all') rows=rows.filter(i=>i.shift===D.rovingShift);
   if(D.rovingModule&&D.rovingModule!=='__all') rows=rows.filter(i=>i.module===D.rovingModule);
   if(rows.length===0){toast('No roving data for selected filters','error');return;}
   if(fmt==='excel') return rovingExcel(rows,curDate);
@@ -1585,7 +1604,7 @@ function rovingPDF(rows,date){
   const head=[['Operator','Operation','TR','SP','D/C','CPA','AB','TR','SP','D/C','CPA','AB','TR','SP','D/C','CPA','AB','TR','SP','D/C','CPA','AB','INSP','DEF']];
   const body=operators.map(op=>{
     const row=[op.operatorId,op.operation];
-    [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'✓':'✗':'');row.push(vi?vi.sp||'':'');row.push(vi?vi.dc||'0':'');row.push(vi?vi.cpa||'':'');row.push(vi?vi.absent?'AB':'':'');});
+    [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'✓':'✗':'');row.push(vi?vi.sp||'':'');row.push(vi?vi.dc||'0':'');row.push(vi?(vi.capRequired?'⚠':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
     const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
     const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
     row.push(tSP,tDC);return row;
@@ -1603,7 +1622,9 @@ function rovingPDF(rows,date){
   doc.setFontSize(8);doc.setTextColor(40,40,40);
   doc.text(`Total Inspected: ${totSP}   Defects: ${totDC}   Defect %: ${totSP?((totDC/totSP)*100).toFixed(1):0}%`,14,y);y+=6;
   doc.setFontSize(7.5);doc.setTextColor(60,60,60);
-  doc.text('(a) 1 defect → check 6 more pcs  (b) No defects in 2nd 6 → allow proceed  (c) 1+ defects 2nd 6 → stop, repair all, then proceed  (d) 1+ defects first 6 → follow c',14,y);y+=5;
+  doc.text('(a) 1 defect found → check another 7 pieces  (b) No defects in those 7 → allow operator to continue (no CPA)',14,y);y+=4;
+  doc.text('(c) 1+ defects in those 7 → stop operation, check all stitched garments, repair defects, complete CPA before resuming',14,y);y+=4;
+  doc.text('(d) 2+ defects in original sample → immediate CPA required (no 7-piece check needed)',14,y);y+=5;
   doc.text('A=Inline QC  B=Supervisor/Mechanic  C=Senior Technician  D=Production/Quality Executive',14,y);y+=7;
   doc.text('Technician: ____________________________      QA.Exe: ____________________________',14,y);
   pdfStamp(doc);
@@ -1624,7 +1645,7 @@ function rovingExcel(rows,date){
   aoa.push(['Operator','Operation','1V-TR','1V-SP','1V-DC','1V-CPA','1V-AB','2V-TR','2V-SP','2V-DC','2V-CPA','2V-AB','3V-TR','3V-SP','3V-DC','3V-CPA','3V-AB','4V-TR','4V-SP','4V-DC','4V-CPA','4V-AB','INSP','DEF']);
   operators.forEach(op=>{
     const row=[op.operatorId,op.operation];
-    [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?vi.cpa||'':'');row.push(vi?vi.absent?'AB':'':'');});
+    [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?(vi.capRequired?'YES':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
     const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
     const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
     row.push(tSP,tDC);aoa.push(row);
@@ -1634,6 +1655,13 @@ function rovingExcel(rows,date){
   const totDC=rows.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
   aoa.push(['TOTAL','','','','','','','','','','','','','','','','','','','','','',totSP,totDC]);
   aoa.push(['%','','','','','','','','','','','','','','','','','','','','','',totSP?((totDC/totSP)*100).toFixed(1)+'%':'0%','']);
+  aoa.push([]);
+  aoa.push(['Corrective and Preventive Action']);
+  aoa.push(['(a) If 1 defect found → check another 7 pieces']);
+  aoa.push(['(b) If no defects found in those 7 pieces → allow the operator to continue (no CPA)']);
+  aoa.push(['(c) If 1 or more defects found in those 7 pieces → stop the operation, operator checks all stitched garments, repair defects, complete CPA before resuming']);
+  aoa.push(['(d) If 2 or more defects found in original sample → immediate CPA required (no 7-piece check needed)']);
+  aoa.push(['A = Inline QC   B = Supervisor / Mechanic   C = Senior Technician   D = Production / Quality Executive']);
   const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:12},{wch:24},...Array(22).fill({wch:7})];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Roving Report');
   XLSX.writeFile(wb,`Roving_Report_${(style||'report').toString().replace(/\s/g,'_')}_${date}.xlsx`);
