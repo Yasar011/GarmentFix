@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Brandix QMS — Worker</title>
+<!-- PWA: installable on Android home screen, full-screen, offline shell -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#00b894">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Brandix QC">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="module">
@@ -97,7 +105,6 @@
   window.fbAddAlert=async(data)=>{const r=push(ref(db,'alerts'));await set(r,{...data,createdAt:new Date().toISOString()});};
   window.fbSet=async(path,data)=>{await set(ref(db,path),{...data,updatedAt:new Date().toISOString()});};
   window.fbGet=async(path)=>{const s=await get(ref(db,path));return s.exists()?s.val():null;};
-  window.fbOnValue=(path,cb)=>{onValue(ref(db,path),s=>cb(s.exists()?s.val():null));};
 
   // On boot: try to restore a saved session (keeps operators logged in across a
   // mobile tab reload / Chrome discard). Otherwise fall through to the login screen.
@@ -228,17 +235,14 @@ window.WS = {
   rovingRound:1, rovingRoundData:[], rovingRoundResults:[],
   // End-line form state — shift auto-defaults to the current one (A 06:00–14:00, B 14:00–22:00)
   elShift:wkCurrentShift(), elSize:'M', elColor:'',
+  elStyle:'',              // End Line's own current style (independent from Roving) — defaults to module style
+  rovingStyle:'',          // Roving's last-picked style (default for the next operator) — independent from End Line
   elHourDefects:[],        // running tally for current hour: [{operatorId,operation,code,defectName,count}]
   elAddOp:null,            // operator selected in add-defect screen
   elAddDefCat:'S',         // active category in add-defect screen
   elAddDefCode:null,       // selected code in add-defect screen
   elAddDefQty:1,           // qty in add-defect screen
   elCheckedQty:0,          // pieces checked — entered at end of hour
-  // legacy fields kept for compatibility
-  elDefects:[], elActiveCategory:'S',
-  // For the scan-to-fill flow
-  _scanMode:null,
-  _scannedForForm:null,
   showEventModal:false,
   _manualRows:[], _manualBackStep:'check_home',
   // Corrective Action Plan (CAP) — Roving QC defect escalation sheet
@@ -269,11 +273,11 @@ const BX_SESSION_KEY='bx_qms_session';
 // In-progress work that must survive a tab reload / Chrome discard. These are the
 // accumulating drafts (hour tally, roster being built, round data) that otherwise
 // only reach Firebase at the final Submit. Saved to localStorage on every change.
-const BX_DRAFT_FIELDS=['step','elShift','elSize','elColor','elHourDefects','elCheckedQty',
+const BX_DRAFT_FIELDS=['step','elShift','elSize','elColor','elStyle','rovingStyle','elHourDefects','elCheckedQty',
   'elAddOp','elAddDefCat','elAddDefCode','elAddDefQty','elAddDefOp','elAddDefName',
   '_lhEntries','_rosterCarriedFrom','_lhCurrentMachine',
   'checkRound','checkMachineIdx','checkRoundData','checkRoundResults','_currentCheckMachine',
-  'rovingRound','rovingRoundData','rovingRoundResults','_scannedForForm','_scanMode'];
+  'rovingRound','rovingRoundData','rovingRoundResults'];
 function saveSession(){
   try{
     if(!WS.user||!WS.user.fbKey){localStorage.removeItem(BX_SESSION_KEY);return;}
@@ -518,6 +522,9 @@ window.pickModule=function(k){
 // two lines on the same style share the same roving QC, so no approval needed.
 function proceedWithModule(mod){
   const enriched=window._enrichMod?window._enrichMod(mod):mod;
+  // Switching to a different module — clear the per-stream style overrides so they
+  // re-default to the new module's style (they persist only within one module's session).
+  if(WS.scannedModule?.fbKey!==enriched.fbKey){WS.elStyle='';WS.rovingStyle='';}
   if(isLineHead()){WS.scannedModule=enriched;WS.step='verify';renderW();return;}
   if(WS.user?.changeRequest){WS.scannedModule=enriched;WS.step='waiting';renderW();return;}
   let locked=null;try{locked=WS.user?.activeModule?JSON.parse(WS.user.activeModule):null;}catch(e){}
@@ -542,30 +549,48 @@ async function requestModuleChange(mod){
 }
 
 // ==================== VERIFY ====================
+// Find the style record assigned to the scanned module, to read its 4-digit verify code.
+function verifyStyleFor(m){
+  if(!m)return null;
+  return WS.styles.find(s=>s.fbKey===m.styleKey||(m.styleName&&s.name===m.styleName)||(m.styleId&&s.styleId===m.styleId))||null;
+}
 function renderVerify(){
   const m=WS.scannedModule;
+  const sty=verifyStyleFor(m);
+  const hasCode=!!(sty&&String(sty.code||'').trim());
   return '<div class="card card-accent" style="text-align:center;padding:24px;margin-bottom:16px">'
     +'<div style="font-size:32px;margin-bottom:8px">🏭</div>'
     +'<div style="font-size:22px;font-weight:700;color:var(--accent)">'+(m?.name||'')+'</div>'
     +'<div style="font-size:13px;color:var(--text2)">'+(m?.buyer?'Buyer: '+m.buyer+' • ':'')+(m?.styleName?'Style: '+m.styleName:'')+'</div>'
     +'</div>'
     +'<div class="err-msg" id="v-err"></div>'
-    +'<div class="form-group"><label class="form-label">Style Number / Name *</label>'
-    +'<input class="form-input" id="v-style" placeholder="e.g. STY-1000 or Polo Shirt" autocomplete="off"></div>'
+    +(hasCode
+      ?'<div class="form-group"><label class="form-label">Enter 4-digit Style Code *</label>'
+        +'<input class="form-input" id="v-style" inputmode="numeric" maxlength="4" placeholder="• • • •" autocomplete="off" style="letter-spacing:10px;text-align:center;font-size:30px;font-weight:700;font-family:var(--mono);padding:16px"></div>'
+        +'<div style="font-size:11px;color:var(--text3);margin:-6px 0 12px;text-align:center">Ask your supervisor for this style\'s 4-digit code</div>'
+      :'<div class="form-group"><label class="form-label">Style Number / Name *</label>'
+        +'<input class="form-input" id="v-style" placeholder="e.g. STY-1000 or Polo Shirt" autocomplete="off"></div>')
     +'<button class="btn-big btn-primary" id="v-btn">✓ Verify & Continue</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';renderW()">← Back</button>';
 }
 function bindVerify(){
   const btn=document.getElementById('v-btn');if(!btn)return;
   btn.onclick=async()=>{
-    const inp=(document.getElementById('v-style')?.value||'').trim().toLowerCase();
+    const inpRaw=(document.getElementById('v-style')?.value||'').trim();
+    const inp=inpRaw.toLowerCase();
     const err=document.getElementById('v-err');
-    if(!inp){err.style.display='block';err.textContent='Enter style number';return;}
+    if(!inpRaw){err.style.display='block';err.textContent='Enter the code';return;}
     const m=WS.scannedModule;
-    const ok=!m?.styleName
-      ||(m.styleName||'').toLowerCase().includes(inp)
-      ||(m.styleId||'').toLowerCase().includes(inp)
-      ||WS.styles.some(s=>(s.styleId||'').toLowerCase().includes(inp)||(s.name||'').toLowerCase().includes(inp));
+    const sty=verifyStyleFor(m);
+    const code=sty&&String(sty.code||'').trim();
+    // If the style has a 4-digit code, require an exact match. Otherwise fall back to
+    // the old name/ID matching so styles without a code still verify.
+    const ok=code
+      ?inpRaw===code
+      :(!m?.styleName
+        ||(m.styleName||'').toLowerCase().includes(inp)
+        ||(m.styleId||'').toLowerCase().includes(inp)
+        ||WS.styles.some(s=>(s.styleId||'').toLowerCase().includes(inp)||(s.name||'').toLowerCase().includes(inp)));
     if(ok){
       await window._update(window._ref(window._db,'users/'+WS.user.fbKey),{activeModule:JSON.stringify(m)});
       toast('Verified ✓');
@@ -581,7 +606,7 @@ function bindVerify(){
       renderW();
     } else {
       err.style.display='block';
-      err.textContent='Style mismatch. Expected: '+(m?.styleName||m?.styleId||'unknown');
+      err.textContent=code?'Wrong code — check the style\'s 4-digit code with your supervisor.':'Style mismatch. Expected: '+(m?.styleName||m?.styleId||'unknown');
     }
   };
   document.getElementById('v-style')?.addEventListener('keydown',e=>e.key==='Enter'&&btn.click());
@@ -1144,6 +1169,11 @@ function renderEndlineHome(){
   const colorRow=styleColors.length>0
     ?`<select onchange="WS.elColor=this.value;renderW()" style="width:100%;padding:11px 14px;border-radius:10px;border:2px solid ${curColor?'var(--blue)':'var(--border)'};background:var(--bg3);color:${curColor?'#93c5fd':'var(--text2)'};font-size:15px;font-weight:600;font-family:var(--font);cursor:pointer;outline:none"><option value="">— Select Colour —</option>${styleColors.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${curColor===c?'selected':''}>${c}</option>`).join('')}</select>`
     :'';
+  // End Line's own style — switched independently when the new style finally reaches End Line.
+  const curElStyle=WS.elStyle||m?.styleName||'';
+  const elStyleNames=[...new Set([...(m?.styleName?[m.styleName]:[]),...(WS.styles||[]).map(s=>s.name).filter(Boolean),...(WS.elStyle?[WS.elStyle]:[])])];
+  const styleRow=elStyleNames.map(n=>`<button onclick="setElStyle('${n.replace(/'/g,"\\'")}')" style="${btnT}${curElStyle===n?'var(--blue);background:rgba(59,130,246,.15);color:#93c5fd':'var(--border);background:var(--bg3);color:var(--text2)'}">${n}</button>`).join('')
+    +`<button onclick="setElStyleCustom()" style="${btnT}border-color:var(--border);border-style:dashed;background:var(--bg3);color:var(--text3)">+ Other</button>`;
 
   // Live tally list for this hour
   const tallyList=hourDefs.length===0
@@ -1185,9 +1215,11 @@ function renderEndlineHome(){
 
   return '<div class="card card-accent">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — End Line</div>'
-    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">Style: <b style="color:#93c5fd">'+(curElStyle||'—')+'</b>'+(m?.buyer?' • '+m.buyer:'')+'</div>'
     +'</div>'
     +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Style <span style="text-transform:none;font-size:10px;color:var(--text3)">(switch when the new style reaches End Line)</span></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">'+styleRow+'</div>'
     +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Shift</div>'
     +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">'+shiftRow+'</div>'
     +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Size</div>'
@@ -1365,6 +1397,8 @@ window.elAddDefConfirm=function(){
   WS.step='endline_home';renderW();
 };
 window.elRemoveHourDefect=function(idx){WS.elHourDefects.splice(idx,1);WS.elHourDefects=[...WS.elHourDefects];renderW();};
+window.setElStyle=function(name){WS.elStyle=name;renderW();};
+window.setElStyleCustom=function(){const v=prompt('Enter the style End Line is now checking:');if(v&&v.trim()){WS.elStyle=v.trim();renderW();}};
 window.elQtyStep=function(delta){WS.elCheckedQty=Math.max(0,(WS.elCheckedQty||0)+delta);renderW();};
 window.elSubmitHour=async function(){
   const m=WS.scannedModule;
@@ -1376,17 +1410,23 @@ window.elSubmitHour=async function(){
   const btn=document.getElementById('sub-btn-hour');
   if(btn){btn.disabled=true;btn.textContent='Saving...';}
   try{
+    // checkedQty belongs to the HOUR, not each defect. If we put the full count on every
+    // defect record, the admin sums them and multiplies the checked total (100 → 200, 300…).
+    // So only the FIRST record carries the real checkedQty; the rest carry 0.
     const base={type:'endline',date:new Date().toISOString().split('T')[0],
       time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),shift:WS.elShift||'A',size:WS.elSize||'',color:WS.elColor||'',
-      module:m?.name||'',style:m?.styleName||'',checkedQty:chk,
+      module:m?.name||'',style:WS.elStyle||m?.styleName||'',
       submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name,comments:notes};
     if(defs.length===0){
-      await window.fbAdd('inspections',{id:'INS-'+Date.now(),...base,operatorId:'',operation:'',defectQty:0,defectType:''});
+      await window.fbAdd('inspections',{id:'INS-'+Date.now(),...base,checkedQty:chk,operatorId:'',operation:'',defectQty:0,defectType:''});
     }else{
+      let i=0;
       for(const def of defs){
-        await window.fbAdd('inspections',{id:'INS-'+Date.now(),...base,
+        await window.fbAdd('inspections',{id:'INS-'+Date.now()+'-'+i,...base,
+          checkedQty:i===0?chk:0,   // only first record carries the hour's checked qty
           operatorId:def.operatorId,operation:def.operation,
           defectQty:def.count,defectType:def.code+(def.defectName?' '+def.defectName:'')});
+        i++;
       }
     }
     if(totDef>0&&chk>0&&(totDef/chk)*100>5){
@@ -1572,7 +1612,19 @@ function renderRovingForm(){
     +'</div></div>'
     +'<div class="card"><form id="wf" onsubmit="return false">'
     +'<input type="hidden" name="module" value="'+(m?.name||'')+'">'
-    +'<input type="hidden" name="style" value="'+(m?.styleName||'')+'">'
+    // Per-operator style — during a changeover the front operators run the new style while
+    // the back ones are still on the old. The roving inspector picks the style this operator
+    // is actually running. Defaults to the last pick to save taps.
+    +(()=>{
+      const curRovStyle=WS.rovingStyle||m?.styleName||'';
+      const names=[...new Set([...(m?.styleName?[m.styleName]:[]),...(WS.styles||[]).map(s=>s.name).filter(Boolean),...(WS.rovingStyle?[WS.rovingStyle]:[])])];
+      return '<input type="hidden" name="style" id="rov-style-val" value="'+curRovStyle.replace(/"/g,'&quot;')+'">'
+        +'<div class="form-group" style="margin-bottom:14px"><label class="form-label">Style this operator is running <span style="font-size:10px;color:var(--text3)">(front ops may already be on the new style)</span></label>'
+        +'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'
+        +(names.length?names.map(n=>'<button type="button" class="rov-style-btn" data-style="'+n.replace(/"/g,'&quot;')+'" onclick="setRovingStyle(this.dataset.style)" style="padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;font-family:var(--font);border:2px solid '+(curRovStyle===n?'var(--accent)':'var(--border)')+';background:'+(curRovStyle===n?'rgba(0,212,168,.15)':'var(--bg3)')+';color:'+(curRovStyle===n?'var(--accent)':'var(--text2)')+'">'+n+'</button>').join(''):'')
+        +'<button type="button" onclick="setRovingStyleCustom()" style="padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;font-family:var(--font);border:2px dashed var(--border);background:var(--bg3);color:var(--text3)">+ Other</button>'
+        +'</div></div>';
+    })()
     +'<input type="hidden" name="machineId" value="'+(w?.machineId||'')+'">'
     +'<input type="hidden" name="machineName" value="'+(w?.machineName||'')+'">'
     +'<input type="hidden" name="operatorId" value="'+(w?.operatorId||'')+'">'
@@ -1632,6 +1684,21 @@ function renderRovingForm(){
     +'</form></div>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'roving_scan_pick\';renderW()">← Back to Operators</button>';
 }
+
+window.setRovingStyle=function(name){
+  WS.rovingStyle=name;
+  const inp=document.getElementById('rov-style-val');if(inp)inp.value=name;
+  document.querySelectorAll('.rov-style-btn').forEach(b=>{
+    const me=b.dataset.style===name;
+    b.style.borderColor=me?'var(--accent)':'var(--border)';
+    b.style.background=me?'rgba(0,212,168,.15)':'var(--bg3)';
+    b.style.color=me?'var(--accent)':'var(--text2)';
+  });
+};
+window.setRovingStyleCustom=function(){
+  const v=prompt('Enter the style this operator is running:');
+  if(v&&v.trim()){WS.rovingStyle=v.trim();renderW();}
+};
 
 window.setTrimRoving=function(pass){
   document.getElementById('trim-val').value=pass?'pass':'fail';
@@ -1941,66 +2008,6 @@ function capRequiredRoles(entry){
   (entry?.defects||[]).forEach(d=>{(CAP_CPA_SIGN[d.cpa]||['operator']).forEach(r=>set.add(r));});
   if(set.size===0)set.add('operator');
   return CAP_SIGN_ROLES.filter(r=>set.has(r.k));
-}
-
-function capHourKey(d){return String(d.getHours()).padStart(2,'0')+':00';}
-function capDateKey(d){return d.toISOString().split('T')[0];}
-function capRecordKey(moduleId,date,hour){return (moduleId||'NOMOD')+'_'+date+'_'+hour.replace(':','');}
-
-// Decide whether this roving submission must raise a Corrective Action Plan.
-// Returns a human reason string, or null if no CAP is needed.
-//  Rule 1: 3 or more defects found in a single visit.
-//  Rule 2: the SAME defect repeats in a later visit for the same operator today.
-function rovingCAPReason(data){
-  const dc=parseInt(data.dc)||0;
-  if(dc<=0)return null;
-  if(dc>=3)return dc+' defects in one visit';
-  const dtype=(data.defectType||'').trim();
-  if(dtype){
-    const prior=(WS.myRovingInspections||[]).filter(i=>
-      (parseInt(i.dc)||0)>0 &&
-      (i.operatorId===data.operatorId||(data.machineId&&i.machineId===data.machineId)) &&
-      (i.defectType||'').trim()===dtype &&
-      parseInt(i.visitNum)!==parseInt(data.visitNum)
-    );
-    if(prior.length>0){
-      const visits=[...new Set(prior.map(p=>p.visitNum).concat([data.visitNum]))].sort().join(' & ');
-      return 'Repeat defect "'+dtype+'" (visits '+visits+')';
-    }
-  }
-  return null;
-}
-
-async function addRovingDefectToCAP(data,reason){
-  const dc=parseInt(data.dc)||0;
-  if(dc<=0)return;
-  const now=new Date();
-  const hour=capHourKey(now),date=capDateKey(now);
-  const moduleId=WS.scannedModule?.fbKey||data.module||'NOMOD';
-  const key=capRecordKey(moduleId,date,hour);
-  const path='correctiveActions/'+key;
-  const existing=await window.fbGet(path);
-  const defects=existing?.defects?[...existing.defects]:[];
-  defects.push({
-    code:data.defectType||'Unspecified',qty:dc,cpa:data.cpa||'',
-    reason:reason||'',visit:parseInt(data.visitNum)||WS.rovingRound,
-    machineId:data.machineId||'',machineName:data.machineName||'',
-    operatorId:data.operatorId||'',operation:data.operation||'',
-    time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(now)
-  });
-  // Collect distinct reasons at the entry level for quick scanning.
-  const reasons=[...new Set((existing?.reasons||[]).concat(reason?[reason]:[]))];
-  await window.fbSet(path,{
-    moduleId,moduleName:WS.scannedModule?.name||data.module||'',
-    lineNo:WS.scannedModule?.lineNo||WS.scannedModule?.line||'',
-    team:WS.scannedModule?.team||'',
-    date,hour,
-    defects,reasons,
-    correctiveAction:existing?.correctiveAction||'',
-    signatures:existing?.signatures||{operator:null,tech:null,tl:null,qa:null},
-    status:existing?.status||'open',
-    raisedBy:WS.user?.name||WS.user?.username||''
-  });
 }
 
 window.openCapList=function(){WS.step='cap_list';renderW();};
@@ -2631,6 +2638,15 @@ document.addEventListener('visibilitychange',()=>{
 });
 
 renderW();
+</script>
+<script>
+  // Register the service worker so the app installs as a standalone Android app and
+  // opens offline. Only runs on https (or localhost) — silently skipped otherwise.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
 </script>
 </body>
 </html>
