@@ -3,14 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Brandix QMS — Worker</title>
+<title>GarmentFix QMS — Worker</title>
 <!-- PWA: installable on Android home screen, full-screen, offline shell -->
 <link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
 <meta name="theme-color" content="#00b894">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Brandix QC">
+<meta name="apple-mobile-web-app-title" content="G-Fix">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -66,6 +67,8 @@
     onValue(ref(db,'defects'),  s=>{WS.defects=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
     onValue(ref(db,'machines'), s=>{WS.machines=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
     onValue(ref(db,'machineRosters'),s=>{WS.machineRosters=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
+    onValue(ref(db,'settings/rotation'),s=>{WS.rotation=s.exists()?s.val():null;if(WS.step&&!['login','loading'].includes(WS.step))renderW();});
+    onValue(ref(db,'settings/factory'),s=>{WS.factory=s.exists()?s.val():null;});
     onValue(ref(db,'inspections'),s=>{
       if(s.exists()){
         const today=new Date().toISOString().split('T')[0];
@@ -87,6 +90,10 @@
       WS.capEntries=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})).filter(e=>e.date===today):[];
       // Never auto-rerender cap_form — it would wipe an in-progress textarea or unsaved signature
       if(['roving_home','cap_list','cap_admin','dashboard'].includes(WS.step)) renderW();
+    });
+    onValue(ref(db,'editRequests'),s=>{
+      WS.editRequests=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];
+      if(['my_records','edit_record','sup_home','endline_home','roving_home','dashboard'].includes(WS.step)) renderW();
     });
     if(WS.user?.fbKey){
       onValue(ref(db,'users/'+WS.user.fbKey),s=>{
@@ -221,8 +228,25 @@ button{cursor:pointer;border:none;outline:none}
 <div id="app"></div>
 <script>
 // ==================== STATE ====================
-// Two-shift factory: A = 06:00–14:00, B = 14:00–22:00 (off-hours fold into B).
-function wkCurrentShift(){const h=new Date().getHours();return(h>=6&&h<14)?'A':'B';}
+// Two-shift factory by the clock: morning = 06:00–14:00, afternoon = 14:00–22:00.
+function wkClockSlot(){const h=new Date().getHours();return(h>=6&&h<14)?'morning':'afternoon';}
+// Rotation: two teams (A,B) swap shifts every 2 weeks. Admin sets which team is on the
+// morning shift; it auto-flips every cycle (Sunday 02:00). Records are tagged by TEAM so a
+// team's quality history stays continuous across rotations. Falls back to A=morning when unset.
+function rotationState(){
+  const r=(window.WS&&WS.rotation)||{};
+  const base=r.morningTeam||'A';
+  const cycleDays=r.cycleDays||14;
+  let morning=base,next=null;
+  if(r.anchor&&r.autoRotate!==false){
+    const ms=cycleDays*86400000, cycles=Math.floor((Date.now()-new Date(r.anchor).getTime())/ms);
+    if(cycles>0&&cycles%2===1) morning=(base==='A'?'B':'A');
+    next=new Date(new Date(r.anchor).getTime()+(Math.max(cycles,0)+1)*ms);
+  }
+  return {morningTeam:morning, afternoonTeam:(morning==='A'?'B':'A'), nextRotation:next};
+}
+// The team working right now = whichever team the rotation puts on this clock slot.
+function wkCurrentShift(){const st=rotationState();return wkClockSlot()==='morning'?st.morningTeam:st.afternoonTeam;}
 window.WS = {
   step:'loading', user:null, loading:false,
   scannedModule:null, modules:[], styles:[], operations:[], defects:[],
@@ -248,7 +272,10 @@ window.WS = {
   // Corrective Action Plan (CAP) — Roving QC defect escalation sheet
   capEntries:[],          // all CAP entries for today's module, hour-grouped
   _capActive:null,        // entry currently open in the CAP form
-  _capSigPad:null         // which signature pad is open: 'operator'|'tech'|'tl'|'qa'|null
+  _capSigPad:null,        // which signature pad is open: 'operator'|'tech'|'tl'|'qa'|null
+  // Edit-request workflow: worker requests an edit, supervisor approves, worker then edits.
+  editRequests:[],        // all edit requests (workers see their own; supervisors see all)
+  _editType:null, _editKey:null, _editReqKey:null  // record currently being edited
 };
 let qrActive=null;
 
@@ -263,6 +290,7 @@ function isWorker(){const r=(WS.user?.role||'').toLowerCase();return r.includes(
 function isLineHead(){const r=(WS.user?.role||'').toLowerCase();return r.includes('line head')||r.includes('linehead')||r.includes('line-head');}
 function isEndline(){return (WS.user?.role||'').toLowerCase().includes('end');}
 function isRoving(){return (WS.user?.role||'').toLowerCase().includes('roving');}
+function isSupervisor(){const r=(WS.user?.role||'').toLowerCase();return r.includes('supervis')||r.includes('manager')||r.includes('executive');}
 
 // ==================== SESSION PERSISTENCE ====================
 // Mobile Chrome discards/reloads the tab under memory pressure (e.g. while the QR
@@ -303,7 +331,7 @@ function restoreSession(){
     if(s.draft){BX_DRAFT_FIELDS.forEach(k=>{if(s.draft[k]!==undefined)WS[k]=s.draft[k];});}
     // Land on the role's home screen — it shows the preserved tally / roster / round
     // so the operator continues, without restoring a half-filled single-machine form.
-    WS.step=!WS.scannedModule?'scan':isLineHead()?'lh_scan':isEndline()?'endline_home':isRoving()?'roving_home':'check_home';
+    WS.step=isSupervisor()?'sup_home':!WS.scannedModule?'scan':isLineHead()?'lh_scan':isEndline()?'endline_home':isRoving()?'roving_home':'check_home';
     return true;
   }catch(e){return false;}
 }
@@ -351,6 +379,10 @@ function renderStep(){
   if(s==='cap_list')         return renderCapList();
   if(s==='cap_form')         return renderCapForm();
   if(s==='cap_admin')        return renderCapAdmin();
+  // Edit-request workflow
+  if(s==='my_records')      return renderMyRecords();
+  if(s==='edit_record')     return renderEditRecord();
+  if(s==='sup_home')        return renderSupHome();
   // Shared
   if(s==='my_report')       return renderMyReport();
   if(s==='roster_manual')   return renderRosterManual();
@@ -364,7 +396,7 @@ function renderHeader(){
   const roleLabel=isLineHead()?'Line Head':isWorker()?'Machine Operator':isEndline()?'End Line QC':'Roving QC';
   return '<div class="header">'
     +'<div style="display:flex;align-items:center;gap:10px">'
-    +'<div class="logo-sm">BX</div>'
+    +'<div class="logo-sm"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div>'
     +'<div><div style="font-size:14px;font-weight:600">'+(WS.user?.name||'Worker')+'</div>'
     +'<div style="font-size:10px;color:'+roleColor+'">'+roleLabel+(WS.scannedModule?' • '+WS.scannedModule.name:'')+'</div></div>'
     +'</div>'
@@ -438,9 +470,9 @@ function initQRIn(elId,cb){
 function renderLogin(){
   return '<div class="login-page"><div class="login-card fade-in">'
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">'
-    +'<div class="logo-sm" style="width:44px;height:44px;font-size:16px;border-radius:12px">BX</div>'
-    +'<div><div style="font-size:18px;font-weight:700">Brandix QMS</div>'
-    +'<div style="font-size:12px;color:var(--text2)">Worker / QC Portal</div></div></div>'
+    +'<div class="logo-sm" style="width:44px;height:44px;font-size:16px;border-radius:12px"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div>'
+    +'<div><div style="font-size:18px;font-weight:700">GarmentFix <span style="color:var(--accent)">QMS</span></div>'
+    +'<div style="font-size:12px;color:var(--text2)">Apparel Quality Management · Worker</div></div></div>'
     +'<div class="err-msg" id="w-err"></div>'
     +'<div class="form-group"><label class="form-label">Username</label>'
     +'<input class="form-input" id="w-user" placeholder="Your username" autocomplete="username"></div>'
@@ -463,7 +495,7 @@ function bindLogin(){
       WS.user=user;WS.loading=false;
       window.loadWorkerData();
       toast('Welcome, '+user.name);
-      WS.step=(isLineHead()||isWorker()||isRoving()||isEndline())?'scan':'dashboard';
+      WS.step=isSupervisor()?'sup_home':(isLineHead()||isWorker()||isRoving()||isEndline())?'scan':'dashboard';
       renderW();
     }catch(e){
       WS.loading=false;renderW();
@@ -629,7 +661,7 @@ function renderLHScan(){
   const isEditing=saved.length>0;
   const carried=WS._rosterCarriedFrom;
   return '<div class="card card-yellow" style="margin-bottom:12px">'
-    +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">👷 Roster Setup — '+( m?.name||'')+' · Shift '+activeShift()+'</div>'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:4px">👷 Roster Setup — '+( m?.name||'')+' · Team '+activeShift()+'</div>'
     +'<div style="font-size:12px;color:var(--text2)">'+(isEditing
         ?'Scan more machines to add, or edit the operators below'
         :'Scan each machine QR then assign its operator')+'</div>'
@@ -752,8 +784,9 @@ function renderLHRoster(){
   const pending=total-ver;
 
   return '<div class="card card-yellow" style="margin-bottom:12px">'
-    +'<div style="font-size:16px;font-weight:700;margin-bottom:2px">📋 Roster — '+(m?.name||'')+' · Shift '+activeShift()+'</div>'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:2px">📋 Roster — '+(m?.name||'')+' · Team '+setupShift()+'</div>'
     +'<div style="font-size:12px;color:var(--text2)">Check each machine — confirm same operator, or change it. If a machine changed, just edit its name (the operator stays).</div>'
+    +rosterShiftToggle()
     +(total>0?'<div style="margin-top:8px;font-size:13px;font-weight:600;color:'+(pending>0?'var(--yellow)':'var(--accent)')+'">'+ver+' / '+total+' verified'+(pending>0?' — '+pending+' to check':' ✓ all checked')+'</div>':'')
     +'</div>'
 
@@ -802,7 +835,7 @@ function bindLHRoster(){
     if(entries.length===0){toast('Add at least one machine','error');return;}
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
     const m=WS.scannedModule;
-    const date=rosterDate();const shift=activeShift();
+    const date=rosterDate();const shift=setupShift();
     const rKey=rosterKeyFor(m,date,shift);
     try{
       const workers={};
@@ -820,7 +853,7 @@ function bindLHRoster(){
         status:'Pending Approval',createdBy:WS.user?.username,
         updatedBy:WS.user?.username,updatedAt:new Date().toISOString()
       });
-      toast('✅ Roster saved — '+entries.length+' machines · Shift '+shift+'!');
+      toast('✅ Roster saved — '+entries.length+' machines · Team '+shift+'!');
       WS.step='lh_done';renderW();
     }catch(e){toast('Error: '+e.message,'error');btn.disabled=false;btn.innerHTML='💾 Save Roster to Firebase';}
   };
@@ -860,7 +893,15 @@ window.lhChangeLine=function(){
 
 // ==================== ROSTER KEYING (per module + date + shift) ====================
 // Rosters are saved per shift so Shift A and Shift B keep separate operator lists.
-function activeShift(){return (WS.user&&WS.user.shift)?WS.user.shift:wkCurrentShift();}
+// Always use login-time detection so shift-rotation (Team A ↔ Team B swap) is handled
+// automatically without any admin action. Whoever works 06–14 is Shift A; 14–22 is Shift B.
+function activeShift(){return wkCurrentShift();}
+// Roster SETUP can override the shift: a Line Head may need to build the *other* team's
+// roster (e.g. set up Shift B's roster while it's still Shift A time). Defaults to the
+// current time-based shift; the A/B toggle on the setup screen sets WS._rosterShift.
+function setupShift(){return WS._rosterShift||activeShift();}
+// Factory name for printed reports (CAP) — set by admin in Settings, synced via Firebase.
+function factoryName(){return (WS.factory&&WS.factory.name)||'GarmentFix QMS';}
 function rosterDate(){return new Date().toISOString().split('T')[0];}
 function rosterKeyFor(m,date,shift){date=date||rosterDate();shift=shift||activeShift();return (m.fbKey||m.moduleId)+'_'+date+'_'+shift;}
 function mapRosterWorkers(obj){return Object.values(obj).map(w=>({machineId:w.machineId,machineName:w.machineName,operatorId:w.operatorId,operation:w.operation,saved:true}));}
@@ -882,7 +923,7 @@ async function fetchRosterWorkers(m){
 async function loadRosterForSetup(){
   const m=WS.scannedModule;WS._rosterCarriedFrom=null;
   if(!m){WS._lhEntries=[];return;}
-  const date=rosterDate(),shift=activeShift();
+  const date=rosterDate(),shift=setupShift();
   const base=(m.fbKey||m.moduleId)+'_';
   const todayKey=base+date+'_'+shift;
   const setVer=(arr,v)=>arr.map(e=>({...e,verified:v}));
@@ -898,9 +939,36 @@ async function loadRosterForSetup(){
   WS._lhEntries=[];
 }
 
+// A/B shift picker shown on the roster-setup screens. Lets a Line Head build the
+// other team's roster (e.g. set up Shift B's roster while still on Shift A time).
+function rosterShiftToggle(){
+  const cur=setupShift();
+  return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">'
+    +'<span style="font-size:12px;color:var(--text2)">Roster is for:</span>'
+    +['A','B'].map(s=>'<button class="btn-sm" onclick="setRosterShift(\''+s+'\')" style="font-weight:700;'
+      +(cur===s?'background:var(--accent);color:#000;border:none':'background:transparent;color:var(--text2);border:1px solid var(--border)')
+      +'">Team '+s+'</button>').join('')
+    +(cur!==activeShift()?'<span style="font-size:11px;color:var(--yellow)">⚠ different from current time ('+activeShift()+')</span>':'')
+    +'</div>';
+}
+
+// Toggle which shift's roster we're setting up. Reloads that shift's carried-over roster.
+window.setRosterShift=async function(s){
+  WS._rosterShift=s;
+  await loadRosterForSetup();
+  if(WS.step==='roster_manual'){
+    const e=WS._lhEntries||[];
+    WS._manualRows=e.length>0
+      ?e.map(w=>({machineId:w.machineId||'',machineName:w.machineName||'',operatorId:w.operatorId||'',operation:w.operation||''}))
+      :[{machineId:'',machineName:'',operatorId:'',operation:''}];
+  }
+  renderW();
+};
+
 // Roving QC opens the scan-based roster setup (with carry-over) from their home.
 window.openRosterSetup=async function(){
   if(!WS.scannedModule){toast('Scan a module first','error');return;}
+  WS._rosterShift=activeShift();   // default to current time shift; togglable on the roster screen
   await loadRosterForSetup();
   WS._lhCurrentMachine=null;
   WS.step='lh_scan';renderW();
@@ -985,6 +1053,7 @@ function renderCheckHome(){
     +'<button class="btn-big btn-primary" onclick="startCheckRound('+nextRound+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'▶ Start Check '+nextRound+'</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Machine Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
@@ -1220,7 +1289,7 @@ function renderEndlineHome(){
     +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
     +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Style <span style="text-transform:none;font-size:10px;color:var(--text3)">(switch when the new style reaches End Line)</span></div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">'+styleRow+'</div>'
-    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Shift</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Team</div>'
     +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">'+shiftRow+'</div>'
     +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Size</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+sizeRow+'</div>'
@@ -1245,6 +1314,7 @@ function renderEndlineHome(){
     +'➕ Add Defect</button>'
     +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
+    +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
@@ -1286,7 +1356,7 @@ function renderEndlineAddDefect(){
   return `
     <div style="background:rgba(153,102,255,.06);border:1px solid rgba(153,102,255,.3);border-radius:12px;padding:14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
       <div style="font-weight:600;font-size:15px">Add Defect</div>
-      <div style="font-size:12px;color:var(--text2)">Shift ${WS.elShift||'A'} · Size ${WS.elSize||'—'}${WS.elColor?' · '+WS.elColor:''}</div>
+      <div style="font-size:12px;color:var(--text2)">Team ${WS.elShift||'A'} · Size ${WS.elSize||'—'}${WS.elColor?' · '+WS.elColor:''}</div>
     </div>
 
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
@@ -1339,7 +1409,7 @@ function renderEndlineHourEnd(){
   return `
     <div style="background:rgba(0,212,168,.06);border:1px solid rgba(0,212,168,.3);border-radius:12px;padding:14px;margin-bottom:12px">
       <div style="font-weight:600;font-size:15px">End Hour — Submit</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Shift ${WS.elShift||'A'} · Size ${WS.elSize||'—'}${WS.elColor?' · '+WS.elColor:''} · ${(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date())}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Team ${WS.elShift||'A'} · Size ${WS.elSize||'—'}${WS.elColor?' · '+WS.elColor:''} · ${(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date())}</div>
     </div>
 
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
@@ -1456,7 +1526,7 @@ function renderRovingHome(){
   const noMachines=machines.length===0;
   return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — Roving QC</div>'
-    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+' • Shift '+activeShift()+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+' • Team '+activeShift()+'</div>'
     +'</div>'
     +'<div style="margin-bottom:16px">'
     +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Visits</div>'
@@ -1492,6 +1562,7 @@ function renderRovingHome(){
     +'<button class="btn-big btn-primary" onclick="startRovingRound('+nextVisit+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'▶ Start Visit '+nextVisit+'</button>'
     +renderCapNavButton()
+    +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
     +'<button class="btn-big btn-ghost" onclick="openRosterSetup()">📷 '+(noMachines?'Set Up':'Edit')+' Roster (scan)</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⌨️ Edit Roster Manually</button>'
@@ -1994,6 +2065,171 @@ function bindRovingSubmit(){
   };
 }
 
+// ==================== EDIT REQUESTS (worker request → supervisor approve → worker edits) ====================
+function latestEditReq(type,key){
+  const rs=(WS.editRequests||[]).filter(r=>r.recordType===type&&r.recordKey===key);
+  return rs.sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''))[0]||null;
+}
+function editStatusChip(req){
+  if(!req)return '';
+  const map={pending:['#d4a800','rgba(212,168,0,.15)','⏳ Edit requested'],approved:['var(--accent)','rgba(0,212,168,.15)','✓ Approved — you can edit'],rejected:['var(--red)','rgba(224,85,85,.15)','✗ Rejected'],done:['var(--text3)','var(--bg3)','✎ Edited']};
+  const m=map[req.status]||map.pending;
+  return '<span style="font-size:11px;font-weight:700;color:'+m[0]+';background:'+m[1]+';border-radius:6px;padding:3px 8px">'+m[2]+'</span>';
+}
+function recLabel(type,r){
+  return type==='endline'
+    ?((r.time||'')+' • '+(r.operatorId||'—')+' • '+(r.operation||'')+' • '+(r.defectType?r.defectType:((parseInt(r.defectQty)||0)>0?r.defectQty+' def':'no defect')))
+    :('Visit '+(r.visitNum||'?')+' • '+(r.operatorId||'—')+' • '+(r.operation||'')+' • DC '+(r.dc||0));
+}
+
+window.openMyRecords=function(){WS.step='my_records';renderW();};
+
+function renderMyRecords(){
+  const el=(WS.myInspections||[]).map(r=>({type:'endline',r}));
+  const rov=(WS.myRovingInspections||[]).map(r=>({type:'roving',r}));
+  const all=el.concat(rov).filter(x=>x.r.fbKey);
+  all.sort((a,b)=>(((b.r.createdAt||b.r.time||'')+'').localeCompare((a.r.createdAt||a.r.time||'')+'')));
+  const back=isEndline()?'endline_home':isRoving()?'roving_home':'check_home';
+  return '<div class="card" style="margin-bottom:14px"><div style="font-size:17px;font-weight:700">✏️ My Records & Edits</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:2px">Today\'s submissions. To fix one, request an edit — your supervisor approves, then you can edit it.</div></div>'
+    +(all.length===0?'<div class="card" style="text-align:center;color:var(--text3);padding:30px">No records submitted today yet.</div>'
+      :all.map(function(x){
+        const type=x.type,r=x.r,req=latestEditReq(type,r.fbKey),canEdit=req&&req.status==='approved';
+        return '<div class="card" style="margin-bottom:10px">'
+          +'<div style="font-size:13px;font-weight:600">'+recLabel(type,r)+'</div>'
+          +'<div style="font-size:11px;color:var(--text3);margin-top:2px">'+(type==='endline'?'End Line':'Roving')+' • '+(r.module||'')+(r.style?' • '+r.style:'')+'</div>'
+          +(req?'<div style="margin-top:6px">'+editStatusChip(req)+(req.status==='rejected'&&req.decisionNote?'<span style="font-size:11px;color:var(--text3)"> — '+req.decisionNote+'</span>':'')+'</div>':'')
+          +'<div style="margin-top:10px">'
+          +(canEdit
+            ?'<button onclick="openEditRecord(\''+type+'\',\''+r.fbKey+'\')" style="width:100%;padding:11px;background:var(--accent);color:#000;border:none;border-radius:9px;font-weight:700;cursor:pointer">✎ Edit Now</button>'
+            :(!req||req.status==='rejected'||req.status==='done')
+              ?'<button onclick="requestEdit(\''+type+'\',\''+r.fbKey+'\')" style="width:100%;padding:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:9px;font-weight:700;cursor:pointer">✏️ Request Edit</button>'
+              :'<div style="padding:11px;text-align:center;color:var(--text3);font-size:13px">Waiting for supervisor…</div>')
+          +'</div></div>';
+      }).join(''))
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\''+back+'\';renderW()">← Back</button>';
+}
+
+window.requestEdit=async function(type,key){
+  const rec=type==='endline'?(WS.myInspections||[]).find(r=>r.fbKey===key):(WS.myRovingInspections||[]).find(r=>r.fbKey===key);
+  if(!rec){toast('Record not found','error');return;}
+  const reason=prompt('Why do you need to edit this record? (reason for supervisor)');
+  if(reason===null)return;
+  if(!reason.trim()){toast('Enter a reason','error');return;}
+  const now=new Date().toISOString();
+  try{
+    await window.fbAdd('editRequests',{
+      id:'ER-'+Date.now(),status:'pending',recordType:type,recordKey:key,
+      module:rec.module||'',style:rec.style||'',date:rec.date||'',label:recLabel(type,rec),
+      requestedBy:WS.user?.username||'',requestedByName:WS.user?.name||'',reason:reason.trim(),requestedAt:now,
+      audit:[{action:'requested',by:WS.user?.username||'',name:WS.user?.name||'',at:now,note:reason.trim()}]
+    });
+    toast('Edit request sent to supervisor ✓');renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+
+window.openEditRecord=function(type,key){
+  const req=latestEditReq(type,key);
+  if(!req||req.status!=='approved'){toast('Not approved for edit yet','error');return;}
+  WS._editType=type;WS._editKey=key;WS._editReqKey=req.fbKey;WS.step='edit_record';renderW();
+};
+
+function renderEditRecord(){
+  const type=WS._editType,key=WS._editKey;
+  const rec=type==='endline'?(WS.myInspections||[]).find(r=>r.fbKey===key):(WS.myRovingInspections||[]).find(r=>r.fbKey===key);
+  if(!rec)return '<div class="card">Record not found.<button class="btn-big btn-ghost" onclick="WS.step=\'my_records\';renderW()">← Back</button></div>';
+  const inp=function(label,id,val,t){return '<div class="form-group"><label class="form-label">'+label+'</label><input class="form-input" id="'+id+'" '+(t||'')+' value="'+String(val==null?'':val).replace(/"/g,'&quot;')+'"></div>';};
+  let fields;
+  if(type==='endline'){
+    fields=inp('Operator ID','ed-operatorId',rec.operatorId)
+      +inp('Operation','ed-operation',rec.operation)
+      +inp('Checked Qty','ed-checkedQty',rec.checkedQty,'type="number" min="0"')
+      +inp('Defect Qty','ed-defectQty',rec.defectQty,'type="number" min="0"')
+      +inp('Defect Type','ed-defectType',rec.defectType);
+  }else{
+    fields=inp('Sample Qty (SP)','ed-sp',rec.sp,'type="number" min="0"')
+      +inp('Defects (DC)','ed-dc',rec.dc,'type="number" min="0"')
+      +inp('Defect Type','ed-defectType',rec.defectType)
+      +inp('SPI','ed-spi',rec.spi,'type="number" step="0.5"')
+      +'<div class="form-group"><label class="form-label">TRIM</label><select class="form-input" id="ed-trim"><option value="pass"'+(rec.trim==='pass'?' selected':'')+'>Pass</option><option value="fail"'+(rec.trim!=='pass'?' selected':'')+'>Fail</option></select></div>';
+  }
+  return '<div class="card" style="background:rgba(0,212,168,.06);border:1px solid rgba(0,212,168,.3);margin-bottom:14px">'
+    +'<div style="font-size:16px;font-weight:700">✎ Edit Record</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+recLabel(type,rec)+'</div>'
+    +'<div style="font-size:11px;color:var(--accent);margin-top:4px">Approved by supervisor — this change is recorded.</div></div>'
+    +'<div class="card">'+fields+'</div>'
+    +'<button class="btn-big btn-primary" onclick="saveEditRecord()">✓ Save Changes</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'my_records\';renderW()">← Cancel</button>';
+}
+
+window.saveEditRecord=async function(){
+  const type=WS._editType,key=WS._editKey,reqKey=WS._editReqKey;
+  const path=(type==='endline'?'inspections/':'rovingInspections/')+key;
+  const g=function(id){return document.getElementById(id)?document.getElementById(id).value:'';};
+  let upd;
+  if(type==='endline'){
+    upd={operatorId:g('ed-operatorId')||'',operation:g('ed-operation')||'',
+      checkedQty:parseInt(g('ed-checkedQty'))||0,defectQty:parseInt(g('ed-defectQty'))||0,
+      defectType:g('ed-defectType')||''};
+  }else{
+    upd={sp:parseInt(g('ed-sp'))||0,dc:parseInt(g('ed-dc'))||0,defectType:g('ed-defectType')||'',
+      spi:parseFloat(g('ed-spi'))||0,trim:g('ed-trim')||'pass'};
+  }
+  try{
+    await window._update(window._ref(window._db,path),{...upd,editedAt:new Date().toISOString(),editedBy:WS.user?.username||''});
+    const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);
+    const audit=((req&&req.audit)||[]).concat([{action:'edited',by:WS.user?.username||'',name:WS.user?.name||'',at:new Date().toISOString(),note:'fields updated'}]);
+    await window._update(window._ref(window._db,'editRequests/'+reqKey),{status:'done',editedAt:new Date().toISOString(),audit});
+    toast('Record updated ✓');WS.step='my_records';renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+
+// ---- Supervisor home (worker app): approve/reject + audit ----
+function renderSupHome(){
+  const reqs=(WS.editRequests||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
+  const pending=reqs.filter(r=>r.status==='pending');
+  const recent=reqs.filter(r=>r.status!=='pending').slice(0,15);
+  const card=function(r){return '<div class="card" style="margin-bottom:10px">'
+    +'<div style="font-size:13px;font-weight:600">'+(r.label||'(record)')+'</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">'+(r.recordType==='endline'?'End Line':'Roving')+' • '+(r.module||'')+' • by '+(r.requestedByName||r.requestedBy||'?')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:6px">Reason: '+(r.reason||'—')+'</div>';};
+  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:14px">'
+    +'<div style="font-size:18px;font-weight:700">👔 Supervisor</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(WS.user?.name||'')+' • Approve worker edit requests</div></div>'
+    +'<div style="font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px">Pending ('+pending.length+')</div>'
+    +(pending.length===0?'<div class="card" style="text-align:center;color:var(--text3);padding:24px">No pending requests 🎉</div>'
+      :pending.map(function(r){return card(r)
+        +'<div style="display:flex;gap:8px;margin-top:10px">'
+        +'<button onclick="supApproveEdit(\''+r.fbKey+'\')" style="flex:1;padding:11px;background:var(--accent);color:#000;border:none;border-radius:9px;font-weight:700;cursor:pointer">✓ Approve</button>'
+        +'<button onclick="supRejectEdit(\''+r.fbKey+'\')" style="flex:1;padding:11px;background:rgba(224,85,85,.12);color:var(--red);border:1px solid rgba(224,85,85,.3);border-radius:9px;font-weight:700;cursor:pointer">✗ Reject</button>'
+        +'</div></div>';}).join(''))
+    +'<div style="font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 8px">Recent activity</div>'
+    +(recent.length===0?'<div class="card" style="text-align:center;color:var(--text3);padding:16px">No activity yet.</div>'
+      :recent.map(function(r){return card(r)
+        +'<div style="margin-top:8px">'+editStatusChip(r)+(r.approvedByName?'<span style="font-size:11px;color:var(--text3)"> — by '+r.approvedByName+'</span>':'')+'</div></div>';}).join(''))
+    +'<button class="btn-big btn-ghost" onclick="doLogout()">Log out</button>';
+}
+
+window.supApproveEdit=async function(reqKey){
+  const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);if(!req)return;
+  const now=new Date().toISOString();
+  const audit=(req.audit||[]).concat([{action:'approved',by:WS.user?.username||'',name:WS.user?.name||'',at:now}]);
+  try{
+    await window._update(window._ref(window._db,'editRequests/'+reqKey),{status:'approved',approvedBy:WS.user?.username||'',approvedByName:WS.user?.name||'',approvedAt:now,audit});
+    toast('Approved ✓ — worker can now edit');renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+window.supRejectEdit=async function(reqKey){
+  const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);if(!req)return;
+  const note=prompt('Reason for rejecting (optional):')||'';
+  const now=new Date().toISOString();
+  const audit=(req.audit||[]).concat([{action:'rejected',by:WS.user?.username||'',name:WS.user?.name||'',at:now,note}]);
+  try{
+    await window._update(window._ref(window._db,'editRequests/'+reqKey),{status:'rejected',approvedBy:WS.user?.username||'',approvedByName:WS.user?.name||'',approvedAt:now,decisionNote:note,audit});
+    toast('Rejected');renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+
 // ==================== CAP — CORRECTIVE ACTION PLAN ====================
 // Mirrors the paper "End Line Report / Corrective Action Plan" sheet:
 // one row per hour, defects found, corrective action taken, 4 sign-offs.
@@ -2214,7 +2450,7 @@ window.printCapSheet=function(fbKey){
     +'th{background:#eee}'
     +'.credit{margin-top:28px;text-align:center;font-size:9px;color:#aaa}'
     +'</style></head><body>'
-    +'<div class="brand">BRANDIX QMS</div>'
+    +'<div class="brand">'+factoryName()+'</div>'
     +'<h1>Roving QC — Corrective Action Plan</h1>'
     +'<div class="meta">Module: '+(e.moduleName||e.moduleId)+' &nbsp; Line: '+(e.lineNo||'—')+' &nbsp; Date: '+e.date+' &nbsp; Raised by: '+(e.raisedBy||'—')+'</div>'
     +'<table><tr><th>Hour</th><th>Defects</th><th>Corrective Action</th><th>Operator Sign.</th><th>Tech Sign.</th><th>T/L Sign.</th><th>QA Sign.</th></tr>'
@@ -2312,6 +2548,7 @@ function renderCheckEnd(){
 
 // ==================== MANUAL ROSTER ====================
 window.openManualRoster=function(){
+  if(!WS._rosterShift)WS._rosterShift=activeShift();   // default to current time shift; togglable on the setup screen
   const machines=getModuleMachines();
   WS._manualRows=machines.length>0
     ?machines.map(w=>({machineId:w.machineId||'',machineName:w.machineName||'',operatorId:w.operatorId||'',operation:w.operation||''}))
@@ -2325,8 +2562,9 @@ function renderRosterManual(){
   const ops=WS.operations.length?WS.operations.map(o=>o.name):['Waist Join','Sleeve Attach','Side Seam','Collar Attach','Hemming','Pocket Attach','Label Attach','Zip Insert','Button Attach','Cuff Join','Overlock','Flatlock','Topstitch','Bartack','Tacking'];
   const m=WS.scannedModule;
   return '<div class="card card-blue">'
-    +'<div style="font-size:18px;font-weight:600;margin-bottom:4px">⚙️ Set Up Machine Roster</div>'
+    +'<div style="font-size:18px;font-weight:600;margin-bottom:4px">⚙️ Set Up Machine Roster · Team '+setupShift()+'</div>'
     +'<div style="font-size:12px;color:var(--text2)">'+(m?.name||'')+' — Add each machine and assign its operator</div>'
+    +rosterShiftToggle()
     +'</div>'
     +'<div id="manual-rows" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">'
     +rows.map((row,i)=>'<div class="card" style="padding:12px">'
@@ -2391,7 +2629,7 @@ function bindSubmit(){
         id:'INS-'+Date.now(),type:inspType,
         date:new Date().toISOString().split('T')[0],
         time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
-        shift:WS.scannedModule?.shift||'',
+        shift:activeShift(),   // tag by the team working now (rotation-aware), like Roving/End Line
         ...data,submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
       });
       const c=parseInt(data.checkedQty)||0,d=parseInt(data.defectQty)||0;
@@ -2431,7 +2669,7 @@ function bindManualRoster(){
     if(valid.length===0){toast('Add at least one machine or operator','error');return;}
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
     const m=WS.scannedModule;
-    const date=rosterDate();const shift=activeShift();
+    const date=rosterDate();const shift=setupShift();
     const rKey=rosterKeyFor(m,date,shift);
     try{
       const workers={};
@@ -2650,3 +2888,4 @@ renderW();
 </script>
 </body>
 </html>
+    
