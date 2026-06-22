@@ -6,13 +6,13 @@
 <title>GarmentFix QMS — Worker</title>
 <!-- PWA: installable on Android home screen, full-screen, offline shell -->
 <link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" href="gfix-logo.png">
 <meta name="theme-color" content="#00b894">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="G-Fix">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="apple-touch-icon" href="gfix-logo.png">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="module">
@@ -136,7 +136,7 @@ button,input,select,textarea{font-family:var(--font);font-size:16px}
 button{cursor:pointer;border:none;outline:none}
 .page{min-height:100vh;display:flex;flex-direction:column}
 .header{padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
-.logo-sm{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:12px}
+.logo-sm{width:32px;height:32px;background:#ececec;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:12px;overflow:hidden}
 .body{flex:1;padding:16px;overflow-y:auto;max-width:540px;margin:0 auto;width:100%}
 .login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .login-card{width:100%;max-width:380px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px 24px}
@@ -396,7 +396,7 @@ function renderHeader(){
   const roleLabel=isLineHead()?'Line Head':isWorker()?'Machine Operator':isEndline()?'End Line QC':'Roving QC';
   return '<div class="header">'
     +'<div style="display:flex;align-items:center;gap:10px">'
-    +'<div class="logo-sm"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div>'
+    +'<div class="logo-sm"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div>'
     +'<div><div style="font-size:14px;font-weight:600">'+(WS.user?.name||'Worker')+'</div>'
     +'<div style="font-size:10px;color:'+roleColor+'">'+roleLabel+(WS.scannedModule?' • '+WS.scannedModule.name:'')+'</div></div>'
     +'</div>'
@@ -470,7 +470,7 @@ function initQRIn(elId,cb){
 function renderLogin(){
   return '<div class="login-page"><div class="login-card fade-in">'
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">'
-    +'<div class="logo-sm" style="width:44px;height:44px;font-size:16px;border-radius:12px"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div>'
+    +'<div class="logo-sm" style="width:44px;height:44px;font-size:16px;border-radius:12px"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div>'
     +'<div><div style="font-size:18px;font-weight:700">GarmentFix <span style="color:var(--accent)">QMS</span></div>'
     +'<div style="font-size:12px;color:var(--text2)">Apparel Quality Management · Worker</div></div></div>'
     +'<div class="err-msg" id="w-err"></div>'
@@ -2888,7 +2888,10 @@ function bindLHScan(){
     if(e.key==='Enter')document.getElementById('lh-manual-btn')?.click();
   });
 }
-  
+
+// Release the camera when the tab is backgrounded — cuts the memory pressure that
+// makes mobile Chrome discard/reload the tab. The session is persisted, so when the
+// operator returns they stay logged in and just re-open the scanner.
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){try{stopQR();}catch(e){}saveSession();}
   else if(WS.user){startQRIfNeeded();}
