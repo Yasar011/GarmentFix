@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Brandix QMS — Admin</title>
+<title>GarmentFix QMS — Admin</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -75,6 +76,9 @@
     onValue(ref(db,'aiTickets'), s => { window.D.aiTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','ai-analysis'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'rovingInspections'), s => { window.D.rovingInspections = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['roving','reports'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'correctiveActions'), s => { window.D.correctiveActions = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='cap') window.render(); });
+    onValue(ref(db,'editRequests'), s => { window.D.editRequests = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'settings/rotation'), s => { window.D.rotation = s.exists() ? s.val() : null; if(['settings','dashboard'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'settings/factory'), s => { window.D.factory = s.exists() ? s.val() : null; if(['settings','reports'].includes(window.D.page)) window.render(); });
   };
 
   window.fbAdd = async (p,d) => { const r=push(ref(db,p));await set(r,{...d,createdAt:new Date().toISOString()});return r.key; };
@@ -222,7 +226,7 @@ function elCategory(code,name){
   return 'SEWING';
 }
 
-function ini(n){if(!n)return'BX';return n.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);}
+function ini(n){if(!n)return'GF';return n.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);}
 function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch{return d;}}
 function ft(d){return fd(d)+' '+((d&&new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))||'');}
 function ta(d){if(!d)return'';const m=Math.floor((Date.now()-new Date(d).getTime())/60000);if(m<1)return'now';if(m<60)return m+'m';const h=Math.floor(m/60);if(h<24)return h+'h';return Math.floor(h/24)+'d';}
@@ -262,7 +266,7 @@ window.render=function(){
 
 // LOGIN (DB-based, no Firebase Auth)
 function renderLogin(){
-  return`<div class="login-wrap"><div class="login-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:32px"><div class="logo-icon" style="width:48px;height:48px;font-size:16px;border-radius:12px">BX</div><div><div style="font-size:20px;font-weight:700">Brandix QMS</div><div style="font-size:11px;color:var(--text2);font-family:var(--mono)">Admin Dashboard</div></div></div><div id="lerr" style="display:none;color:var(--red);font-size:12px;margin-bottom:14px;padding:12px;background:rgba(224,85,85,.08);border-radius:8px;border:1px solid rgba(224,85,85,.2)"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" id="lu" placeholder="Your username"></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" id="lp" type="password" placeholder="••••••••"></div><button class="btn btn-primary" id="lbtn" style="width:100%;justify-content:center;padding:12px;font-size:14px">${D.loginLoading?'<span class="spinner"></span> Signing in...':'Sign In'}</button><div style="margin-top:16px;text-align:center;font-size:11px;color:var(--text3)">First time? Go to Settings → Seed Demo Data to create default admin user</div><div style="margin-top:8px;text-align:center"><button class="btn btn-ghost btn-sm" onclick="seedFirstUser()">Create Default Admin</button></div></div></div>`;
+  return`<div class="login-wrap"><div class="login-card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:32px"><div class="logo-icon" style="width:48px;height:48px;font-size:16px;border-radius:12px"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div><div><div style="font-size:20px;font-weight:700">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:11px;color:var(--text2);font-family:var(--mono)">Apparel Quality Management · Admin</div></div></div><div id="lerr" style="display:none;color:var(--red);font-size:12px;margin-bottom:14px;padding:12px;background:rgba(224,85,85,.08);border-radius:8px;border:1px solid rgba(224,85,85,.2)"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" id="lu" placeholder="Your username"></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" id="lp" type="password" placeholder="••••••••"></div><button class="btn btn-primary" id="lbtn" style="width:100%;justify-content:center;padding:12px;font-size:14px">${D.loginLoading?'<span class="spinner"></span> Signing in...':'Sign In'}</button><div style="margin-top:16px;text-align:center;font-size:11px;color:var(--text3)">First time? Go to Settings → Seed Demo Data to create default admin user</div><div style="margin-top:8px;text-align:center"><button class="btn btn-ghost btn-sm" onclick="seedFirstUser()">Create Default Admin</button></div></div></div>`;
 }
 
 // Create first admin user if none exist or reset password
@@ -272,7 +276,7 @@ window.seedFirstUser = async function(){
     if(snap.exists()){
       let updated = false;
       for(const [key, u] of Object.entries(snap.val())) {
-        if (u.username === 'admin' || u.role === 'Admin' || u.email === 'admin@brandix.com') {
+        if (u.username === 'admin' || u.role === 'Admin' || u.email === 'admin@garmentfix.com' || u.email === 'admin@brandix.com') {
           await window._update(window._ref(window._db, 'users/' + key), { password: 'admin123', username: 'admin' });
           updated = true;
         }
@@ -280,12 +284,12 @@ window.seedFirstUser = async function(){
       if (updated) {
         toast('Admin password reset to admin123! Try logging in now.');
       } else {
-        await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@brandix.com',status:'Active'});
+        await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@garmentfix.com',status:'Active'});
         toast('Admin user created! Username: admin / Password: admin123');
       }
       return;
     }
-    await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@brandix.com',status:'Active'});
+    await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@garmentfix.com',status:'Active'});
     toast('Admin user created! Username: admin / Password: admin123');
   }catch(e){toast('Error: '+e.message,'error');}
 };
@@ -311,7 +315,7 @@ function bindLogin(){
 const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'module-report',ic:'layout',l:'Module Report'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
-  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon">BX</div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">Brandix QMS</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
+  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
@@ -484,7 +488,7 @@ function pgStyleReport(){
   const dailyTable=`<div class="card" style="padding:0;overflow:hidden">
     <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Daily Breakdown</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Shift A</th><th>Shift B</th></tr></thead>
+      <thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Team A</th><th>Team B</th></tr></thead>
       <tbody>${dailyRows||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}</tbody>
     </table></div>
   </div>`;
@@ -497,7 +501,7 @@ function pgStyleReport(){
       const g=byShift[sh];const d=g.chk?((g.def/g.chk)*100).toFixed(1):'—';
       const c=g.chk?(parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
       return`<div class="card" style="padding:14px;text-align:center">
-        <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:6px">Shift ${sh}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:6px">Team ${sh}</div>
         <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${g.chk}</div>
         <div style="font-size:11px;color:var(--text3)">Checked</div>
         <div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${c};margin-top:4px">${d}${g.chk?'%':''}</div>
@@ -592,7 +596,7 @@ function pgStyleReport(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${defCard}${modTable}</div>
     <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Colour &amp; Size Analysis</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${colorTable}${sizeTable}</div>
-    <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Shift Summary</div>
+    <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Team Summary</div>
     ${shiftCards}
     ${dailyTable}
   </div>`;
@@ -620,7 +624,7 @@ function styleReportPDF(sel,ins){
   const byDate={};
   ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
   const body=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,g])=>[date,g.chk,g.def,g.chk?((g.def/g.chk)*100).toFixed(1)+'%':'—',g.A||'',g.B||'']);
-  doc.autoTable({startY:41,head:[['Date','Checked','Defects','DHU%','Shift A def','Shift B def']],body,styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
+  doc.autoTable({startY:41,head:[['Date','Checked','Defects','DHU%','Team A def','Team B def']],body,styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
   // Defect summary
   const defMap={};ins.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)defMap[i.defectType]=(defMap[i.defectType]||0)+(parseInt(i.defectQty)||0);});
   const defRows=Object.entries(defMap).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([n,c])=>[n,c,totDef?((c/totDef)*100).toFixed(1)+'%':'—']);
@@ -631,7 +635,7 @@ function styleReportPDF(sel,ins){
 
 function styleReportExcel(sel,ins){
   const aoa=[];
-  aoa.push(['BRANDIX APPAREL INDIA UNIT-3 — STYLE REPORT']);
+  aoa.push([factoryName()+' — STYLE REPORT']);
   aoa.push([`Style: ${sel.styleId} — ${sel.name}`,`Buyer: ${sel.buyer||'—'}`,`Colour: ${sel.color||'—'}`,`Status: ${sel.status}`,`Target DHU: ${sel.targetDhu||'—'}%`]);
   const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
   const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
@@ -639,17 +643,17 @@ function styleReportExcel(sel,ins){
   aoa.push([`Total Checked: ${totChk}`,`Total Defects: ${totDef}`,`DHU: ${dhu}%`,`AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`]);
   aoa.push([]);
   // Daily sheet
-  aoa.push(['Date','Checked','Defects','DHU%','Shift A Def','Shift B Def']);
+  aoa.push(['Date','Checked','Defects','DHU%','Team A Def','Team B Def']);
   const byDate={};
   ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
   Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([date,g])=>aoa.push([date,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0,g.A||0,g.B||0]));
   aoa.push([]);
   // Shift summary
-  aoa.push(['SHIFT SUMMARY']);
-  aoa.push(['Shift','Checked','Defects','DHU%']);
+  aoa.push(['TEAM SUMMARY']);
+  aoa.push(['Team','Checked','Defects','DHU%']);
   const byShift={A:{chk:0,def:0},B:{chk:0,def:0}};
   ins.forEach(i=>{const sh=i.shift||'A';if(!byShift[sh])byShift[sh]={chk:0,def:0};byShift[sh].chk+=parseInt(i.checkedQty)||0;byShift[sh].def+=parseInt(i.defectQty)||0;});
-  ['A','B'].forEach(sh=>{const g=byShift[sh];aoa.push([`Shift ${sh}`,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]);});
+  ['A','B'].forEach(sh=>{const g=byShift[sh];aoa.push([`Team ${sh}`,g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]);});
   aoa.push([]);
   // Colour-wise
   aoa.push(['COLOUR-WISE']);
@@ -669,7 +673,7 @@ function styleReportExcel(sel,ins){
   aoa.push([]);
   // All inspections raw
   aoa.push(['ALL INSPECTIONS']);
-  aoa.push(['Date','Time','Type','Module','Operator','Operation','Shift','Size','Colour','Checked','Defects','DHU%','Defect Type','Inspector']);
+  aoa.push(['Date','Time','Type','Module','Operator','Operation','Team','Size','Colour','Checked','Defects','DHU%','Defect Type','Inspector']);
   ins.forEach(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0;aoa.push([i.date,i.time||'',i.type||'',i.module||'',i.operatorId||'',i.operation||'',i.shift||'',i.size||'',i.color||'',c,d,c?parseFloat(((d/c)*100).toFixed(2)):0,i.defectType||'',i.inspector||i.submittedBy||'']);});
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols']=[{wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:12},{wch:8},{wch:8},{wch:12},{wch:10},{wch:10},{wch:8},{wch:20},{wch:14}];
@@ -720,7 +724,7 @@ function pgModuleReport(){
         <div style="font-size:12px;color:var(--text2)">${sel.buyer||''} ${sel.moduleId?'• '+sel.moduleId:''}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:12px;color:var(--text2)">Shift: <b>${sel.shift||'—'}</b></div>
+        <div style="font-size:12px;color:var(--text2)">Team: <b>${sel.shift||'—'}</b></div>
         <div style="font-size:12px;color:var(--text2)">${allDates.length} day${allDates.length!==1?'s':''} active</div>
         <div style="font-size:12px;color:var(--text2)">${ins.length} end/inline • ${rovIns.length} roving</div>
       </div>
@@ -749,7 +753,7 @@ function pgModuleReport(){
   }).join('');
   const dailyTable=`<div class="card" style="padding:0;overflow:hidden">
     <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Daily Breakdown</div>
-    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Shift A</th><th>Shift B</th></tr></thead>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Team A</th><th>Team B</th></tr></thead>
     <tbody>${dailyRows||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}</tbody></table></div>
   </div>`;
 
@@ -819,8 +823,8 @@ function moduleReportPDF(sel,ins,rov){
 
 function moduleReportExcel(sel,ins,rov){
   const aoa=[];
-  aoa.push(['BRANDIX APPAREL INDIA UNIT-3 — MODULE REPORT']);
-  aoa.push([`Module: ${sel.name}`,`Style: ${sel.styleName||'—'}`,`Buyer: ${sel.buyer||'—'}`,`Shift: ${sel.shift||'—'}`]);
+  aoa.push([factoryName()+' — MODULE REPORT']);
+  aoa.push([`Module: ${sel.name}`,`Style: ${sel.styleName||'—'}`,`Buyer: ${sel.buyer||'—'}`,`Team: ${sel.shift||'—'}`]);
   const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
   const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
   const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
@@ -833,7 +837,7 @@ function moduleReportExcel(sel,ins,rov){
   Object.entries(byOp).sort((a,b)=>{const da=a[1].chk?a[1].def/a[1].chk:0,db=b[1].chk?b[1].def/b[1].chk:0;return db-da;}).forEach(([op,g])=>aoa.push([op,g.operation||'',g.chk,g.def,g.chk?parseFloat(((g.def/g.chk)*100).toFixed(2)):0]));
   aoa.push([]);
   aoa.push(['ALL INSPECTIONS']);
-  aoa.push(['Date','Time','Type','Shift','Size','Colour','Operator','Operation','Checked','Defects','Defect Type','Inspector']);
+  aoa.push(['Date','Time','Type','Team','Size','Colour','Operator','Operation','Checked','Defects','Defect Type','Inspector']);
   ins.forEach(i=>aoa.push([i.date||'',i.time||'',i.type||'',i.shift||'',i.size||'',i.color||'',i.operatorId||'',i.operation||'',parseInt(i.checkedQty)||0,parseInt(i.defectQty)||0,i.defectType||'',i.inspector||i.submittedBy||'']));
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols']=[{wch:12},{wch:10},{wch:10},{wch:8},{wch:8},{wch:12},{wch:12},{wch:14},{wch:10},{wch:10},{wch:18},{wch:14}];
@@ -848,7 +852,7 @@ function pgStyles(){
   const completed=D.styles.filter(s=>s.status==='Completed');
   const q=(D.sq||'').toLowerCase();
   const list=q?D.styles.filter(s=>(s.name||'').toLowerCase().includes(q)||(s.styleId||'').toLowerCase().includes(q)||(s.buyer||'').toLowerCase().includes(q)||(s.status||'').toLowerCase().includes(q)):D.styles;
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary" onclick="showModal('addStyle')">${ic('plus',14)} Add Style</button><input class="search-input" style="width:180px" placeholder="Search style, buyer..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-ghost" onclick="triggerCSV('styles')">📄 Import CSV</button></div><div style="display:flex;gap:8px"><span class="badge badge-green">${running.length} Running</span><span class="badge badge-yellow">${planned.length} Planned</span><span class="badge badge-blue">${completed.length} Completed</span></div></div>${list.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No styles match.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Style ID</th><th>Name</th><th>Buyer</th><th>Colors</th><th>Sizes</th><th>Status</th><th>Target DHU</th><th>Completed</th><th></th></tr></thead><tbody>${list.map(s=>{const allColors=(s.colors||s.color||'').split(',').map(c=>c.trim()).filter(Boolean);const allSizes=(s.sizes||'').split(',').map(x=>x.trim()).filter(Boolean);return`<tr><td style="font-family:var(--mono);font-size:12px">${s.styleId||''}</td><td style="font-weight:500">${s.name||''}</td><td>${s.buyer||''}</td><td><div style="display:flex;gap:4px;flex-wrap:wrap">${allColors.length>0?allColors.map(c=>`<span class="chip" style="font-size:10px;padding:2px 6px">${c}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><div style="display:flex;gap:3px;flex-wrap:wrap">${allSizes.length>0?allSizes.map(z=>`<span style="font-size:10px;background:rgba(68,136,255,.12);color:var(--blue);border-radius:4px;padding:1px 5px">${z}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><span class="badge badge-${s.status==='Running'?'green':s.status==='Completed'?'blue':'yellow'}">${s.status||''}</span></td><td style="font-family:var(--mono)">${s.targetDhu||''}%</td><td style="font-size:12px">${s.completedDate?fd(s.completedDate):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-sm" style="color:var(--accent)" onclick="D.styleReportKey='${s.fbKey}';nav('style-report')">📊</button><button class="btn-icon" onclick="showModal('editStyle',${JSON.stringify(s).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>${s.status!=='Completed'?`<button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="completeStyle('${s.fbKey}')">✓ Complete</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('styles','${s.fbKey}')">${ic('trash',14)}</button></div></td></tr>`;}).join('')}</tbody></table></div></div>`}</div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary" onclick="showModal('addStyle')">${ic('plus',14)} Add Style</button><input class="search-input" style="width:180px" placeholder="Search style, buyer..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-ghost" onclick="triggerCSV('styles')">📄 Import CSV</button></div><div style="display:flex;gap:8px"><span class="badge badge-green">${running.length} Running</span><span class="badge badge-yellow">${planned.length} Planned</span><span class="badge badge-blue">${completed.length} Completed</span></div></div>${list.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No styles match.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Style ID</th><th>Code</th><th>Name</th><th>Buyer</th><th>Colors</th><th>Sizes</th><th>Status</th><th>Target DHU</th><th>Completed</th><th></th></tr></thead><tbody>${list.map(s=>{const allColors=(s.colors||s.color||'').split(',').map(c=>c.trim()).filter(Boolean);const allSizes=(s.sizes||'').split(',').map(x=>x.trim()).filter(Boolean);return`<tr><td style="font-family:var(--mono);font-size:12px">${s.styleId||''}</td><td style="font-family:var(--mono);font-size:13px;font-weight:700;color:${s.code?'var(--accent)':'var(--text3)'}">${s.code||'—'}</td><td style="font-weight:500">${s.name||''}</td><td>${s.buyer||''}</td><td><div style="display:flex;gap:4px;flex-wrap:wrap">${allColors.length>0?allColors.map(c=>`<span class="chip" style="font-size:10px;padding:2px 6px">${c}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><div style="display:flex;gap:3px;flex-wrap:wrap">${allSizes.length>0?allSizes.map(z=>`<span style="font-size:10px;background:rgba(68,136,255,.12);color:var(--blue);border-radius:4px;padding:1px 5px">${z}</span>`).join(''):'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td><td><span class="badge badge-${s.status==='Running'?'green':s.status==='Completed'?'blue':'yellow'}">${s.status||''}</span></td><td style="font-family:var(--mono)">${s.targetDhu||''}%</td><td style="font-size:12px">${s.completedDate?fd(s.completedDate):'—'}</td><td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-sm" style="color:var(--accent)" onclick="D.styleReportKey='${s.fbKey}';nav('style-report')">📊</button><button class="btn-icon" onclick="showModal('editStyle',${JSON.stringify(s).replace(/"/g,'&quot;')})">${ic('edit',14)}</button>${s.status!=='Completed'?`<button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="completeStyle('${s.fbKey}')">✓ Complete</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('styles','${s.fbKey}')">${ic('trash',14)}</button></div></td></tr>`;}).join('')}</tbody></table></div></div>`}</div>`;
 }
 
 window.completeStyle = async function(key){
@@ -884,7 +888,7 @@ function pgReports(){
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
   <div class="form-group" style="margin:0"><label class="form-label" style="${styleMode?'color:var(--text3)':''}">Date ${styleMode?'<span style="font-size:10px">(ignored when style selected)</span>':''}</label><select class="form-input" ${styleMode?'disabled style="opacity:.4"':''} onchange="D.elDate=this.value;render()">${elDates.length?elDates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No end-line data</option>'}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">Module / Line</label><select class="form-input" onchange="D.elModule=this.value;render()"><option value="__all" ${(!D.elModule||D.elModule==='__all')?'selected':''}>All modules</option>${elMods.map(m=>`<option value="${m}" ${D.elModule===m?'selected':''}>${m}</option>`).join('')}</select></div>
-  <div class="form-group" style="margin:0"><label class="form-label">Shift</label><select class="form-input" onchange="D.elShift=this.value;render()"><option value="__all" ${(!D.elShift||D.elShift==='__all')?'selected':''}>All shifts</option>${['A','B'].map(s=>`<option value="${s}" ${D.elShift===s?'selected':''}>Shift ${s}</option>`).join('')}</select></div>
+  <div class="form-group" style="margin:0"><label class="form-label">Team</label><select class="form-input" onchange="D.elShift=this.value;render()"><option value="__all" ${(!D.elShift||D.elShift==='__all')?'selected':''}>All teams</option>${['A','B'].map(s=>`<option value="${s}" ${D.elShift===s?'selected':''}>Team ${s}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">Size</label><select class="form-input" onchange="D.elSize=this.value;render()"><option value="__all" ${(!D.elSize||D.elSize==='__all')?'selected':''}>All sizes</option>${elSizes.map(s=>`<option value="${s}" ${D.elSize===s?'selected':''}>${s}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">Colour</label><select class="form-input" onchange="D.elColor=this.value;render()"><option value="__all" ${(!D.elColor||D.elColor==='__all')?'selected':''}>All colours</option>${elColors.map(c=>`<option value="${c}" ${D.elColor===c?'selected':''}>${c}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">QC Inspector</label><select class="form-input" onchange="D.elInspector=this.value;render()"><option value="__all" ${(!D.elInspector||D.elInspector==='__all')?'selected':''}>All inspectors</option>${elInspectors.map(n=>`<option value="${n}" ${D.elInspector===n?'selected':''}>${n}</option>`).join('')}</select></div>
@@ -909,7 +913,7 @@ function pdfStamp(doc){
 // Standard light-theme branded header for a landscape report.
 function pdfHeader(doc,title,subtitle,extra){
   const W=doc.internal.pageSize.getWidth();
-  doc.setFontSize(15);doc.setTextColor(0,150,120);doc.text('BRANDIX QMS',W/2,13,{align:'center'});
+  doc.setFontSize(15);doc.setTextColor(0,150,120);doc.text(factoryName(),W/2,13,{align:'center'});
   doc.setFontSize(12);doc.setTextColor(40,40,40);doc.text(title,W/2,20,{align:'center'});
   if(subtitle){doc.setFontSize(9);doc.setTextColor(110,110,110);doc.text(subtitle,W/2,26,{align:'center'});}
   if(extra){doc.setFontSize(8);doc.setTextColor(130,130,130);doc.text(extra,W/2,31,{align:'center'});}
@@ -918,7 +922,7 @@ function pdfHeader(doc,title,subtitle,extra){
 function makePDF(title,headers,rows,summary){
   const{jsPDF}=window.jspdf;
   const doc=new jsPDF();
-  doc.setFontSize(18);doc.setTextColor(0,100,80);doc.text('Brandix QMS',14,20);
+  doc.setFontSize(18);doc.setTextColor(0,100,80);doc.text(factoryName(),14,20);
   doc.setFontSize(12);doc.setTextColor(60,60,60);doc.text(title,14,28);
   doc.setFontSize(9);doc.setTextColor(120,120,120);doc.text('Generated: '+new Date().toLocaleString('en-GB'),14,34);
   if(summary){doc.setFontSize(10);doc.setTextColor(40,40,40);let y=42;summary.forEach(s=>{doc.text(s,14,y);y+=5;});}
@@ -1001,10 +1005,10 @@ function buildEndLine(){
   const dates=[...new Set(all.map(i=>i.date||(i.createdAt||'').split('T')[0]).filter(Boolean))].sort();
   const styleMode=D.elStyle&&D.elStyle!=='__all';
   const date=D.elDate||dates[dates.length-1]||new Date().toISOString().split('T')[0];
-  // When a style is selected, show ALL dates for that style — ignore date filter
-  let rows=styleMode
-    ?all.filter(i=>(i.style||'')===D.elStyle)
-    :all.filter(i=>(i.date||(i.createdAt||'').split('T')[0])===date);
+  // Always filter by the selected date; when a style is also chosen, narrow to that style too.
+  // (A module can run two styles in one day — picking the style separates them cleanly.)
+  let rows=all.filter(i=>(i.date||(i.createdAt||'').split('T')[0])===date);
+  if(styleMode)rows=rows.filter(i=>(i.style||'')===D.elStyle);
   if(D.elModule&&D.elModule!=='__all')rows=rows.filter(i=>i.module===D.elModule);
   if(D.elShift&&D.elShift!=='__all')rows=rows.filter(i=>(i.shift||'')===D.elShift);
   if(D.elSize&&D.elSize!=='__all')rows=rows.filter(i=>(i.size||'')===D.elSize);
@@ -1059,10 +1063,10 @@ window.rptEndLine=function(fmt){
 function elPDF(R){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  doc.setFontSize(15);doc.setTextColor(0,100,80);doc.text('BRANDIX APPAREL INDIA — Unit-III',14,13);
+  doc.setFontSize(15);doc.setTextColor(0,100,80);doc.text(factoryName(),14,13);
   doc.setFontSize(12);doc.setTextColor(40,40,40);doc.text('END LINE REPORT',14,20);
   doc.setFontSize(8.5);doc.setTextColor(60,60,60);
-  doc.text(`Team: ${R.team}     ${R.styleMode?'Dates: '+R.dateRange:'Date: '+fd(R.date)}     Style: ${R.styleName} ${R.styleId?'('+R.styleId+')':''}     Colour: ${R.colorFilter||R.colour||'All'}     Size: ${R.size||'All'}     Shift: ${R.shift||'—'}${R.inspectorFilter?'     QC: '+R.inspectorFilter:''}`,14,27);
+  doc.text(`Line: ${R.team}     ${R.styleMode?'Dates: '+R.dateRange:'Date: '+fd(R.date)}     Style: ${R.styleName} ${R.styleId?'('+R.styleId+')':''}     Colour: ${R.colorFilter||R.colour||'All'}     Size: ${R.size||'All'}     Team: ${R.shift||'—'}${R.inspectorFilter?'     QC: '+R.inspectorFilter:''}`,14,27);
   doc.text(`Dept: Quality     QC: ${R.qcNames||'—'}     Garments Inspected: ${R.totInsp}`,14,32);
   const hc=R.hours.map(elLabel);
   const head1=[['Emp #','Operation',...hc,'TTL']];
@@ -1096,10 +1100,10 @@ function elPDF(R){
 
 function elExcel(R){
   const hc=R.hours.map(elLabel);const aoa=[];
-  aoa.push(['BRANDIX APPAREL INDIA — Unit-III']);
+  aoa.push([factoryName()]);
   aoa.push(['END LINE REPORT']);
-  aoa.push(['Team',R.team,R.styleMode?'Dates':'Date',R.styleMode?R.dateRange:R.date,'Style',R.styleName,'Style ID',R.styleId]);
-  aoa.push(['Colour',R.colorFilter||R.colour||'All','Size',R.size||'All','Shift',R.shift||'All','Dept','Quality','QC',R.qcNames]);
+  aoa.push(['Line',R.team,R.styleMode?'Dates':'Date',R.styleMode?R.dateRange:R.date,'Style',R.styleName,'Style ID',R.styleId]);
+  aoa.push(['Colour',R.colorFilter||R.colour||'All','Size',R.size||'All','Team',R.shift||'All','Dept','Quality','QC',R.qcNames]);
   aoa.push([]);
   aoa.push(['Emp #','Operation',...hc,'TTL']);
   R.groups.forEach(g=>aoa.push([g.operatorId,g.operation,...R.hours.map(h=>{const cc=g.cells[h];return cc?Object.entries(cc).map(([code,n])=>code+(n>1?'×'+n:'')).join(' '):'';}),g.total||0]));
@@ -1192,7 +1196,7 @@ function pgRoster(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <div>
           <div style="font-size:16px;font-weight:700">${r.moduleName||r.moduleId||'—'}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:2px">${r.date||'—'} ${r.shift?'• Shift '+r.shift:''} • ${workers.length} operator${workers.length!==1?'s':''}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">${r.date||'—'} ${r.shift?'• Team '+r.shift:''} • ${workers.length} operator${workers.length!==1?'s':''}</div>
           <div style="font-size:11px;color:var(--text3);margin-top:2px">Registered by: ${r.createdBy||r.registeredBy||Object.values(r.workers||{})[0]?.registeredBy||'—'}</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1216,9 +1220,11 @@ function pgEndLine(){
   const allEl=(D.inspections||[]).filter(i=>i.type==='endline');
   const allDates=[...new Set(allEl.map(i=>i.date||(i.createdAt||'').split('T')[0]).filter(Boolean))].sort().reverse();
   const allMods=[...new Set(allEl.map(i=>i.module).filter(Boolean))].sort();
+  const allElStyles=[...new Set(allEl.map(i=>i.style).filter(Boolean))].sort();
   const fDate=D.elDate||allDates[0]||'';
   const fMod=D.elModule||'__all';
   const fShift=D.elShift||'__all';
+  const fStyle=D.elStyle||'__all';
 
   // Filters bar
   const filters=`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
@@ -1231,8 +1237,12 @@ function pgEndLine(){
       ${allMods.map(m=>`<option value="${m}" ${fMod===m?'selected':''}>${m}</option>`).join('')}
     </select>
     <select class="form-control" style="width:130px" onchange="D.elShift=this.value;render()">
-      <option value="__all">All Shifts</option>
-      ${['A','B'].map(s=>`<option value="${s}" ${fShift===s?'selected':''}>Shift ${s}</option>`).join('')}
+      <option value="__all">All Teams</option>
+      ${['A','B'].map(s=>`<option value="${s}" ${fShift===s?'selected':''}>Team ${s}</option>`).join('')}
+    </select>
+    <select class="form-control" style="width:160px" onchange="D.elStyle=this.value;render()">
+      <option value="__all">All Styles</option>
+      ${allElStyles.map(s=>`<option value="${s}" ${fStyle===s?'selected':''}>${s}</option>`).join('')}
     </select>
     <div style="margin-left:auto;display:flex;gap:8px">
       <button class="btn btn-ghost btn-sm" onclick="rptEndLine('excel')">${ic('download',14)} Excel</button>
@@ -1255,7 +1265,7 @@ function pgEndLine(){
   const dhu=R.totInsp?((R.totDef/R.totInsp)*100).toFixed(1):'0.0';
   const aql=R.overallDhu<=2.5?'PASS':'REVIEW';
   const infoBar=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-    <div class="card" style="padding:12px 14px"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">TEAM / DATE</div><div style="font-weight:600">${R.team||'—'}</div><div style="font-size:11px;color:var(--text2)">${R.date||'—'} • Shift ${R.shift||'—'}</div></div>
+    <div class="card" style="padding:12px 14px"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">LINE / DATE</div><div style="font-weight:600">${R.team||'—'}</div><div style="font-size:11px;color:var(--text2)">${R.date||'—'} • Team ${R.shift||'—'}</div></div>
     <div class="card" style="padding:12px 14px"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">STYLE / COLOUR / SIZE</div><div style="font-weight:600">${R.styleName||'—'}</div><div style="font-size:11px;color:var(--text2)">${R.styleId?R.styleId+' • ':''} ${R.colorFilter||R.colour||'—'}${R.size?' • Size: '+R.size:''}</div></div>
     <div class="card" style="padding:12px 14px"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">QC INSPECTOR</div><div style="font-weight:600;font-size:12px">${R.qcNames||'—'}</div><div style="font-size:11px;color:var(--text2)">Dept: Quality</div></div>
     <div class="card" style="padding:12px 14px;border-color:${aql==='PASS'?'var(--green)':'var(--red)'}"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">INSPECTED / DHU</div><div style="font-size:20px;font-weight:700;font-family:var(--mono);color:${parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'}">${dhu}%</div><div style="font-size:11px;color:var(--text2)">${R.totInsp} checked • AQL: <b style="color:${aql==='PASS'?'var(--green)':'var(--red)'}">${aql}</b></div></div>
@@ -1329,57 +1339,18 @@ function pgEndLine(){
 }
 
 // ======================== ROVING INSPECTION PAGE ========================
-function pgRoving(){
-  const rovIns=D.rovingInspections||[];
-  const dates=[...new Set(rovIns.map(i=>i.date||'').filter(Boolean))].sort().reverse();
-  const curDate=D.rovingDate||dates[0]||new Date().toISOString().split('T')[0];
-  const mods=[...new Set(rovIns.map(i=>i.module).filter(Boolean))];
-  const shiftsForDate=[...new Set(rovIns.filter(i=>i.date===curDate).map(i=>i.shift||'').filter(Boolean))].sort();
-  let rows=rovIns.filter(i=>i.date===curDate);
-  if(D.rovingShift&&D.rovingShift!=='__all') rows=rows.filter(i=>i.shift===D.rovingShift);
-  if(D.rovingModule&&D.rovingModule!=='__all') rows=rows.filter(i=>i.module===D.rovingModule);
+// Renders one roving report table block for a single style (a module can run several styles a day).
+function rovingStyleBlock(rows,team,style,dateLabel,multi){
   const opMap={};
-  rows.forEach(r=>{
-    const key=(r.operatorId||'?')+'|'+(r.operation||'—');
-    if(!opMap[key])opMap[key]={operatorId:r.operatorId||'',operation:r.operation||'',visits:{}};
-    opMap[key].visits[parseInt(r.visitNum)||1]=r;
-  });
+  rows.forEach(r=>{const key=(r.operatorId||'?')+'|'+(r.operation||'—');if(!opMap[key])opMap[key]={operatorId:r.operatorId||'',operation:r.operation||'',visits:{}};opMap[key].visits[parseInt(r.visitNum)||1]=r;});
   const operators=Object.values(opMap).sort((a,b)=>a.operation.localeCompare(b.operation));
-  const team=D.rovingModule&&D.rovingModule!=='__all'?D.rovingModule:(rows[0]?.module||'—');
-  const style=rows[0]?.style||'—';
   const totalSP=rows.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
   const totalDC=rows.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
   const defPct=totalSP?((totalDC/totalSP)*100).toFixed(1):0;
-  return`<div style="display:flex;flex-direction:column;gap:20px">
-    <div class="card" style="border-color:var(--red)">
-      <div class="card-header"><span class="card-title" style="color:var(--red)">🏃 Roving Inspection Report — Brandix paper format</span><span class="fb">🔥 ${rovIns.length} records</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
-        <div class="form-group" style="margin:0"><label class="form-label">Date</label>
-          <select class="form-input" onchange="D.rovingDate=this.value;D.rovingShift='__all';render()">${dates.length?dates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No data yet</option>'}</select></div>
-        <div class="form-group" style="margin:0"><label class="form-label">Shift</label>
-          <select class="form-input" onchange="D.rovingShift=this.value;render()">
-            <option value="__all" ${(!D.rovingShift||D.rovingShift==='__all')?'selected':''}>All shifts</option>
-            ${shiftsForDate.map(s=>`<option value="${s}" ${D.rovingShift===s?'selected':''}>Shift ${s}</option>`).join('')}
-          </select></div>
-        <div class="form-group" style="margin:0"><label class="form-label">Module / Team</label>
-          <select class="form-input" onchange="D.rovingModule=this.value;render()">
-            <option value="__all" ${(!D.rovingModule||D.rovingModule==='__all')?'selected':''}>All modules</option>
-            ${mods.map(m=>`<option value="${m}" ${D.rovingModule===m?'selected':''}>${m}</option>`).join('')}
-          </select></div>
-        <div class="form-group" style="margin:0"><label class="form-label">Download</label>
-          <div style="display:flex;gap:8px;margin-top:2px">
-            <button class="btn btn-primary" onclick="rptRoving('pdf')">${ic('pdf',14)} PDF</button>
-            <button class="btn btn-ghost" onclick="rptRoving('excel')">${ic('excel',14)} Excel</button>
-          </div></div>
-        <div class="form-group" style="margin:0"><label class="form-label" style="color:var(--red)">⏰ ${shiftLabel()}</label>
-          <button class="btn" onclick="endShiftRoving()" style="width:100%;background:rgba(255,80,80,.15);color:var(--red);border:1px solid rgba(255,80,80,.3);font-weight:700">🔚 End Shift & Clear</button>
-        </div>
-      </div>
-    </div>
-    ${operators.length===0?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No roving data for selected filters.<br><span style="font-size:12px;margin-top:8px;display:block">Workers with <b>QC Roving Inspector</b> role submit data from the worker portal.</span></div>`:`
-    <div class="card" style="padding:0;overflow:hidden">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
-        <div style="font-size:13px;font-weight:600">Team: ${team} &nbsp;|&nbsp; Style: ${style} &nbsp;|&nbsp; Date: ${fd(curDate)}</div>
+  return `
+    <div class="card" style="padding:0;overflow:hidden;${multi?'border-color:rgba(153,102,255,.4)':''}">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center${multi?';background:rgba(153,102,255,.06)':''}">
+        <div style="font-size:13px;font-weight:600">Team: ${team} &nbsp;|&nbsp; Style: ${multi?`<span style="color:#c4a5ff">${style}</span>`:style} &nbsp;|&nbsp; Date: ${dateLabel}</div>
         <div style="display:flex;gap:16px;font-family:var(--mono);font-size:13px">
           <span>Insp: <b>${totalSP}</b></span><span style="color:var(--red)">Def: <b>${totalDC}</b></span>
           <span style="color:${parseFloat(defPct)>5?'var(--red)':parseFloat(defPct)>3?'var(--yellow)':'var(--green)'}">Def%: <b>${defPct}%</b></span>
@@ -1434,7 +1405,51 @@ function pgRoving(){
           </tr>
         </tbody>
       </table></div>
-    </div>`}
+    </div>`;
+}
+
+function pgRoving(){
+  const rovIns=D.rovingInspections||[];
+  const dates=[...new Set(rovIns.map(i=>i.date||'').filter(Boolean))].sort().reverse();
+  const curDate=D.rovingDate||dates[0]||new Date().toISOString().split('T')[0];
+  const mods=[...new Set(rovIns.map(i=>i.module).filter(Boolean))];
+  const shiftsForDate=[...new Set(rovIns.filter(i=>i.date===curDate).map(i=>i.shift||'').filter(Boolean))].sort();
+  let rows=rovIns.filter(i=>i.date===curDate);
+  if(D.rovingShift&&D.rovingShift!=='__all') rows=rows.filter(i=>i.shift===D.rovingShift);
+  if(D.rovingModule&&D.rovingModule!=='__all') rows=rows.filter(i=>i.module===D.rovingModule);
+  const team=D.rovingModule&&D.rovingModule!=='__all'?D.rovingModule:(rows[0]?.module||'—');
+  // A module may run more than one style in a day (e.g. Style A for 3 hours, then Style B).
+  // Group rows by style so the report shows one block per style, each with its own DHU.
+  const styleGroups={};
+  rows.forEach(r=>{const st=(r.style||'—');(styleGroups[st]=styleGroups[st]||[]).push(r);});
+  const styleKeys=Object.keys(styleGroups).sort();
+  return`<div style="display:flex;flex-direction:column;gap:20px">
+    <div class="card" style="border-color:var(--red)">
+      <div class="card-header"><span class="card-title" style="color:var(--red)">🏃 Roving Inspection Report — standard paper format</span><span class="fb">🔥 ${rovIns.length} records</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0"><label class="form-label">Date</label>
+          <select class="form-input" onchange="D.rovingDate=this.value;D.rovingShift='__all';render()">${dates.length?dates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No data yet</option>'}</select></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Team</label>
+          <select class="form-input" onchange="D.rovingShift=this.value;render()">
+            <option value="__all" ${(!D.rovingShift||D.rovingShift==='__all')?'selected':''}>All teams</option>
+            ${shiftsForDate.map(s=>`<option value="${s}" ${D.rovingShift===s?'selected':''}>Team ${s}</option>`).join('')}
+          </select></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Module / Team</label>
+          <select class="form-input" onchange="D.rovingModule=this.value;render()">
+            <option value="__all" ${(!D.rovingModule||D.rovingModule==='__all')?'selected':''}>All modules</option>
+            ${mods.map(m=>`<option value="${m}" ${D.rovingModule===m?'selected':''}>${m}</option>`).join('')}
+          </select></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Download</label>
+          <div style="display:flex;gap:8px;margin-top:2px">
+            <button class="btn btn-primary" onclick="rptRoving('pdf')">${ic('pdf',14)} PDF</button>
+            <button class="btn btn-ghost" onclick="rptRoving('excel')">${ic('excel',14)} Excel</button>
+          </div></div>
+        <div class="form-group" style="margin:0"><label class="form-label" style="color:var(--red)">⏰ ${shiftLabel()}</label>
+          <button class="btn" onclick="endShiftRoving()" style="width:100%;background:rgba(255,80,80,.15);color:var(--red);border:1px solid rgba(255,80,80,.3);font-weight:700">🔚 End Shift & Clear</button>
+        </div>
+      </div>
+    </div>
+    ${rows.length===0?`<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No roving data for selected filters.<br><span style="font-size:12px;margin-top:8px;display:block">Workers with <b>QC Roving Inspector</b> role submit data from the worker portal.</span></div>`:styleKeys.map(st=>rovingStyleBlock(styleGroups[st],team,st,fd(curDate),styleKeys.length>1)).join('')}
     <div class="card" style="font-size:12px;color:var(--text2);line-height:1.8">
       <div style="font-weight:600;margin-bottom:6px;color:var(--text)">Corrective and Preventive Action</div>
       <div>(a) If 1 defect found → check another 7 pieces</div>
@@ -1560,7 +1575,7 @@ function capPDF(rows){
 
 function capExcel(rows){
   const aoa=[];
-  aoa.push(['BRANDIX — END LINE REPORT — CORRECTIVE ACTION PLAN']);
+  aoa.push([factoryName()+' — END LINE REPORT — CORRECTIVE ACTION PLAN']);
   aoa.push([`Generated: ${new Date().toLocaleString()}`]);
   aoa.push([]);
   aoa.push(['Hour','Module','Line','Defects','Corrective Action','Operator Sign','Tech Sign','T/L Sign','QA Sign','Status','Raised By']);
@@ -1593,34 +1608,39 @@ window.rptRoving=function(fmt){
 function rovingPDF(rows,date){
   const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const team=D.rovingModule&&D.rovingModule!=='__all'?D.rovingModule:(rows[0]?.module||'—');
-  const style=rows[0]?.style||'—';
-  doc.setFontSize(14);doc.setTextColor(0,100,80);doc.text('BRANDIX APPAREL INDIA UNIT-3',14,12);
+  doc.setFontSize(14);doc.setTextColor(0,100,80);doc.text(factoryName(),14,12);
   doc.setFontSize(11);doc.setTextColor(40,40,40);doc.text('Roving Inspection Report',14,18);
-  doc.setFontSize(9);doc.setTextColor(60,60,60);
-  doc.text(`Style: ${style}     Team: ${team}     Date: ${fd(date)}`,14,24);
-  const opMap={};
-  rows.forEach(r=>{const key=(r.operatorId||'?')+'|'+(r.operation||'—');if(!opMap[key])opMap[key]={operatorId:r.operatorId||'',operation:r.operation||'',visits:{}};opMap[key].visits[parseInt(r.visitNum)||1]=r;});
-  const operators=Object.values(opMap).sort((a,b)=>a.operation.localeCompare(b.operation));
+  // A module can run several styles a day — emit one table per style.
+  const styleGroups={};
+  rows.forEach(r=>{const st=(r.style||'—');(styleGroups[st]=styleGroups[st]||[]).push(r);});
+  const styleKeys=Object.keys(styleGroups).sort();
   const head=[['Operator','Operation','TR','SP','D/C','CPA','AB','TR','SP','D/C','CPA','AB','TR','SP','D/C','CPA','AB','TR','SP','D/C','CPA','AB','INSP','DEF']];
-  const body=operators.map(op=>{
-    const row=[op.operatorId,op.operation];
-    [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'✓':'✗':'');row.push(vi?vi.sp||'':'');row.push(vi?vi.dc||'0':'');row.push(vi?(vi.capRequired?'⚠':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
-    const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
-    const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
-    row.push(tSP,tDC);return row;
+  let y=24;
+  styleKeys.forEach(st=>{
+    const grp=styleGroups[st];
+    const opMap={};
+    grp.forEach(r=>{const key=(r.operatorId||'?')+'|'+(r.operation||'—');if(!opMap[key])opMap[key]={operatorId:r.operatorId||'',operation:r.operation||'',visits:{}};opMap[key].visits[parseInt(r.visitNum)||1]=r;});
+    const operators=Object.values(opMap).sort((a,b)=>a.operation.localeCompare(b.operation));
+    const body=operators.map(op=>{
+      const row=[op.operatorId,op.operation];
+      [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'✓':'✗':'');row.push(vi?vi.sp||'':'');row.push(vi?vi.dc||'0':'');row.push(vi?(vi.capRequired?'⚠':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
+      const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
+      const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
+      row.push(tSP,tDC);return row;
+    });
+    const totSP=grp.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
+    const totDC=grp.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
+    const totRow=['TOTAL',''];
+    [1,2,3,4].forEach(v=>{const vR=grp.filter(r=>parseInt(r.visitNum)===v);const vSP=vR.reduce((a,r)=>a+(parseInt(r.sp)||0),0);const vDC=vR.reduce((a,r)=>a+(parseInt(r.dc)||0),0);totRow.push('',vSP,vDC,'','');});
+    totRow.push(totSP,totDC);body.push(totRow);
+    const pctRow=['%',''];
+    [1,2,3,4].forEach(v=>{const vR=grp.filter(r=>parseInt(r.visitNum)===v);const vSP=vR.reduce((a,r)=>a+(parseInt(r.sp)||0),0);const vDC=vR.reduce((a,r)=>a+(parseInt(r.dc)||0),0);pctRow.push('','',vSP?((vDC/vSP)*100).toFixed(1)+'%':'—','','');});
+    pctRow.push(totSP,totSP?((totDC/totSP)*100).toFixed(1)+'%':'—');body.push(pctRow);
+    doc.setFontSize(9);doc.setTextColor(60,60,60);
+    doc.text(`Style: ${st}     Team: ${team}     Date: ${fd(date)}     Insp: ${totSP}   Def: ${totDC}   Def%: ${totSP?((totDC/totSP)*100).toFixed(1):0}%`,14,y);
+    doc.autoTable({head,body,startY:y+2,theme:'grid',styles:{fontSize:7,cellPadding:1.3,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:14},1:{halign:'left',cellWidth:26}},headStyles:{fillColor:[180,30,30],textColor:255,fontSize:7},margin:{left:8,right:8}});
+    y=doc.lastAutoTable.finalY+8;
   });
-  const totSP=rows.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
-  const totDC=rows.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
-  const totRow=['TOTAL',''];
-  [1,2,3,4].forEach(v=>{const vR=rows.filter(r=>parseInt(r.visitNum)===v);const vSP=vR.reduce((a,r)=>a+(parseInt(r.sp)||0),0);const vDC=vR.reduce((a,r)=>a+(parseInt(r.dc)||0),0);totRow.push('',vSP,vDC,'','');});
-  totRow.push(totSP,totDC);body.push(totRow);
-  const pctRow=['%',''];
-  [1,2,3,4].forEach(v=>{const vR=rows.filter(r=>parseInt(r.visitNum)===v);const vSP=vR.reduce((a,r)=>a+(parseInt(r.sp)||0),0);const vDC=vR.reduce((a,r)=>a+(parseInt(r.dc)||0),0);pctRow.push('','',vSP?((vDC/vSP)*100).toFixed(1)+'%':'—','','');});
-  pctRow.push(totSP,totSP?((totDC/totSP)*100).toFixed(1)+'%':'—');body.push(pctRow);
-  doc.autoTable({head,body,startY:28,theme:'grid',styles:{fontSize:7,cellPadding:1.3,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:14},1:{halign:'left',cellWidth:26}},headStyles:{fillColor:[180,30,30],textColor:255,fontSize:7},margin:{left:8,right:8}});
-  let y=doc.lastAutoTable.finalY+4;
-  doc.setFontSize(8);doc.setTextColor(40,40,40);
-  doc.text(`Total Inspected: ${totSP}   Defects: ${totDC}   Defect %: ${totSP?((totDC/totSP)*100).toFixed(1):0}%`,14,y);y+=6;
   doc.setFontSize(7.5);doc.setTextColor(60,60,60);
   doc.text('(a) 1 defect found → check another 7 pieces  (b) No defects in those 7 → allow operator to continue (no CPA)',14,y);y+=4;
   doc.text('(c) 1+ defects in those 7 → stop operation, check all stitched garments, repair defects, complete CPA before resuming',14,y);y+=4;
@@ -1628,34 +1648,41 @@ function rovingPDF(rows,date){
   doc.text('A=Inline QC  B=Supervisor/Mechanic  C=Senior Technician  D=Production/Quality Executive',14,y);y+=7;
   doc.text('Technician: ____________________________      QA.Exe: ____________________________',14,y);
   pdfStamp(doc);
-  doc.save(`Roving_Report_${(style||'report').toString().replace(/\s/g,'_')}_${date}.pdf`);
+  const fname=styleKeys.length===1?styleKeys[0]:team;
+  doc.save(`Roving_Report_${(fname||'report').toString().replace(/\s/g,'_')}_${date}.pdf`);
   toast('Roving Report PDF downloaded');
 }
 
 function rovingExcel(rows,date){
   const team=D.rovingModule&&D.rovingModule!=='__all'?D.rovingModule:(rows[0]?.module||'—');
-  const style=rows[0]?.style||'—';
-  const opMap={};
-  rows.forEach(r=>{const key=(r.operatorId||'?')+'|'+(r.operation||'—');if(!opMap[key])opMap[key]={operatorId:r.operatorId||'',operation:r.operation||'',visits:{}};opMap[key].visits[parseInt(r.visitNum)||1]=r;});
-  const operators=Object.values(opMap).sort((a,b)=>a.operation.localeCompare(b.operation));
+  // A module can run several styles a day — emit one section per style.
+  const styleGroups={};
+  rows.forEach(r=>{const st=(r.style||'—');(styleGroups[st]=styleGroups[st]||[]).push(r);});
+  const styleKeys=Object.keys(styleGroups).sort();
   const aoa=[];
-  aoa.push(['BRANDIX APPAREL INDIA UNIT-3']);
+  aoa.push([factoryName()]);
   aoa.push(['Roving Inspection Report']);
-  aoa.push(['Style',style,'Team',team,'Date',date]);aoa.push([]);
-  aoa.push(['Operator','Operation','1V-TR','1V-SP','1V-DC','1V-CPA','1V-AB','2V-TR','2V-SP','2V-DC','2V-CPA','2V-AB','3V-TR','3V-SP','3V-DC','3V-CPA','3V-AB','4V-TR','4V-SP','4V-DC','4V-CPA','4V-AB','INSP','DEF']);
-  operators.forEach(op=>{
-    const row=[op.operatorId,op.operation];
-    [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?(vi.capRequired?'YES':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
-    const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
-    const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
-    row.push(tSP,tDC);aoa.push(row);
+  aoa.push([]);
+  styleKeys.forEach(st=>{
+    const grp=styleGroups[st];
+    const opMap={};
+    grp.forEach(r=>{const key=(r.operatorId||'?')+'|'+(r.operation||'—');if(!opMap[key])opMap[key]={operatorId:r.operatorId||'',operation:r.operation||'',visits:{}};opMap[key].visits[parseInt(r.visitNum)||1]=r;});
+    const operators=Object.values(opMap).sort((a,b)=>a.operation.localeCompare(b.operation));
+    aoa.push(['Style',st,'Team',team,'Date',date]);
+    aoa.push(['Operator','Operation','1V-TR','1V-SP','1V-DC','1V-CPA','1V-AB','2V-TR','2V-SP','2V-DC','2V-CPA','2V-AB','3V-TR','3V-SP','3V-DC','3V-CPA','3V-AB','4V-TR','4V-SP','4V-DC','4V-CPA','4V-AB','INSP','DEF']);
+    operators.forEach(op=>{
+      const row=[op.operatorId,op.operation];
+      [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?(vi.capRequired?'YES':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
+      const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
+      const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
+      row.push(tSP,tDC);aoa.push(row);
+    });
+    const totSP=grp.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
+    const totDC=grp.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
+    aoa.push(['TOTAL','','','','','','','','','','','','','','','','','','','','','',totSP,totDC]);
+    aoa.push(['%','','','','','','','','','','','','','','','','','','','','','',totSP?((totDC/totSP)*100).toFixed(1)+'%':'0%','']);
+    aoa.push([]);
   });
-  aoa.push([]);
-  const totSP=rows.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
-  const totDC=rows.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
-  aoa.push(['TOTAL','','','','','','','','','','','','','','','','','','','','','',totSP,totDC]);
-  aoa.push(['%','','','','','','','','','','','','','','','','','','','','','',totSP?((totDC/totSP)*100).toFixed(1)+'%':'0%','']);
-  aoa.push([]);
   aoa.push(['Corrective and Preventive Action']);
   aoa.push(['(a) If 1 defect found → check another 7 pieces']);
   aoa.push(['(b) If no defects found in those 7 pieces → allow the operator to continue (no CPA)']);
@@ -1664,7 +1691,8 @@ function rovingExcel(rows,date){
   aoa.push(['A = Inline QC   B = Supervisor / Mechanic   C = Senior Technician   D = Production / Quality Executive']);
   const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:12},{wch:24},...Array(22).fill({wch:7})];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Roving Report');
-  XLSX.writeFile(wb,`Roving_Report_${(style||'report').toString().replace(/\s/g,'_')}_${date}.xlsx`);
+  const fname=styleKeys.length===1?styleKeys[0]:team;
+  XLSX.writeFile(wb,`Roving_Report_${(fname||'report').toString().replace(/\s/g,'_')}_${date}.xlsx`);
   toast('Roving Report Excel downloaded');
 }
 
@@ -1757,7 +1785,7 @@ function pgShiftSummary(){
         <thead><tr>
           <th>Date</th><th>Line/Zone</th><th>Check Qty</th><th>Defect Qty</th><th>End %</th>
           <th>Red Operators</th><th># Red</th><th>Repeated Red</th><th>Reasons</th>
-          <th>Zone</th><th>Rejections</th><th>Top 3 Defects</th><th>Shift</th>
+          <th>Zone</th><th>Rejections</th><th>Top 3 Defects</th><th>Team</th>
         </tr></thead>
         <tbody>${tableRows}</tbody>
       </table></div>`}
@@ -1803,14 +1831,14 @@ function shiftSummaryPDF(rows){
     const top3=Object.entries(g.defectTypes).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([dt,n])=>`${dt}(${n})`).join(', ')||'—';
     return[g.date,g.module,g.checkQty,g.defectQty,endPer+'%',redOps.map(([opId])=>opId).join(', ')||'—',redOps.length,repRed,redReasons,g.module,g.rejections,top3,g.shift];
   });
-  doc.autoTable({startY:37,head:[['Date','Line','Check Qty','Def Qty','End %','Red Operators','#Red','Rep.Red','Reasons','Zone','Rej.','Top 3 Defects','Shift']],body,styles:{fontSize:7,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
+  doc.autoTable({startY:37,head:[['Date','Line','Check Qty','Def Qty','End %','Red Operators','#Red','Rep.Red','Reasons','Zone','Rej.','Top 3 Defects','Team']],body,styles:{fontSize:7,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
   pdfStamp(doc);
   doc.save(`ShiftEndSummary_${new Date().toISOString().slice(0,10)}.pdf`);
   toast('Shift End Summary PDF downloaded');
 }
 
 function shiftSummaryExcel(rows){
-  const header=['Date','Line/Zone','Check Qty','Defect Qty','End Per %','Red Operators (EQC)','No of Red Operators','Repeated Red Operators','Red Operator Reasons','Zone','No of Rejections','Top 3 Defects','Shift'];
+  const header=['Date','Line/Zone','Check Qty','Defect Qty','End Per %','Red Operators (EQC)','No of Red Operators','Repeated Red Operators','Red Operator Reasons','Zone','No of Rejections','Top 3 Defects','Team'];
   const redByOp2={};
   rows.forEach(g=>{Object.entries(g.operatorDHU||{}).forEach(([opId,od])=>{if(od.chk&&(od.def/od.chk)*100>5)redByOp2[opId]=(redByOp2[opId]||0)+1;});});
   const body=rows.map(g=>{
@@ -1850,7 +1878,16 @@ function pgSuper(){
   if(tickets.length>0){
     ticketHtml = `<div class="card" style="border-color:var(--red)"><div class="card-header"><span class="card-title" style="color:var(--red)">🤖 AI Insights (${tickets.length})</span></div><div style="display:flex;flex-direction:column;gap:8px">${tickets.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${t.title}</div><div style="font-size:11px;color:var(--text2)">${t.description}</div></div><button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Acknowledge</button></div>`).join('')}</div></div>`;
   }
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div>${pendingHtml}${ticketHtml}<div class="grid-4">${kpi(ins.length,'Inspections','','var(--accent)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),'Checked','','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','','var(--red)')}${kpi(dhu(ins)+'%','DHU','','var(--yellow)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Module</th><th>Inspections</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Status</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.c?((d.d/d.c)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${m}</td><td>${d.n}</td><td>${d.c}</td><td style="color:var(--red)">${d.d}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
+  // ---- Worker edit requests: pending approvals + full audit log ----
+  const allEdits=(D.editRequests||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
+  const pendEdits=allEdits.filter(r=>r.status==='pending');
+  const edStChip=s=>{const m=({pending:['var(--yellow)','Pending'],approved:['var(--accent)','Approved'],rejected:['var(--red)','Rejected'],done:['var(--blue)','Edited']})[s]||['var(--text3)',s||'—'];return `<span style="font-size:11px;font-weight:700;border:1px solid ${m[0]};color:${m[0]};border-radius:6px;padding:2px 7px">${m[1]}</span>`;};
+  let editReqHtml='';
+  if(pendEdits.length>0){
+    editReqHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">✏️ Pending Edit Requests (${pendEdits.length})</span></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Module</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${r.recordType==='endline'?'End Line':'Roving'}</td><td>${r.module||''}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveEditReq('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectEditReq('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+  const auditHtml=`<div class="card"><div class="card-header"><span class="card-title">📋 Edit Request Log (${allEdits.length})</span></div>${allEdits.length===0?'<div style="padding:20px;text-align:center;color:var(--text3)">No edit requests yet.</div>':`<div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${r.recordType==='endline'?'EL':'Rov'}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:200px;font-size:12px">${r.reason||'—'}</td><td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div>${pendingHtml}${editReqHtml}${ticketHtml}${auditHtml}<div class="grid-4">${kpi(ins.length,'Inspections','','var(--accent)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),'Checked','','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','','var(--red)')}${kpi(dhu(ins)+'%','DHU','','var(--yellow)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Module</th><th>Inspections</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Status</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.c?((d.d/d.c)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${m}</td><td>${d.n}</td><td>${d.c}</td><td style="color:var(--red)">${d.d}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
 }
 
 window.approveShift = async function(k){
@@ -1858,6 +1895,26 @@ window.approveShift = async function(k){
   try{
     await window.fbUpd('machineRosters',k,{status:'Approved',approvedBy:D.user?.username});
     toast('Roster Approved','success');
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+
+window.approveEditReq = async function(k){
+  const r=(D.editRequests||[]).find(x=>x.fbKey===k);if(!r)return;
+  const now=new Date().toISOString();
+  const audit=(r.audit||[]).concat([{action:'approved',by:D.user?.username||'',name:D.user?.name||D.user?.username||'',at:now}]);
+  try{
+    await window.fbUpd('editRequests',k,{status:'approved',approvedBy:D.user?.username||'',approvedByName:D.user?.name||D.user?.username||'',approvedAt:now,audit});
+    toast('Approved — worker can now edit','success');
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+window.rejectEditReq = async function(k){
+  const r=(D.editRequests||[]).find(x=>x.fbKey===k);if(!r)return;
+  const note=prompt('Reason for rejecting (optional):')||'';
+  const now=new Date().toISOString();
+  const audit=(r.audit||[]).concat([{action:'rejected',by:D.user?.username||'',name:D.user?.name||D.user?.username||'',at:now,note}]);
+  try{
+    await window.fbUpd('editRequests',k,{status:'rejected',approvedBy:D.user?.username||'',approvedByName:D.user?.name||D.user?.username||'',approvedAt:now,decisionNote:note,audit});
+    toast('Rejected','success');
   }catch(e){toast('Error: '+e.message,'error');}
 };
 
@@ -2293,7 +2350,7 @@ function pgAI(){
         </div>`).join('')}
         <div style="margin-top:8px;padding:10px;background:rgba(153,102,255,.08);border-radius:8px;border:1px solid rgba(153,102,255,.2)">
           <div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">Import the workflow</div>
-          <div style="font-size:11px;color:var(--text2)">n8n → Workflows → Import from file → brandix_qms_n8n_grok.json</div>
+          <div style="font-size:11px;color:var(--text2)">n8n → Workflows → Import from file → garmentfix_qms_n8n.json</div>
         </div>
       </div>
     </div>
@@ -2363,7 +2420,7 @@ function pgUsers(){
       ?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No users. Add one above.</div>'
       :`<div class="card" style="padding:0;overflow:hidden">
         <div class="table-wrap"><table>
-          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Line / Shift</th><th>Password</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Line / Team</th><th>Password</th><th>Status</th><th></th></tr></thead>
           <tbody>${sorted.map(u=>`<tr>
             <td style="font-weight:500"><div style="display:flex;align-items:center;gap:8px">
               <div class="avatar" style="width:24px;height:24px;font-size:9px;background:${u.role==='Line Head'?'linear-gradient(135deg,var(--yellow),#ff9424)':''}">${ini(u.name)}</div>
@@ -2372,7 +2429,7 @@ function pgUsers(){
             <td style="font-family:var(--mono);font-size:12px">${u.username||u.email||''}</td>
             <td><span class="badge badge-${roleBadge(u.role)}">${u.role||''}</span></td>
             <td style="font-size:12px">${u.role==='Line Head'
-              ?`<div style="display:flex;flex-direction:column;gap:2px">${u.assignedLine?`<span style="color:var(--accent);font-weight:500">&#128205; ${u.assignedLine}</span>`:'<span style="color:var(--text3)">No line set</span>'} ${u.shift?`<span class="badge badge-purple" style="width:fit-content">Shift ${u.shift}</span>`:''}</div>`
+              ?`<div style="display:flex;flex-direction:column;gap:2px">${u.assignedLine?`<span style="color:var(--accent);font-weight:500">&#128205; ${u.assignedLine}</span>`:'<span style="color:var(--text3)">No line set</span>'} ${u.shift?`<span class="badge badge-purple" style="width:fit-content">Team ${u.shift}</span>`:''}</div>`
               :'<span style="color:var(--text3)">—</span>'}</td>
             <td style="font-family:var(--mono);font-size:12px">${u.password?'••••••':''} <button class="btn-icon" onclick="alert('Password: ${u.password||'none'}')" title="Show">${ic('eye',12)}</button></td>
             <td><span class="badge badge-${u.status==='Active'?'green':'gray'}">${u.status||'Active'}</span></td>
@@ -2394,6 +2451,10 @@ function pgSettings(){
   const insToday=(D.inspections||[]).filter(i=>(i.date||(i.createdAt||'').split('T')[0])===today).length;
   const shift=currentShift();
   const shiftColors={A:'var(--blue)',B:'var(--yellow)'};
+  const rs=rotationState();
+  const slot=wkClockSlot();
+  const autoOn=(D.rotation?.autoRotate!==false);
+  const nextStr=rs.nextRotation?rs.nextRotation.toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'})+' 02:00':'—';
   return`<div style="max-width:680px;display:flex;flex-direction:column;gap:16px">
   <div class="card"><div class="card-header"><span class="card-title">Profile</span></div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2405,19 +2466,44 @@ function pgSettings(){
   </div>
 
   <div class="card" style="border-color:${shiftColors[shift]}">
-    <div class="card-header"><span class="card-title">⏰ Current Shift Status</span>
-      <span style="font-size:13px;font-weight:700;color:${shiftColors[shift]};background:rgba(255,255,255,.06);padding:4px 12px;border-radius:20px">SHIFT ${shift}</span>
+    <div class="card-header"><span class="card-title">🔄 Team Rotation</span>
+      <span style="font-size:13px;font-weight:700;color:${shiftColors[shift]};background:rgba(255,255,255,.06);padding:4px 12px;border-radius:20px">NOW: TEAM ${shift}</span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
-      <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT A</div>
-        <div style="font-size:13px;font-weight:600;color:${shift==='A'?'var(--blue)':'var(--text3)'}">06:00 – 14:00${shift==='A'?' ◀ NOW':''}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px;background:rgba(255,255,255,.03);border-radius:8px">
+      Two teams swap shifts every 2 weeks. Records are tagged by <b>team</b>, so each team's quality history stays continuous when they move shifts. The working team auto-flips on the rotation date below.
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">
+      <div style="text-align:center;padding:14px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid ${slot==='morning'?'var(--blue)':'var(--border)'}">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">MORNING SHIFT · 06:00–14:00</div>
+        <div style="font-size:20px;font-weight:700;color:var(--blue)">TEAM ${rs.morningTeam}</div>
+        ${slot==='morning'?'<div style="font-size:11px;color:var(--blue);margin-top:2px">◀ working now</div>':''}
       </div>
-      <div style="text-align:center;padding:12px;background:rgba(255,255,255,.03);border-radius:10px">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SHIFT B</div>
-        <div style="font-size:13px;font-weight:600;color:${shift==='B'?'var(--yellow)':'var(--text3)'}">14:00 – 22:00${shift==='B'?' ◀ NOW':''}</div>
+      <div style="text-align:center;padding:14px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid ${slot==='afternoon'?'var(--yellow)':'var(--border)'}">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">AFTERNOON SHIFT · 14:00–22:00</div>
+        <div style="font-size:20px;font-weight:700;color:var(--yellow)">TEAM ${rs.afternoonTeam}</div>
+        ${slot==='afternoon'?'<div style="font-size:11px;color:var(--yellow);margin-top:2px">◀ working now</div>':''}
       </div>
     </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text2);padding:8px 10px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:12px">
+      <span>Auto-rotation: <b style="color:${autoOn?'var(--green)':'var(--text3)'}">${autoOn?'ON':'OFF'}</b></span>
+      <span>Next swap: <b>${autoOn?nextStr:'paused'}</b></span>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="flipRotationNow()" style="flex:1;min-width:180px">⇄ Swap Teams Now (password)</button>
+      <button class="btn btn-ghost" onclick="toggleAutoRotate()" style="flex:1;min-width:140px">${autoOn?'⏸ Pause auto-rotation':'▶ Enable auto-rotation'}</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">🏭 Factory Name (on reports)</span></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px;background:rgba(255,255,255,.03);border-radius:8px">
+      This name prints at the top of every PDF/Excel report (Style, Module, End Line, Roving, CAP). Set it to your factory's name — e.g. "Brandix Apparel India Unit-3". The app itself stays branded GarmentFix QMS.
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input class="form-input" id="fac-name" style="flex:1;min-width:220px" placeholder="GarmentFix QMS" value="${(D.factory?.name||'').replace(/"/g,'&quot;')}">
+      <button class="btn btn-primary" onclick="saveFactoryName()">Save</button>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Current on reports: <b>${factoryName()}</b></div>
   </div>
 
   <div class="card" style="border-color:rgba(255,80,80,.3)">
@@ -2460,12 +2546,12 @@ function renderModal(){
     // A style may run on more than one line (e.g. MODULE-10 and 10.1), so we no
     // longer hide styles already used by another module — only Completed ones.
     title='Add Module';const _usedKeys=D.modules.map(mx=>mx.styleKey).filter(Boolean);const sopts=D.styles.filter(s=>s.status!=='Completed').map(s=>`<option value="${s.fbKey}" data-n="${s.name}" data-i="${s.styleId}" data-b="${s.buyer}">${s.styleId} — ${s.name} (${s.buyer||''})${_usedKeys.includes(s.fbKey)?' • also on another line':''}</option>`).join('');
-    body=`<form id="mf">${D.styles.length===0?'<div style="padding:12px;background:rgba(212,168,0,.1);border:1px solid rgba(212,168,0,.3);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--yellow)">⚠ Add styles first!</div>':''}<div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" placeholder="MOD-01" required></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" placeholder="Module 1" required></div></div><div class="form-group"><label class="form-label">Style *</label><select class="form-input" name="styleKey" id="ssel" required><option value="">— Pick style —</option>${sopts}</select></div><input type="hidden" name="styleName" id="hsn"><input type="hidden" name="styleId" id="hsi"><input type="hidden" name="buyer" id="hby"><div class="form-row"><div class="form-group"><label class="form-label">Shift</label><select class="form-input" name="shift"><option>A</option><option>B</option></select></div><div class="form-group"><label class="form-label">Session / Section</label><select class="form-input" name="session"><option>1</option><option>2</option><option>Both</option></select></div></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="2.5"></div><button class="btn btn-primary" type="button" onclick="sub('addMod')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
+    body=`<form id="mf">${D.styles.length===0?'<div style="padding:12px;background:rgba(212,168,0,.1);border:1px solid rgba(212,168,0,.3);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--yellow)">⚠ Add styles first!</div>':''}<div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" placeholder="MOD-01" required></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" placeholder="Module 1" required></div></div><div class="form-group"><label class="form-label">Style *</label><select class="form-input" name="styleKey" id="ssel" required><option value="">— Pick style —</option>${sopts}</select></div><input type="hidden" name="styleName" id="hsn"><input type="hidden" name="styleId" id="hsi"><input type="hidden" name="buyer" id="hby"><div class="form-row"><div class="form-group"><label class="form-label">Team</label><select class="form-input" name="shift"><option>A</option><option>B</option></select></div><div class="form-group"><label class="form-label">Session / Section</label><select class="form-input" name="session"><option>1</option><option>2</option><option>Both</option></select></div></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="2.5"></div><button class="btn btn-primary" type="button" onclick="sub('addMod')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
   }else if(m==='editMod'){
     // Allow the same style on multiple modules — show all non-Completed styles
     // (plus the currently-selected one even if Completed).
     title='Edit Module';const _usedKeysE=D.modules.filter(mx=>mx.fbKey!==d?.fbKey).map(mx=>mx.styleKey).filter(Boolean);const eo=D.styles.filter(s=>s.status!=='Completed'||d?.styleKey===s.fbKey||d?.styleName===s.name).map(s=>`<option value="${s.fbKey}" ${d?.styleKey===s.fbKey||d?.styleName===s.name?'selected':''}>${s.styleId} — ${s.name}${s.status==='Completed'?' (Completed)':_usedKeysE.includes(s.fbKey)?' • also on another line':''}</option>`).join('');
-    body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" value="${d?.moduleId||''}"></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div></div><div class="form-group"><label class="form-label">Style</label><select class="form-input" name="styleKey" id="ssel"><option value="">—</option>${eo}</select></div><input type="hidden" name="styleName" id="hsn" value="${d?.styleName||''}"><input type="hidden" name="styleId" id="hsi" value="${d?.styleId||''}"><input type="hidden" name="buyer" id="hby" value="${d?.buyer||''}"><div class="form-row"><div class="form-group"><label class="form-label">Shift</label><select class="form-input" name="shift"><option ${d?.shift==='A'?'selected':''}>A</option><option ${d?.shift==='B'?'selected':''}>B</option></select></div><div class="form-group"><label class="form-label">Session / Section</label><select class="form-input" name="session"><option ${d?.session==='1'?'selected':''}>1</option><option ${d?.session==='2'?'selected':''}>2</option><option ${d?.session==='Both'?'selected':''}>Both</option></select></div></div><div class="form-group"><label class="form-label">DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="${d?.dhu||2.5}"></div><button class="btn btn-primary" type="button" onclick="sub('editMod')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+    body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Module ID</label><input class="form-input" name="moduleId" value="${d?.moduleId||''}"></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div></div><div class="form-group"><label class="form-label">Style</label><select class="form-input" name="styleKey" id="ssel"><option value="">—</option>${eo}</select></div><input type="hidden" name="styleName" id="hsn" value="${d?.styleName||''}"><input type="hidden" name="styleId" id="hsi" value="${d?.styleId||''}"><input type="hidden" name="buyer" id="hby" value="${d?.buyer||''}"><div class="form-row"><div class="form-group"><label class="form-label">Team</label><select class="form-input" name="shift"><option ${d?.shift==='A'?'selected':''}>A</option><option ${d?.shift==='B'?'selected':''}>B</option></select></div><div class="form-group"><label class="form-label">Session / Section</label><select class="form-input" name="session"><option ${d?.session==='1'?'selected':''}>1</option><option ${d?.session==='2'?'selected':''}>2</option><option ${d?.session==='Both'?'selected':''}>Both</option></select></div></div><div class="form-group"><label class="form-label">DHU %</label><input class="form-input" name="dhu" type="number" step="0.1" value="${d?.dhu||2.5}"></div><button class="btn btn-primary" type="button" onclick="sub('editMod')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else if(m==='modQR'){
     // The QR sticker is permanent on the machine/line — it must only encode the
     // module's durable identity. Style/buyer are looked up live by the worker app,
@@ -2473,11 +2559,11 @@ function renderModal(){
     title='Module QR Code';const qd=JSON.stringify({moduleId:d?.moduleId,name:d?.name,fbKey:d?.fbKey});
     // No style/buyer shown here on purpose — this QR is permanent on the line and must
     // never display data that changes when a style is reassigned, completed, or deleted.
-    body=`<div style="text-align:center"><div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:14px"><div class="logo-icon" style="width:28px;height:28px;font-size:11px;border-radius:7px">BX</div><div style="font-size:13px;font-weight:600;letter-spacing:.03em">BRANDIX QMS</div></div><div style="font-size:16px;font-weight:600">${d?.name||''}</div><div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:12px">${d?.moduleId||''}</div><div class="qr-container" id="qr-el"></div><div style="margin-top:10px;font-size:11px;color:var(--text3)">Permanent module ID only — current style (${d?.styleName||'none assigned'}) is looked up live and never printed on the sticker</div><button class="btn btn-ghost" style="margin-top:12px" onclick="printQR()">🖨️ Print</button></div><span id="qr-d" data-v='${qd.replace(/'/g,"&#39;")}'></span>`;
+    body=`<div style="text-align:center"><div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:14px"><div class="logo-icon" style="width:28px;height:28px;font-size:11px;border-radius:7px"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div><div style="font-size:13px;font-weight:600;letter-spacing:.03em">GarmentFix QMS</div></div><div style="font-size:16px;font-weight:600">${d?.name||''}</div><div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:12px">${d?.moduleId||''}</div><div class="qr-container" id="qr-el"></div><div style="margin-top:10px;font-size:11px;color:var(--text3)">Permanent module ID only — current style (${d?.styleName||'none assigned'}) is looked up live and never printed on the sticker</div><button class="btn btn-ghost" style="margin-top:12px" onclick="printQR()">🖨️ Print</button></div><span id="qr-d" data-v='${qd.replace(/'/g,"&#39;")}'></span>`;
   }else if(m==='addStyle'){
-    title='Add Style';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Style ID *</label><input class="form-input" name="styleId" placeholder="STY-2024-001" required></div><div class="form-group"><label class="form-label">Name *</label><input class="form-input" name="name" placeholder="Polo Shirt" required></div></div><div class="form-row"><div class="form-group"><label class="form-label">Buyer</label><select class="form-input" name="buyer"><option value="">—</option>${BUYERS.map(b=>`<option>${b}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option>Planned</option><option selected>Running</option></select></div></div><div class="form-group"><label class="form-label">Colors <span style="font-size:11px;color:var(--text3)">(comma separated — QC will select from these)</span></label><input class="form-input" name="colors" placeholder="Navy Blue, Red, White, Black"></div><div class="form-group"><label class="form-label">Sizes <span style="font-size:11px;color:var(--text3)">(comma separated)</span></label><input class="form-input" name="sizes" placeholder="XS, S, M, L, XL, XXL"></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="targetDhu" type="number" step="0.1" value="2.5"></div><button class="btn btn-primary" type="button" onclick="sub('addStyle')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
+    title='Add Style';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Style ID *</label><input class="form-input" name="styleId" placeholder="STY-2024-001" required></div><div class="form-group"><label class="form-label">Name *</label><input class="form-input" name="name" placeholder="Polo Shirt" required></div></div><div class="form-row"><div class="form-group"><label class="form-label">Buyer</label><select class="form-input" name="buyer"><option value="">—</option>${BUYERS.map(b=>`<option>${b}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option>Planned</option><option selected>Running</option></select></div></div><div class="form-group"><label class="form-label">Colors <span style="font-size:11px;color:var(--text3)">(comma separated — QC will select from these)</span></label><input class="form-input" name="colors" placeholder="Navy Blue, Red, White, Black"></div><div class="form-group"><label class="form-label">Sizes <span style="font-size:11px;color:var(--text3)">(comma separated)</span></label><input class="form-input" name="sizes" placeholder="XS, S, M, L, XL, XXL"></div><div class="form-row"><div class="form-group"><label class="form-label">Verify Code (4-digit) <span style="font-size:11px;color:var(--text3)">(QC types this after scanning)</span></label><input class="form-input" name="code" inputmode="numeric" maxlength="4" placeholder="e.g. 1234"></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="targetDhu" type="number" step="0.1" value="2.5"></div></div><button class="btn btn-primary" type="button" onclick="sub('addStyle')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
   }else if(m==='editStyle'){
-    title='Edit Style';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Style ID</label><input class="form-input" name="styleId" value="${d?.styleId||''}"></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Buyer</label><select class="form-input" name="buyer"><option value="">—</option>${BUYERS.map(b=>`<option ${d?.buyer===b?'selected':''}>${b}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Planned'?'selected':''}>Planned</option><option ${d?.status==='Running'?'selected':''}>Running</option><option ${d?.status==='Completed'?'selected':''}>Completed</option></select></div></div><div class="form-group"><label class="form-label">Colors <span style="font-size:11px;color:var(--text3)">(comma separated — QC will select from these)</span></label><input class="form-input" name="colors" placeholder="Navy Blue, Red, White, Black" value="${d?.colors||d?.color||''}"></div><div class="form-group"><label class="form-label">Sizes <span style="font-size:11px;color:var(--text3)">(comma separated)</span></label><input class="form-input" name="sizes" placeholder="XS, S, M, L, XL, XXL" value="${d?.sizes||''}"></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="targetDhu" type="number" step="0.1" value="${d?.targetDhu||2.5}"></div><button class="btn btn-primary" type="button" onclick="sub('editStyle')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+    title='Edit Style';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Style ID</label><input class="form-input" name="styleId" value="${d?.styleId||''}"></div><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Buyer</label><select class="form-input" name="buyer"><option value="">—</option>${BUYERS.map(b=>`<option ${d?.buyer===b?'selected':''}>${b}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Planned'?'selected':''}>Planned</option><option ${d?.status==='Running'?'selected':''}>Running</option><option ${d?.status==='Completed'?'selected':''}>Completed</option></select></div></div><div class="form-group"><label class="form-label">Colors <span style="font-size:11px;color:var(--text3)">(comma separated — QC will select from these)</span></label><input class="form-input" name="colors" placeholder="Navy Blue, Red, White, Black" value="${d?.colors||d?.color||''}"></div><div class="form-group"><label class="form-label">Sizes <span style="font-size:11px;color:var(--text3)">(comma separated)</span></label><input class="form-input" name="sizes" placeholder="XS, S, M, L, XL, XXL" value="${d?.sizes||''}"></div><div class="form-row"><div class="form-group"><label class="form-label">Verify Code (4-digit) <span style="font-size:11px;color:var(--text3)">(QC types this after scanning)</span></label><input class="form-input" name="code" inputmode="numeric" maxlength="4" placeholder="e.g. 1234" value="${d?.code||''}"></div><div class="form-group"><label class="form-label">Target DHU %</label><input class="form-input" name="targetDhu" type="number" step="0.1" value="${d?.targetDhu||2.5}"></div></div><button class="btn btn-primary" type="button" onclick="sub('editStyle')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else if(m==='addOp'){
     title='Add Operation';body=`<form id="mf"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" required placeholder="e.g. Side Seam"></div><button class="btn btn-primary" type="button" onclick="sub('addOp')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add</button></form>`;
   }else if(m==='addDefect'){
@@ -2487,9 +2573,9 @@ function renderModal(){
   }else if(m==='addAlert'){
     title='Create Alert';body=`<form id="mf"><div class="form-group"><label class="form-label">Title</label><input class="form-input" name="title" required></div><div class="form-group"><label class="form-label">Message</label><textarea class="form-input" name="message" rows="3" required></textarea></div><div class="form-row"><div class="form-group"><label class="form-label">Level</label><select class="form-input" name="level"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div><div class="form-group"><label class="form-label">Module</label><input class="form-input" name="module"></div></div><button class="btn btn-primary" type="button" onclick="sub('addAlert')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Create</button></form>`;
   }else if(m==='addUser'){
-    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@brandix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option><option>A</option><option>B</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
+    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@garmentfix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Team</label><select class="form-input" name="shift"><option value="">— Select Team —</option><option>A</option><option>B</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
   }else if(m==='editUser'){
-    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${(['Admin','Manager','Supervisor','QC End Line Inspector','QC Roving Inspector'].concat(d?.role==='Line Head'?['Line Head']:[])).map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Shift</label><select class="form-input" name="shift"><option value="">— Select Shift —</option>${['A','B'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${(['Admin','Manager','Supervisor','QC End Line Inspector','QC Roving Inspector'].concat(d?.role==='Line Head'?['Line Head']:[])).map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Team</label><select class="form-input" name="shift"><option value="">— Select Team —</option>${['A','B'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else{title='Info';body='<button class="btn btn-ghost" onclick="closeModal()">Close</button>';}
   return`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-header"><div class="modal-title">${title}</div><button class="btn-icon" onclick="closeModal()">${ic('x',18)}</button></div>${body}</div></div>`;
 }
@@ -2558,22 +2644,70 @@ window.seedOps=async function(){try{for(const o of DEF_OPS)await window.fbAdd('o
 // Shift auto-detection (A=06:00–14:00, B=14:00–22:00, C=22:00–06:00)
 // Two-shift factory: A = 06:00–14:00, B = 14:00–22:00.
 // Off-hours (22:00–06:00) fold into B, the last active shift.
-function currentShift(){const h=new Date().getHours();return(h>=6&&h<14)?'A':'B';}
-function shiftLabel(){const s=currentShift();const hrs={A:'06:00–14:00',B:'14:00–22:00'};return`Shift ${s} (${hrs[s]})`;}
+// Rotation: two teams (A,B) swap shifts every 2 weeks. D.rotation.morningTeam says which
+// team is on the 06–14 slot; it auto-flips each cycle (Sunday 02:00). Records are tagged by
+// team so a team's history stays continuous across rotations. Defaults to A=morning.
+function rotationState(){
+  const r=D.rotation||{};
+  const base=r.morningTeam||'A';
+  const cycleDays=r.cycleDays||14;
+  let morning=base,next=null;
+  if(r.anchor&&r.autoRotate!==false){
+    const ms=cycleDays*86400000, cycles=Math.floor((Date.now()-new Date(r.anchor).getTime())/ms);
+    if(cycles>0&&cycles%2===1) morning=(base==='A'?'B':'A');
+    next=new Date(new Date(r.anchor).getTime()+(Math.max(cycles,0)+1)*ms);
+  }
+  return {morningTeam:morning, afternoonTeam:(morning==='A'?'B':'A'), nextRotation:next};
+}
+function wkClockSlot(){const h=new Date().getHours();return(h>=6&&h<14)?'morning':'afternoon';}
+function currentShift(){const st=rotationState();return wkClockSlot()==='morning'?st.morningTeam:st.afternoonTeam;}
+
+// Factory name shown on official PDF/Excel report headers. Configurable per client in
+// Settings, so each factory's reports carry their own name. Defaults to the product brand.
+function factoryName(){return (D.factory&&D.factory.name)||'GarmentFix QMS';}
+window.saveFactoryName=async function(){
+  const el=document.getElementById('fac-name'); if(!el) return;
+  const v=el.value.trim();
+  await window._set(window._ref(window._db,'settings/factory'),{name:v,updatedBy:D.user?.username||'admin',updatedAt:new Date().toISOString()});
+  toast(v?('✅ Factory name saved — reports will show "'+v+'"'):'Factory name cleared — reports show GarmentFix QMS');
+};
+function shiftLabel(){const s=currentShift();const hrs={A:'06:00–14:00',B:'14:00–22:00'};return`Team ${s} (${wkClockSlot()==='morning'?'06:00–14:00':'14:00–22:00'})`;}
+
+// Most recent Sunday 02:00 — the canonical anchor point for rotations.
+function lastSunday2am(){
+  const d=new Date(); d.setHours(2,0,0,0);
+  d.setDate(d.getDate()-d.getDay());   // back to Sunday of this week
+  if(d.getTime()>Date.now()) d.setDate(d.getDate()-7);
+  return d.toISOString();
+}
+// Manual flip — password-gated. Swaps which team is on the morning slot, effective now.
+window.flipRotationNow=async function(){
+  const pw=prompt('Admin password required to change team rotation:');
+  if(pw===null) return;
+  if(!D.user||pw!==D.user.password){toast('Wrong password — rotation not changed','error');return;}
+  const cur=rotationState();
+  const newMorning=cur.morningTeam==='A'?'B':'A';
+  await window._set(window._ref(window._db,'settings/rotation'),{
+    morningTeam:newMorning, cycleDays:(D.rotation?.cycleDays)||14, autoRotate:(D.rotation?.autoRotate!==false),
+    anchor:lastSunday2am(), updatedBy:D.user?.username||'admin', updatedAt:new Date().toISOString()
+  });
+  toast('✅ Rotation changed — Team '+newMorning+' now on morning shift');
+};
+// Toggle automatic fortnightly rotation on/off (password-gated).
+window.toggleAutoRotate=async function(){
+  const pw=prompt('Admin password required:');
+  if(pw===null) return;
+  if(!D.user||pw!==D.user.password){toast('Wrong password','error');return;}
+  const cur=rotationState();
+  await window._set(window._ref(window._db,'settings/rotation'),{
+    morningTeam:cur.morningTeam, cycleDays:(D.rotation?.cycleDays)||14,
+    autoRotate:!(D.rotation?.autoRotate!==false), anchor:lastSunday2am(),
+    updatedBy:D.user?.username||'admin', updatedAt:new Date().toISOString()
+  });
+  toast('Auto-rotation '+((D.rotation?.autoRotate!==false)?'disabled':'enabled'));
+};
 
 // ======================== DATA MANAGEMENT ========================
-async function _deleteCollection(col){
-  const {get,ref,remove}=window._fbSDK||{};
-  // Use onValue already loaded data for bulk delete
-  const items=col==='rovingInspections'?(D.rovingInspections||[])
-    :col==='inspections'?(D.inspections||[])
-    :col==='alerts'?(D.alerts||[])
-    :[];
-  let n=0;
-  for(const i of items){if(i.fbKey){await window.fbDel(col,i.fbKey);n++;}}
-  return n;
-}
-
 window.clearTodayRoving=async function(){
   const today=new Date().toISOString().split('T')[0];
   const todayRecs=(D.rovingInspections||[]).filter(i=>i.date===today);
@@ -2648,7 +2782,7 @@ window.printQR=function(){
     @media print{.sticker{border:2px solid #111}}
   </style></head><body>
     <div class="sticker">
-      <div class="brand"><div class="brand-icon">BX</div><div class="brand-text">BRANDIX QMS</div></div>
+      <div class="brand"><div class="brand-icon"><svg viewBox="0 0 24 24" width="58%" height="58%" fill="none"><path d="M4 13 L9.5 18.5 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 4.2"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg></div><div class="brand-text">GARMENTFIX QMS</div></div>
       <h1>${name}</h1>
       <div class="mid">${mid}</div>
       <div class="qr-box">${el.innerHTML}</div>
@@ -2734,7 +2868,7 @@ function bindSeed(){
   btn.onclick=async()=>{if(!confirm('Add demo data?'))return;btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Seeding...';
   try{
     // Users
-    await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@brandix.com',status:'Active'});
+    await window.fbAdd('users',{username:'admin',password:'admin123',name:'Admin',role:'Admin',dept:'Quality',email:'admin@garmentfix.com',status:'Active'});
     await window.fbAdd('users',{username:'ravi',password:'ravi123',name:'Ravi Perera',role:'QC Roving Inspector',dept:'Quality',status:'Active'});
     await window.fbAdd('users',{username:'sita',password:'sita123',name:'Sita Nair',role:'QC End Line Inspector',dept:'Quality',status:'Active'});
     await window.fbAdd('users',{username:'bimal',password:'bimal123',name:'Bimal Silva',role:'Supervisor',dept:'Production',status:'Active'});
