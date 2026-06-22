@@ -1519,9 +1519,18 @@ function renderRovingHome(){
   const machines=getModuleMachines();
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
-  const myRounds=(WS.myRovingInspections||[]).filter(i=>i.date===today);
-  const completedVisits=[...new Set(myRounds.map(i=>parseInt(i.visitNum)).filter(Boolean))];
-  const nextVisit=(completedVisits.length>0?Math.max(...completedVisits):0)+1;
+  // Scope to THIS module only — visits done on Module-10 must NOT show on Module-10.1.
+  const myRounds=(WS.myRovingInspections||[]).filter(i=>i.date===today && i.module===(m?.name||''));
+  // A visit counts as COMPLETE only when every operator on the line has been checked in it.
+  // (Treating one partial record as "done" is what closed an unfinished visit on refresh.)
+  const machineCount=machines.length;
+  const opsByVisit={};
+  myRounds.forEach(i=>{const v=parseInt(i.visitNum);if(!v)return;(opsByVisit[v]=opsByVisit[v]||new Set()).add(i.machineId||i.operatorId||i.machineName);});
+  const startedVisits=Object.keys(opsByVisit).map(Number);
+  const completedVisits=startedVisits.filter(v=>machineCount>0 && opsByVisit[v].size>=machineCount);
+  const inProgress=startedVisits.filter(v=>!completedVisits.includes(v)).sort((a,b)=>a-b);
+  // Resume an unfinished visit if one exists; otherwise move to the next new visit.
+  const nextVisit=inProgress.length>0?inProgress[0]:((completedVisits.length>0?Math.max(...completedVisits):0)+1);
   WS.rovingRound=nextVisit;
   const noMachines=machines.length===0;
   return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
@@ -1580,17 +1589,22 @@ function renderCapNavButton(){
 window.startRovingRound=async function(visitNum){
   const m=WS.scannedModule;
   if(!m){toast('No module selected','error');return;}
+  // Resume: if this visit was already partly done (e.g. after a refresh), pre-mark the
+  // operators already checked so the QC only continues with the ones still pending.
+  const today=new Date().toISOString().split('T')[0];
+  const priorResults=(WS.myRovingInspections||[]).filter(i=>i.date===today && i.module===(m?.name||'') && parseInt(i.visitNum)===visitNum)
+    .map(i=>({machineId:i.machineId,operatorId:i.operatorId,operation:i.operation,machineName:i.machineName}));
   try{
     let machines=await fetchRosterWorkers(m);
     if(machines.length===0){toast('No operators in roster — set up roster first','error');return;}
     WS.rovingRound=visitNum;WS.rovingRoundData=machines.map(w=>({...w}));
-    WS.checkMachineIdx=0;WS.rovingRoundResults=[];WS._currentCheckMachine=null;
+    WS.checkMachineIdx=0;WS.rovingRoundResults=priorResults;WS._currentCheckMachine=null;
     WS.step='roving_scan_pick';renderW();
   }catch(e){
     const machines=getModuleMachines();
     if(machines.length===0){toast('No operators in roster','error');return;}
     WS.rovingRound=visitNum;WS.rovingRoundData=[...machines];
-    WS.checkMachineIdx=0;WS.rovingRoundResults=[];WS._currentCheckMachine=null;
+    WS.checkMachineIdx=0;WS.rovingRoundResults=priorResults;WS._currentCheckMachine=null;
     WS.step='roving_scan_pick';renderW();
   }
 };
@@ -2143,15 +2157,19 @@ function renderEditRecord(){
   if(type==='endline'){
     fields=inp('Operator ID','ed-operatorId',rec.operatorId)
       +inp('Operation','ed-operation',rec.operation)
+      +inp('Hour / Time','ed-time',rec.time,'type="time"')
       +inp('Checked Qty','ed-checkedQty',rec.checkedQty,'type="number" min="0"')
       +inp('Defect Qty','ed-defectQty',rec.defectQty,'type="number" min="0"')
       +inp('Defect Type','ed-defectType',rec.defectType);
   }else{
-    fields=inp('Sample Qty (SP)','ed-sp',rec.sp,'type="number" min="0"')
+    fields=inp('Visit Number','ed-visitNum',rec.visitNum,'type="number" min="1" max="4"')
+      +inp('Hour / Time','ed-time',rec.time,'type="time"')
+      +inp('Sample Qty (SP)','ed-sp',rec.sp,'type="number" min="0"')
       +inp('Defects (DC)','ed-dc',rec.dc,'type="number" min="0"')
       +inp('Defect Type','ed-defectType',rec.defectType)
       +inp('SPI','ed-spi',rec.spi,'type="number" step="0.5"')
-      +'<div class="form-group"><label class="form-label">TRIM</label><select class="form-input" id="ed-trim"><option value="pass"'+(rec.trim==='pass'?' selected':'')+'>Pass</option><option value="fail"'+(rec.trim!=='pass'?' selected':'')+'>Fail</option></select></div>';
+      +'<div class="form-group"><label class="form-label">TRIM</label><select class="form-input" id="ed-trim"><option value="pass"'+(rec.trim==='pass'?' selected':'')+'>Pass</option><option value="fail"'+(rec.trim!=='pass'?' selected':'')+'>Fail</option></select></div>'
+      +'<div class="form-group"><label class="form-label">Action By (AB)</label><select class="form-input" id="ed-ab"><option value="">— None —</option>'+['A','B','C','D'].map(x=>'<option'+((rec.ab||rec.cpa)===x?' selected':'')+'>'+x+'</option>').join('')+'</select></div>';
   }
   return '<div class="card" style="background:rgba(0,212,168,.06);border:1px solid rgba(0,212,168,.3);margin-bottom:14px">'
     +'<div style="font-size:16px;font-weight:700">✎ Edit Record</div>'
@@ -2169,11 +2187,15 @@ window.saveEditRecord=async function(){
   let upd;
   if(type==='endline'){
     upd={operatorId:g('ed-operatorId')||'',operation:g('ed-operation')||'',
+      time:g('ed-time')||'',
       checkedQty:parseInt(g('ed-checkedQty'))||0,defectQty:parseInt(g('ed-defectQty'))||0,
       defectType:g('ed-defectType')||''};
   }else{
-    upd={sp:parseInt(g('ed-sp'))||0,dc:parseInt(g('ed-dc'))||0,defectType:g('ed-defectType')||'',
-      spi:parseFloat(g('ed-spi'))||0,trim:g('ed-trim')||'pass'};
+    const ab=g('ed-ab')||'';
+    upd={visitNum:parseInt(g('ed-visitNum'))||1,time:g('ed-time')||'',
+      sp:parseInt(g('ed-sp'))||0,dc:parseInt(g('ed-dc'))||0,defectType:g('ed-defectType')||'',
+      spi:parseFloat(g('ed-spi'))||0,trim:g('ed-trim')||'pass',
+      ab,cpa:ab};   // keep cpa mirror for admin report backward-compat
   }
   try{
     await window._update(window._ref(window._db,path),{...upd,editedAt:new Date().toISOString(),editedBy:WS.user?.username||''});
@@ -2866,10 +2888,7 @@ function bindLHScan(){
     if(e.key==='Enter')document.getElementById('lh-manual-btn')?.click();
   });
 }
-
-// Release the camera when the tab is backgrounded — cuts the memory pressure that
-// makes mobile Chrome discard/reload the tab. The session is persisted, so when the
-// operator returns they stay logged in and just re-open the scanner.
+  
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){try{stopQR();}catch(e){}saveSession();}
   else if(WS.user){startQRIfNeeded();}
@@ -2888,4 +2907,3 @@ renderW();
 </script>
 </body>
 </html>
-    
