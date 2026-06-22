@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 140" width="560" height="140">
+  <defs>
+    <linearGradient id="gfg" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00d4a8"/>
+      <stop offset="1" stop-color="#0984e3"/>
+    </linearGradient>
+  </defs>
+  <!-- mark -->
+  <g transform="translate(10,10)">
+    <rect width="120" height="120" rx="28" fill="url(#gfg)"/>
+    <path d="M28 63 L50 84 L93 35" fill="none" stroke="#fff" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round" opacity="0.22"/>
+    <path d="M28 63 L50 84 L93 35" fill="none" stroke="#fff" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.5 11"/>
+    <circle cx="93" cy="35" r="5.4" fill="#fff"/>
+  </g>
+  <!-- wordmark -->
+  <text x="148" y="68" font-family="'IBM Plex Sans',Segoe UI,Arial,sans-serif" font-size="40" font-weight="700" fill="#0f1720">Garment<tspan fill="#00b894">Fix</tspan></text>
+  <text x="150" y="98" font-family="'IBM Plex Sans',Segoe UI,Arial,sans-serif" font-size="16" font-weight="500" letter-spacing="3" fill="#6b7785">APPAREL QUALITY MANAGEMENT</text>
+</svg>

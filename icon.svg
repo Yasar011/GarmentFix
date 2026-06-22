@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="gfg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00d4a8"/>
+      <stop offset="1" stop-color="#0984e3"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#gfg)"/>
+  <!-- faint thread guide -->
+  <path d="M120 268 L214 360 L398 150" fill="none" stroke="#ffffff" stroke-width="34"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.22"/>
+  <!-- stitched checkmark (quality pass) -->
+  <path d="M120 268 L214 360 L398 150" fill="none" stroke="#ffffff" stroke-width="34"
+        stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 46"/>
+  <!-- needle eye at the end of the thread -->
+  <circle cx="398" cy="150" r="23" fill="#ffffff"/>
+</svg>
