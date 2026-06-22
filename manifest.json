@@ -1,7 +1,7 @@
 {
-  "name": "Brandix QC — Worker",
-  "short_name": "Brandix QC",
-  "description": "Brandix garment QMS — worker inspection app",
+  "name": "GarmentFix QMS",
+  "short_name": "G-Fix",
+  "description": "GarmentFix QMS — Apparel Quality Management",
   "start_url": "QCworker.html",
   "scope": "./",
   "display": "standalone",
@@ -9,6 +9,12 @@
   "background_color": "#0d1117",
   "theme_color": "#00b894",
   "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
     {
       "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAAB6klEQVR42u3cwQ1DIQxEQfd/phi6gx6QkI2Z6BVAlsnpJ4mYQzrPBAJIAAkgASQBJIAEkACSABJAAkgASQAJIAEkgCSABJAAEkACSAJIAAkgASQBJIAEkACSABJAAkgASQAJIAEkgASQBJAAEkACSAJIAAkgASQBJIDUCtAq/ErZ8d+zAQQQQAABBBBAAAEEEEAAAQQQQAABBBBAAAEEEEAAAQQQQPYyCEAAAQQQQAABBJBBAAIIIIAAAggggACyF0AAAQQQQAABBJC9HjhbiXfqkgACCCCAAAIIIIBcEkAAAQQQQAABBJBLAggggAByNoAAAshPm30GAAIIIIAAAggggAACCCCAAAIIIIAAAggggAACCCCAAAIIIE+8PY0HCCCAnA0ggAACCCCAAALI2QACCCCAAAIIIIAAAggggAACyCVR63+iAQIIIIAAAsheBgEIIIAAAggggOxlEIAAAggggAACyF4G8dNmXwEACCCAAAIIIIAAAggggAACCCCAAAIIIIAAAggggAACCCCAbgGSABJAAkgACSAJIAEkgASQBJAAEkACSAJIAAkgASQBJIAEkAASQFYQQAJIAAkgCSABJIAEkASQABJAAkgCSAAJIAEkASSABJAAEkASQAJIAAkgCSABJIDUtw1jd6YLUrLjwwAAAABJRU5ErkJggg==",
       "sizes": "192x192",
