@@ -349,12 +349,26 @@ function renderPg(){
 }
 
 // ======================== DASHBOARD ========================
+// Roving inspections are stored in a separate table with sp (checked) / dc (defects) and
+// no `type`. Roving IS the inline checking, so normalise roving rows into the inspection
+// shape and merge them so the dashboard counts them everywhere (KPIs, charts, modules).
+function rovAsInsp(r){return {...r,type:'roving',checkedQty:(r.sp!=null?r.sp:r.checkedQty)||0,defectQty:(r.dc!=null?r.dc:r.defectQty)||0};}
+function allInspections(){return (D.inspections||[]).concat((D.rovingInspections||[]).map(rovAsInsp));}
+// Keep production output (End Line) separate from in-process checks (Roving + Inline).
+// End Line = the line's good-garment output for the day; Roving is a separate quality check.
+function elInsp(){return (D.inspections||[]).filter(i=>i.type==='endline');}
+function rovInsp(){return (D.rovingInspections||[]).map(rovAsInsp).concat((D.inspections||[]).filter(i=>i.type==='inline'));}
+function sumChk(a){return a.reduce((s,i)=>s+(parseInt(i.checkedQty)||0),0);}
+function sumDef(a){return a.reduce((s,i)=>s+(parseInt(i.defectQty)||0),0);}
+function dhuOf(a){const c=sumChk(a),d=sumDef(a);return c?((d/c)*100).toFixed(1):'0.0';}
+
 function pgDash(){
-  const ins=D.inspections,td=new Date().toISOString().split('T')[0];
-  const ti=ins.filter(i=>(i.createdAt||i.date||'').startsWith(td));
+  const el=elInsp(),rov=rovInsp(),recent=allInspections(),td=new Date().toISOString().split('T')[0];
+  const elChk=sumChk(el),elDef=sumDef(el),elGood=elChk-elDef;
+  const elToday=el.filter(i=>(i.createdAt||i.date||'').startsWith(td));
   const comps=D.styles.filter(s=>s.status==='Completed');
   const reqs = D.users.filter(u => u.changeRequest);
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div class="grid-4">${kpi(ins.length,'Inspections','All time','var(--accent)')}${kpi(ti.length,"Today",'','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','Total','var(--red)')}${kpi(dhu(ins)+'%','DHU','Target 2.5%','var(--yellow)')}</div><div class="grid-4">${kpi(D.modules.length,'Modules','','var(--accent2)')}${kpi(D.styles.filter(s=>s.status==='Running').length,'Running Styles','','var(--purple)')}${kpi(comps.length,'Completed','Styles','var(--green)')}${kpi(reqs.length,'Pending Requests','','var(--yellow)')}</div>${reqs.length>0?`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Module Change Requests</span></div><div style="display:flex;flex-direction:column;gap:8px">${reqs.map(u=>{let am={name:'Unknown'};try{am=JSON.parse(u.activeModule||'{}')}catch(e){}return`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${u.name||u.username}</div><div style="font-size:11px;color:var(--text2)">Wants to change from: ${am.name||am.moduleId||'Unknown'}</div></div><button class="btn btn-primary btn-sm" onclick="approveChange('${u.fbKey}')">Approve Unlock</button></div>`}).join('')}</div></div>`:''}<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Timeline</span></div><div class="chart-wrap"><canvas id="ch1"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch2"></canvas></div></div></div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Recent Inspections</span><button class="btn btn-ghost btn-sm" onclick="nav('inspections')">All</button></div>${ins.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Module</th><th>Defects</th><th>Time</th></tr></thead><tbody>${ins.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">Alerts</span></div>${D.alerts.slice(-4).reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',14)}<div style="flex:1"><div style="font-size:13px;font-weight:500">${a.title||''}</div><div style="font-size:11px;color:var(--text3)">${ta(a.createdAt)}</div></div></div>`).join('')||'<div style="color:var(--text3);padding:12px;text-align:center">No alerts</div>'}</div></div></div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div class="grid-4">${kpi(elChk,'Line Output','End Line checked','var(--accent)')}${kpi(elGood,'Good Garments','Checked − defects','var(--green)')}${kpi(elDef,'Defects','End Line','var(--red)')}${kpi(dhuOf(el)+'%','DHU','End Line · target 2.5%','var(--yellow)')}</div><div class="grid-4">${kpi(sumChk(rov),'Roving Sampled','pieces · separate','var(--blue)')}${kpi(sumDef(rov),'Roving Defects','in-process','var(--red)')}${kpi(dhuOf(rov)+'%','Roving DHU','','var(--purple)')}${kpi(elToday.length,'End Line Today','records','var(--accent2)')}</div><div class="grid-4">${kpi(D.modules.length,'Modules','','var(--accent2)')}${kpi(D.styles.filter(s=>s.status==='Running').length,'Running Styles','','var(--purple)')}${kpi(comps.length,'Completed','Styles','var(--green)')}${kpi(reqs.length,'Pending Requests','','var(--yellow)')}</div>${reqs.length>0?`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Module Change Requests</span></div><div style="display:flex;flex-direction:column;gap:8px">${reqs.map(u=>{let am={name:'Unknown'};try{am=JSON.parse(u.activeModule||'{}')}catch(e){}return`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${u.name||u.username}</div><div style="font-size:11px;color:var(--text2)">Wants to change from: ${am.name||am.moduleId||'Unknown'}</div></div><button class="btn btn-primary btn-sm" onclick="approveChange('${u.fbKey}')">Approve Unlock</button></div>`}).join('')}</div></div>`:''}<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Timeline</span></div><div class="chart-wrap"><canvas id="ch1"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch2"></canvas></div></div></div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Recent Inspections</span><button class="btn btn-ghost btn-sm" onclick="nav('inspections')">All</button></div>${recent.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Module</th><th>Defects</th><th>Time</th></tr></thead><tbody>${recent.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">Alerts</span></div>${D.alerts.slice(-4).reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',14)}<div style="flex:1"><div style="font-size:13px;font-weight:500">${a.title||''}</div><div style="font-size:11px;color:var(--text3)">${ta(a.createdAt)}</div></div></div>`).join('')||'<div style="color:var(--text3);padding:12px;text-align:center">No alerts</div>'}</div></div></div>`;
 }
 
 // ======================== MODULES ========================
@@ -538,20 +552,28 @@ function pgStyleReport(){
   // --- Line-wise breakdown (one card per module/line running this style) ---
   // Combines End Line / Inline (checkedQty/defectQty) with Roving (sp/dc) per line.
   const byLine={};
-  ins.forEach(i=>{const ln=i.module||'—';if(!byLine[ln])byLine[ln]={chk:0,def:0};byLine[ln].chk+=parseInt(i.checkedQty)||0;byLine[ln].def+=parseInt(i.defectQty)||0;});
-  rovIns.forEach(i=>{const ln=i.module||'—';if(!byLine[ln])byLine[ln]={chk:0,def:0};byLine[ln].chk+=parseInt(i.sp)||0;byLine[ln].def+=parseInt(i.dc)||0;});
+  const lb=ln=>byLine[ln]||(byLine[ln]={elChk:0,elDef:0,rovChk:0,rovDef:0});
+  ins.forEach(i=>{const b=lb(i.module||'—');if(i.type==='inline'){b.rovChk+=parseInt(i.checkedQty)||0;b.rovDef+=parseInt(i.defectQty)||0;}else{b.elChk+=parseInt(i.checkedQty)||0;b.elDef+=parseInt(i.defectQty)||0;}});
+  rovIns.forEach(i=>{const b=lb(i.module||'—');b.rovChk+=parseInt(i.sp)||0;b.rovDef+=parseInt(i.dc)||0;});
   const lineKeys=Object.keys(byLine).sort();
   const lineHint=lineKeys.length<=1?`<div style="font-size:12px;color:var(--text3);padding:8px 12px;background:var(--bg3);border-radius:8px;border:1px dashed var(--border)">💡 Only ${lineKeys.length} line found for this style. To compare two lines here (e.g. MODULE-10 and 10.1), assign the <b>same style</b> to both modules on the Modules page — they'll then appear side by side automatically.</div>`:'';
   const lineCards=(lineKeys.length?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
     ${lineKeys.map(ln=>{
-      const g=byLine[ln];const d=g.chk?((g.def/g.chk)*100).toFixed(1):'—';
-      const c=g.chk?(parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
-      const share=totChk?Math.round((g.chk/(totChk||1))*100):0;
+      const g=byLine[ln];const d=g.elChk?((g.elDef/g.elChk)*100).toFixed(1):'—';
+      const c=g.elChk?(parseFloat(d)>5?'var(--red)':parseFloat(d)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
+      const rd=g.rovChk?((g.rovDef/g.rovChk)*100).toFixed(1):'—';
       return`<div class="card" style="padding:16px;border-left:3px solid ${c}">
         <div style="font-size:15px;font-weight:700;margin-bottom:8px">${ln}</div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Checked</span><span style="font-family:var(--mono);color:var(--text)">${g.chk}</span></div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Defects</span><span style="font-family:var(--mono);color:var(--red)">${g.def}</span></div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-top:6px"><span>DHU</span><span style="font-family:var(--mono);color:${c}">${d}${g.chk?'%':''}</span></div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">End Line · output</div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Output</span><span style="font-family:var(--mono);color:var(--text)">${g.elChk}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Good</span><span style="font-family:var(--mono);color:var(--green)">${g.elChk-g.elDef}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Defects</span><span style="font-family:var(--mono);color:var(--red)">${g.elDef}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-top:4px"><span>DHU</span><span style="font-family:var(--mono);color:${c}">${d}${g.elChk?'%':''}</span></div>
+        <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Roving · separate</div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:3px"><span>Sampled</span><span style="font-family:var(--mono)">${g.rovChk}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2)"><span>DHU</span><span style="font-family:var(--mono)">${g.rovChk?rd+'%':'—'}</span></div>
+        </div>
       </div>`;
     }).join('')}
   </div>`:`<div class="card" style="padding:24px;text-align:center;color:var(--text3)">No inspection data for this style yet.</div>`)+lineHint;
@@ -709,9 +731,14 @@ function pgModuleReport(){
   const ins=D.inspections.filter(i=>i.module===sel.name);
   const rovIns=(D.rovingInspections||[]).filter(i=>i.module===sel.name);
 
-  const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rovIns.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
-  const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rovIns.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
-  const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
+  // End Line = the line's output (good garments). Roving/Inline = separate in-process checks.
+  const elRows=ins.filter(i=>i.type!=='inline'), inlineRows=ins.filter(i=>i.type==='inline');
+  const elChk=sumChk(elRows), elDef=sumDef(elRows), elGood=elChk-elDef;
+  const rovChk=rovIns.reduce((a,i)=>a+(parseInt(i.sp)||0),0)+sumChk(inlineRows);
+  const rovDef=rovIns.reduce((a,i)=>a+(parseInt(i.dc)||0),0)+sumDef(inlineRows);
+  const totChk=elChk,totDef=elDef;          // headline reflects End Line output only
+  const dhu=elChk?((elDef/elChk)*100).toFixed(2):'0.00';
+  const rovDhu=rovChk?((rovDef/rovChk)*100).toFixed(2):'0.00';
   const aql=parseFloat(dhu)<=2.5?'PASS':'REVIEW';
   const allDates=[...new Set(ins.map(i=>i.date||(i.createdAt||'').split('T')[0]).filter(Boolean))].sort();
 
@@ -731,17 +758,27 @@ function pgModuleReport(){
     </div>
   </div>`;
 
-  const kpis=`<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
-    ${[
-      ['Records',ins.length+rovIns.length,'var(--accent)'],
-      ['Checked',totChk,'var(--blue)'],
-      ['Defects',totDef,'var(--red)'],
-      ['DHU',dhu+'%',parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'],
-      ['AQL',aql,aql==='PASS'?'var(--green)':'var(--red)'],
-    ].map(([l,v,c])=>`<div class="card" style="padding:14px;text-align:center;border-color:${c}22">
+  const kpiBox=([l,v,c])=>`<div class="card" style="padding:14px;text-align:center;border-color:${c}22">
       <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${c}">${v}</div>
       <div style="font-size:11px;color:var(--text2);margin-top:4px">${l}</div>
-    </div>`).join('')}
+    </div>`;
+  const kpis=`<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">End Line — line output of the day</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+    ${[
+      ['Line Output',elChk,'var(--accent)'],
+      ['Good Garments',elGood,'var(--green)'],
+      ['Defects',elDef,'var(--red)'],
+      ['DHU',dhu+'%',parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'],
+      ['AQL',aql,aql==='PASS'?'var(--green)':'var(--red)'],
+    ].map(kpiBox).join('')}
+  </div>
+  <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-top:6px">Roving — separate in-process check</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+    ${[
+      ['Roving Sampled',rovChk,'var(--blue)'],
+      ['Roving Defects',rovDef,'var(--red)'],
+      ['Roving DHU',rovDhu+'%','var(--purple)'],
+    ].map(kpiBox).join('')}
   </div>`;
 
   // Daily breakdown with A/B shift split
@@ -807,10 +844,14 @@ function rptModuleReport(fmt){
 
 function moduleReportPDF(sel,ins,rov){
   const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
-  const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
-  const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
-  pdfHeader(doc,'Module Report — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`,`Generated: ${new Date().toLocaleString()}`);
+  const elRows=ins.filter(i=>i.type!=='inline'), inlineRows=ins.filter(i=>i.type==='inline');
+  const elChk=elRows.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const elDef=elRows.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const rovChk=rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0)+inlineRows.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const rovDef=rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0)+inlineRows.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const dhu=elChk?((elDef/elChk)*100).toFixed(2):'0.00';
+  const rovDhu=rovChk?((rovDef/rovChk)*100).toFixed(2):'0.00';
+  pdfHeader(doc,'Module Report — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),`End Line output: ${elChk}   Good: ${elChk-elDef}   Defects: ${elDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}   |   Roving: ${rovChk} sampled · ${rovDef} def · ${rovDhu}%`,`Generated: ${new Date().toLocaleString()}`);
   // Operator table
   const byOp={};ins.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.checkedQty)||0;byOp[op].def+=parseInt(i.defectQty)||0;});
   rov.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.sp)||0;byOp[op].def+=parseInt(i.dc)||0;});
@@ -825,10 +866,15 @@ function moduleReportExcel(sel,ins,rov){
   const aoa=[];
   aoa.push([factoryName()+' — MODULE REPORT']);
   aoa.push([`Module: ${sel.name}`,`Style: ${sel.styleName||'—'}`,`Buyer: ${sel.buyer||'—'}`,`Team: ${sel.shift||'—'}`]);
-  const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0);
-  const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0)+rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0);
-  const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
-  aoa.push([`Total Checked: ${totChk}`,`Total Defects: ${totDef}`,`DHU: ${dhu}%`,`AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`]);
+  const elRows=ins.filter(i=>i.type!=='inline'), inlineRows=ins.filter(i=>i.type==='inline');
+  const elChk=elRows.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const elDef=elRows.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const rovChk=rov.reduce((a,i)=>a+(parseInt(i.sp)||0),0)+inlineRows.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const rovDef=rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0)+inlineRows.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const dhu=elChk?((elDef/elChk)*100).toFixed(2):'0.00';
+  const rovDhu=rovChk?((rovDef/rovChk)*100).toFixed(2):'0.00';
+  aoa.push([`End Line Output: ${elChk}`,`Good Garments: ${elChk-elDef}`,`Defects: ${elDef}`,`DHU: ${dhu}%`,`AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`]);
+  aoa.push([`Roving (separate): ${rovChk} sampled`,`Roving Defects: ${rovDef}`,`Roving DHU: ${rovDhu}%`]);
   aoa.push([]);
   aoa.push(['OPERATOR-WISE']);
   aoa.push(['Operator','Operation','Checked','Defects','DHU%']);
@@ -1867,14 +1913,19 @@ function shiftSummaryExcel(rows){
 function pgAlerts(){return`<div style="display:flex;flex-direction:column;gap:20px"><div><button class="btn btn-primary" onclick="showModal('addAlert')">${ic('plus',14)} Create Alert</button></div>${D.alerts.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No alerts</div>':D.alerts.slice().reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',16)}<div style="flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">${a.title||''}</span><span class="badge badge-${a.level==='critical'?'red':a.level==='high'?'yellow':'blue'}">${a.level||''}</span>${a.read?'':'<span class="badge badge-red" style="font-size:9px">NEW</span>'}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">${a.message||''}</div><div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span style="font-size:10px;color:var(--text3)">${ft(a.createdAt)}</span>${!a.read?`<button class="btn btn-ghost btn-sm" onclick="markRead('${a.fbKey}')">Mark Read</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('alerts','${a.fbKey}')">${ic('trash',14)}</button></div></div></div>`).join('')}</div>`;}
 
 function pgInsp(){
-  let ins=D.inspections.slice().reverse();const q=D.sq.toLowerCase();
+  let ins=allInspections().sort((a,b)=>((b.createdAt||b.date||'')+'').localeCompare((a.createdAt||a.date||'')+''));const q=D.sq.toLowerCase();
   if(q)ins=ins.filter(i=>(i.type||'').includes(q)||(i.module||'').toLowerCase().includes(q)||(i.inspector||'').toLowerCase().includes(q)||(i.operatorId||'').toLowerCase().includes(q));
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td>${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('inspections','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='endline'?'purple':i.type==='roving'?'green':'blue'}">${i.type==='roving'?'Roving':i.type==='endline'?'End Line':i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td>${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('${i.type==='roving'?'rovingInspections':'inspections'}','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
 }
 
 function pgSuper(){
-  const ins=D.inspections;const mm={};
-  ins.forEach(i=>{if(i.module){if(!mm[i.module])mm[i.module]={c:0,d:0,n:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;mm[i.module].n++;}});
+  const el=elInsp(),rov=rovInsp();
+  const elChk=sumChk(el),elDef=sumDef(el),elGood=elChk-elDef;
+  const rovChk=sumChk(rov),rovDef=sumDef(rov);
+  const mm={};
+  const bucket=m=>mm[m]||(mm[m]={elChk:0,elDef:0,rovChk:0,rovDef:0,n:0});
+  el.forEach(i=>{if(i.module){const b=bucket(i.module);b.elChk+=parseInt(i.checkedQty)||0;b.elDef+=parseInt(i.defectQty)||0;b.n++;}});
+  rov.forEach(i=>{if(i.module){const b=bucket(i.module);b.rovChk+=parseInt(i.checkedQty)||0;b.rovDef+=parseInt(i.defectQty)||0;}});
   const pendingRosters = (D.machineRosters||[]).filter(r => r.status === 'Pending Approval');
   let pendingHtml = '';
   if (pendingRosters.length > 0) {
@@ -1894,7 +1945,7 @@ function pgSuper(){
     editReqHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">✏️ Pending Edit Requests (${pendEdits.length})</span></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Module</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${r.recordType==='endline'?'End Line':'Roving'}</td><td>${r.module||''}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveEditReq('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectEditReq('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
   }
   const auditHtml=`<div class="card"><div class="card-header"><span class="card-title">📋 Edit Request Log (${allEdits.length})</span></div>${allEdits.length===0?'<div style="padding:20px;text-align:center;color:var(--text3)">No edit requests yet.</div>':`<div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${r.recordType==='endline'?'EL':'Rov'}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:200px;font-size:12px">${r.reason||'—'}</td><td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div>${pendingHtml}${editReqHtml}${ticketHtml}${auditHtml}<div class="grid-4">${kpi(ins.length,'Inspections','','var(--accent)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0),'Checked','','var(--blue)')}${kpi(ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0),'Defects','','var(--red)')}${kpi(dhu(ins)+'%','DHU','','var(--yellow)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Module</th><th>Inspections</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Status</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.c?((d.d/d.c)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${m}</td><td>${d.n}</td><td>${d.c}</td><td style="color:var(--red)">${d.d}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div>${pendingHtml}${editReqHtml}${ticketHtml}${auditHtml}<div class="grid-4">${kpi(elChk,'Line Output','End Line checked','var(--accent)')}${kpi(elGood,'Good Garments','Checked − defects','var(--green)')}${kpi(elDef,'Defects','End Line','var(--red)')}${kpi(dhuOf(el)+'%','DHU','End Line','var(--yellow)')}</div><div class="grid-4">${kpi(rovChk,'Roving Sampled','pieces · separate','var(--blue)')}${kpi(rovDef,'Roving Defects','in-process','var(--red)')}${kpi(dhuOf(rov)+'%','Roving DHU','','var(--purple)')}${kpi(el.length+rov.length,'Total Records','el + roving','var(--accent2)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div style="font-size:11px;color:var(--text3);padding:0 16px 8px">End Line = line output (good garments). Roving = separate in-process check.</div><div class="table-wrap"><table><thead><tr><th rowspan="2">Module</th><th colspan="4" style="text-align:center;border-bottom:1px solid var(--border)">End Line (output)</th><th colspan="3" style="text-align:center;border-left:2px solid var(--border2);border-bottom:1px solid var(--border)">Roving (separate)</th><th rowspan="2" style="border-left:2px solid var(--border2)">Status</th></tr><tr><th>Output</th><th>Good</th><th>Defects</th><th>DHU</th><th style="border-left:2px solid var(--border2)">Sampled</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.elChk?((d.elDef/d.elChk)*100).toFixed(1):0;const rv=d.rovChk?((d.rovDef/d.rovChk)*100).toFixed(1):0;const good=d.elChk-d.elDef;return`<tr><td style="font-weight:500">${m}</td><td style="font-family:var(--mono)">${d.elChk}</td><td style="font-family:var(--mono);color:var(--green)">${good}</td><td style="font-family:var(--mono);color:var(--red)">${d.elDef}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${d.elChk?v+'%':'—'}</td><td style="font-family:var(--mono);color:var(--text2);border-left:2px solid var(--border2)">${d.rovChk}</td><td style="font-family:var(--mono);color:var(--red)">${d.rovDef}</td><td style="color:${rv>5?'var(--red)':rv>3?'var(--yellow)':'var(--text2)'}">${d.rovChk?rv+'%':'—'}</td><td style="border-left:2px solid var(--border2)"><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
 }
 
 window.approveShift = async function(k){
@@ -2898,7 +2949,7 @@ function bindSeed(){
 
 // Charts
 function renderCharts(){
-  const ins=D.inspections;const colors=['#e05555','#d4a800','#4488ff','#9966ff','#00d4a8','#ff9424'];
+  const ins=allInspections();const colors=['#e05555','#d4a800','#4488ff','#9966ff','#00d4a8','#ff9424'];
   const chOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:11}}},x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:10}}}}};
   // ch1 - timeline
   const e1=document.getElementById('ch1');
@@ -2908,13 +2959,13 @@ function renderCharts(){
   if(e2&&ins.length){const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);charts.c2=new Chart(e2,{type:'doughnut',data:{labels:t.map(([n])=>n),datasets:[{data:t.map(([_,c])=>c),backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#9097a8',font:{size:10},boxWidth:12}}},cutout:'65%'}});}
   // ch3 - type split
   const e3=document.getElementById('ch3');
-  if(e3){charts.c3=new Chart(e3,{type:'doughnut',data:{labels:['Inline','End Line'],datasets:[{data:[ins.filter(i=>i.type==='inline').length,ins.filter(i=>i.type==='endline').length],backgroundColor:['#4488ff','#9966ff'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#9097a8'}}},cutout:'65%'}});}
+  if(e3){charts.c3=new Chart(e3,{type:'doughnut',data:{labels:['Roving','End Line'],datasets:[{data:[ins.filter(i=>i.type==='roving'||i.type==='inline').length,ins.filter(i=>i.type==='endline').length],backgroundColor:['#4488ff','#9966ff'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#9097a8'}}},cutout:'65%'}});}
   // ch4 - top defects bar
   const e4=document.getElementById('ch4');
   if(e4){const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);charts.c4=new Chart(e4,{type:'bar',data:{labels:t.map(([n])=>n.length>12?n.slice(0,12)+'…':n),datasets:[{data:t.map(([_,c])=>c),backgroundColor:colors,borderRadius:4}]},options:{...chOpts,indexAxis:'y'}});}
   // ch5 - DHU trend
   const e5=document.getElementById('ch5');
-  if(e5&&ins.length){const dm={};ins.forEach(i=>{const d=(i.date||(i.createdAt||'').split('T')[0])||'?';if(!dm[d])dm[d]={c:0,d:0};dm[d].c+=parseInt(i.checkedQty)||0;dm[d].d+=parseInt(i.defectQty)||0;});const s=Object.entries(dm).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);charts.c5=new Chart(e5,{type:'line',data:{labels:s.map(([d])=>d.slice(5)),datasets:[{label:'DHU %',data:s.map(([_,d])=>d.c?((d.d/d.c)*100).toFixed(1):0),borderColor:'#00d4a8',backgroundColor:'rgba(0,212,168,.1)',tension:.4,fill:true,pointRadius:4,pointBackgroundColor:'#00d4a8'},{label:'Target',data:s.map(()=>2.5),borderColor:'#e05555',borderDash:[4,4],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9097a8'}}},scales:{y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8'},suggestedMin:0},x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:10}}}}}});}
+  if(e5){const elI=elInsp();const dm={};elI.forEach(i=>{const d=(i.date||(i.createdAt||'').split('T')[0])||'?';if(!dm[d])dm[d]={c:0,d:0};dm[d].c+=parseInt(i.checkedQty)||0;dm[d].d+=parseInt(i.defectQty)||0;});const s=Object.entries(dm).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);charts.c5=new Chart(e5,{type:'line',data:{labels:s.map(([d])=>d.slice(5)),datasets:[{label:'DHU %',data:s.map(([_,d])=>d.c?((d.d/d.c)*100).toFixed(1):0),borderColor:'#00d4a8',backgroundColor:'rgba(0,212,168,.1)',tension:.4,fill:true,pointRadius:4,pointBackgroundColor:'#00d4a8'},{label:'Target',data:s.map(()=>2.5),borderColor:'#e05555',borderDash:[4,4],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9097a8'}}},scales:{y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8'},suggestedMin:0},x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:10}}}}}});}
 }
 
 function renderQR(){
