@@ -80,10 +80,14 @@
     onValue(ref(db,'rovingInspections'),s=>{
       if(s.exists()){
         const today=new Date().toISOString().split('T')[0];
-        WS.myRovingInspections=Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v}))
-          .filter(i=>i.submittedBy===WS.user?.username&&(i.date===today||(i.createdAt||'').startsWith(today)));
-      } else WS.myRovingInspections=[];
-      if(WS.step==='dashboard') renderW();
+        const all=Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v}))
+          .filter(i=>(i.date===today||(i.createdAt||'').startsWith(today)));
+        // Per-LINE visit tracking: keep every QC's roving records for today (not just mine),
+        // so visit counts reflect the whole line even if a relief QC takes over.
+        WS.allRovingToday=all;
+        WS.myRovingInspections=all.filter(i=>i.submittedBy===WS.user?.username);
+      } else {WS.allRovingToday=[];WS.myRovingInspections=[];}
+      if(['dashboard','roving_home'].includes(WS.step)) renderW();
     });
     onValue(ref(db,'correctiveActions'),s=>{
       const today=new Date().toISOString().split('T')[0];
@@ -1519,15 +1523,18 @@ function renderRovingHome(){
   const machines=getModuleMachines();
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
-  // Scope to THIS module only — visits done on Module-10 must NOT show on Module-10.1.
-  const myRounds=(WS.myRovingInspections||[]).filter(i=>i.date===today && i.module===(m?.name||''));
-  // A visit counts as COMPLETE only when every operator on the line has been checked in it.
-  // (Treating one partial record as "done" is what closed an unfinished visit on refresh.)
+  // Per-LINE, this module only — visits on Module-10 must NOT show on Module-10.1, and the
+  // count belongs to the line (any QC), not just the logged-in one.
+  const myRounds=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||''));
   const machineCount=machines.length;
   const opsByVisit={};
   myRounds.forEach(i=>{const v=parseInt(i.visitNum);if(!v)return;(opsByVisit[v]=opsByVisit[v]||new Set()).add(i.machineId||i.operatorId||i.machineName);});
   const startedVisits=Object.keys(opsByVisit).map(Number);
-  const completedVisits=startedVisits.filter(v=>machineCount>0 && opsByVisit[v].size>=machineCount);
+  // A visit is COMPLETE when it was explicitly finished (visitComplete flag) OR every operator
+  // on the line was checked. The flag makes it "sticky" — adding an operator later to the roster
+  // won't re-open an already-finished visit.
+  const finishedFlag=new Set(myRounds.filter(i=>i.visitComplete).map(i=>parseInt(i.visitNum)));
+  const completedVisits=startedVisits.filter(v=>finishedFlag.has(v)||(machineCount>0 && opsByVisit[v].size>=machineCount));
   const inProgress=startedVisits.filter(v=>!completedVisits.includes(v)).sort((a,b)=>a-b);
   // Resume an unfinished visit if one exists; otherwise move to the next new visit.
   const nextVisit=inProgress.length>0?inProgress[0]:((completedVisits.length>0?Math.max(...completedVisits):0)+1);
@@ -1591,8 +1598,7 @@ window.startRovingRound=async function(visitNum){
   if(!m){toast('No module selected','error');return;}
   // Resume: if this visit was already partly done (e.g. after a refresh), pre-mark the
   // operators already checked so the QC only continues with the ones still pending.
-  const today=new Date().toISOString().split('T')[0];
-  const priorResults=(WS.myRovingInspections||[]).filter(i=>i.date===today && i.module===(m?.name||'') && parseInt(i.visitNum)===visitNum)
+  const priorResults=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'') && parseInt(i.visitNum)===visitNum)
     .map(i=>({machineId:i.machineId,operatorId:i.operatorId,operation:i.operation,machineName:i.machineName}));
   try{
     let machines=await fetchRosterWorkers(m);
@@ -2044,9 +2050,14 @@ function bindRovingSubmit(){
       const dc7=parseInt(data.dc7)||0;
       const capRequired=data.capRequired==='1';
       const ab=data.ab||'';
+      // Is this the operator that finishes the visit? If so, stamp visitComplete so the visit
+      // stays "done" even if the roster changes later.
+      const willRemain=WS.rovingRoundData.filter(w=>w.machineId!==data.machineId&&!WS.rovingRoundResults.some(d=>d.machineId===w.machineId));
+      const isFinishing=willRemain.length===0;
       await window.fbAdd('rovingInspections',{
         id:'ROV-'+Date.now(),
         visitNum:parseInt(data.visitNum)||WS.rovingRound,
+        visitComplete:isFinishing,
         date:new Date().toISOString().split('T')[0],
         time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
         shift:activeShift(),   // record the inspector's actual shift (like End Line), not the module's stored field
