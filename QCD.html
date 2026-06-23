@@ -938,7 +938,7 @@ function pgReports(){
   <div class="form-group" style="margin:0"><label class="form-label">Size</label><select class="form-input" onchange="D.elSize=this.value;render()"><option value="__all" ${(!D.elSize||D.elSize==='__all')?'selected':''}>All sizes</option>${elSizes.map(s=>`<option value="${s}" ${D.elSize===s?'selected':''}>${s}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">Colour</label><select class="form-input" onchange="D.elColor=this.value;render()"><option value="__all" ${(!D.elColor||D.elColor==='__all')?'selected':''}>All colours</option>${elColors.map(c=>`<option value="${c}" ${D.elColor===c?'selected':''}>${c}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">QC Inspector</label><select class="form-input" onchange="D.elInspector=this.value;render()"><option value="__all" ${(!D.elInspector||D.elInspector==='__all')?'selected':''}>All inspectors</option>${elInspectors.map(n=>`<option value="${n}" ${D.elInspector===n?'selected':''}>${n}</option>`).join('')}</select></div>
-  </div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary" onclick="rptEndLine('pdf')">${ic('pdf',14)} Download PDF</button><button class="btn btn-ghost" onclick="rptEndLine('excel')">${ic('excel',14)} Download Excel</button><button class="btn btn-ghost btn-sm" onclick="seedEndlineDefects()">${ic('plus',12)} Load Defect Codes</button></div><div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">Select a Style above to download ALL historical end-line data for that style across all dates. Or use Date filter for today's paper report.</div></div>`;
+  </div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary" onclick="rptEndLine('pdf')">${ic('pdf',14)} Download PDF</button><button class="btn btn-ghost" onclick="rptEndLine('excel')">${ic('excel',14)} Download Excel</button><button class="btn btn-ghost btn-sm" onclick="seedEndlineDefects()">${ic('plus',12)} Load Defect Codes</button><button class="btn btn-ghost btn-sm" style="border-color:rgba(212,168,0,.4);color:var(--yellow)" onclick="fixDefectVisibility()" title="Fixes codes that don't show up in the Roving defect dropdown">${ic('refresh',12)} Fix: Show Codes in Roving</button></div><div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">Select a Style above to download ALL historical end-line data for that style across all dates. Or use Date filter for today's paper report.</div></div>`;
   return`<div style="display:flex;flex-direction:column;gap:20px">${elCard}<div class="card"><div class="card-header"><span class="card-title">Reports</span><span class="fb">🔥 ${ins.length} records</span></div><div class="grid-3"><div class="report-card" onclick="rptAllInsp('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">All Inspections</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptAllInsp('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">All Inspections</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptDefects('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Defect Summary</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptDefects('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Defect Summary</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptModules('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Module Performance</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptModules('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Module Performance</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptOperator('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Operator Analysis</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptOperator('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Operator Analysis</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptCompleted('pdf')"><div style="margin-bottom:8px;color:var(--blue)">${ic('pdf',28)}</div><div style="font-weight:600">Completed Styles</div><div style="font-size:11px;color:var(--text3)">${completed.length} completed</div></div><div class="report-card" onclick="rptCompleted('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Completed Styles</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="nav('roving')" style="border-color:var(--red)"><div style="margin-bottom:8px;color:var(--red)">🏃</div><div style="font-weight:600">Roving Inspection</div><div style="font-size:11px;color:var(--text3)">View &amp; Download</div></div><div class="report-card" onclick="nav('style-report')" style="border-color:var(--accent)"><div style="margin-bottom:8px;color:var(--accent)">${ic('tag',28)}</div><div style="font-weight:600">Style Report</div><div style="font-size:11px;color:var(--text3)">Daily &amp; Shift view</div></div><div class="report-card" onclick="rptStyleReport('pdf')" style="border-color:var(--red)"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Style Report</div><div style="font-size:11px;color:var(--text3)">PDF Download</div></div><div class="report-card" onclick="rptStyleReport('excel')" style="border-color:var(--green)"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Style Report</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="nav('shift-summary')" style="border-color:var(--accent)"><div style="margin-bottom:8px;color:var(--accent)">${ic('chart',28)}</div><div style="font-weight:600">Shift End Summary</div><div style="font-size:11px;color:var(--text3)">Auto from inspections</div></div><div class="report-card" onclick="rptShiftSummary('pdf')" style="border-color:var(--red)"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Shift End Summary</div><div style="font-size:11px;color:var(--text3)">PDF Download</div></div><div class="report-card" onclick="rptShiftSummary('excel')" style="border-color:var(--green)"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Shift End Summary</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div></div></div>${completed.length>0?`<div class="card"><div class="card-header"><span class="card-title">Completed Styles Summary</span></div><div class="table-wrap"><table><thead><tr><th>Style</th><th>Buyer</th><th>Completed</th><th>Inspections</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${completed.map(s=>{const sIns=ins.filter(i=>i.style&&(i.style.includes(s.name)||i.style.includes(s.styleId)));const tc=sIns.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);const td=sIns.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);const d=tc?((td/tc)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${s.name} (${s.styleId})</td><td>${s.buyer||''}</td><td style="font-size:12px">${fd(s.completedDate)}</td><td style="font-family:var(--mono)">${sIns.length}</td><td style="font-family:var(--mono);color:var(--red)">${td}</td><td style="font-family:var(--mono);color:${d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)'}">${d}%</td></tr>`;}).join('')}</tbody></table></div></div>`:''}</div>`;
 }
 
@@ -1116,8 +1116,16 @@ function elPDF(R){
   doc.text(`Dept: Quality     QC: ${R.qcNames||'—'}     Garments Inspected: ${R.totInsp}`,14,32);
   const hc=R.hours.map(elLabel);
   const head1=[['Emp #','Operation',...hc,'TTL']];
-  const body1=R.groups.map(g=>[g.operatorId,g.operation,...R.hours.map(h=>{const cc=g.cells[h];return cc?Object.entries(cc).map(([code,n])=>code+(n>1?'×'+n:'')).join(' '):'';}),g.total||'']);
-  doc.autoTable({head:head1,body:body1,startY:36,theme:'grid',styles:{fontSize:7,cellPadding:1.4,halign:'center'},columnStyles:{0:{halign:'left'},1:{halign:'left',cellWidth:34}},headStyles:{fillColor:[0,180,140],textColor:255,fontSize:7},margin:{left:14,right:14}});
+  const body1=R.groups.map(g=>[g.operatorId,g.operation,...R.hours.map(h=>{const cc=g.cells[h];return cc?Object.entries(cc).map(([code,n])=>code+(n>1?'x'+n:'')).join(' '):'';}),g.total||'']);
+  // Tint each hour's column a different pastel colour so 1H / 2H / 3H... are visually distinct.
+  const hourTints=[[219,234,254],[220,252,231],[254,249,195],[243,232,255],[255,228,196],[226,232,240]];
+  doc.autoTable({head:head1,body:body1,startY:36,theme:'grid',styles:{fontSize:7,cellPadding:1.4,halign:'center'},columnStyles:{0:{halign:'left'},1:{halign:'left',cellWidth:34}},headStyles:{fillColor:[0,180,140],textColor:255,fontSize:7},margin:{left:14,right:14},
+    didParseCell:function(data){
+      if(data.column.index>=2&&data.column.index<2+R.hours.length&&data.section==='body'){
+        data.cell.styles.fillColor=hourTints[(data.column.index-2)%hourTints.length];
+      }
+    }
+  });
   let y=doc.lastAutoTable.finalY+4;
   const head2=[['Defect Category / Calc',...hc,'TTL']];
   const body2=EL_CAT_ORDER.map(c=>[c,...R.hours.map(h=>R.cat[c][h]||''),R.cat[c].total||'']);
@@ -1174,11 +1182,20 @@ function elExcel(R){
 }
 
 window.seedEndlineDefects=async function(){
-  if(!confirm('Add the full End-Line defect code list (S/L/M/D/E/F, '+EL_DEFECTS.length+' codes) to Defects? Existing codes are skipped.'))return;
+  if(!confirm('Add the full defect code list (S/L/M/D/E/F, '+EL_DEFECTS.length+' codes) to Defects? Existing codes are skipped.\n\nTagged as "Both" so Roving and End Line QCs see the same codes.'))return;
   const existing=new Set((D.defects||[]).map(d=>(d.defectId||'').toUpperCase()));
   let n=0;
-  for(const d of EL_DEFECTS){if(existing.has(d.code))continue;await window.fbAdd('defects',{defectId:d.code,name:d.name,type:'Endline'});n++;}
-  toast('Added '+n+' end-line defect codes');
+  for(const d of EL_DEFECTS){if(existing.has(d.code))continue;await window.fbAdd('defects',{defectId:d.code,name:d.name,type:'Both'});n++;}
+  toast('Added '+n+' defect codes (Both)');
+};
+// Fix for codes that were seeded before this change (tagged "Endline" only, invisible to
+// Roving's dropdown). One click flips them to "Both" so Roving QCs see the same codes.
+window.fixDefectVisibility=async function(){
+  const stuck=(D.defects||[]).filter(d=>d.type==='Endline');
+  if(stuck.length===0){toast('No defect codes need fixing — all already visible to Roving');return;}
+  if(!confirm('Make '+stuck.length+' existing defect code(s) visible to Roving too? (Changes their type from "Endline" to "Both")'))return;
+  for(const d of stuck){await window.fbUpd('defects',d.fbKey,{type:'Both'});}
+  toast('✅ '+stuck.length+' defect code(s) now visible in Roving');
 };
 
 // ======================== ROSTER PAGE ========================
@@ -1428,7 +1445,7 @@ function rovingStyleBlock(rows,team,style,dateLabel,multi){
                 return vi
                   ?`<td style="${bl}">${vi.trim==='pass'?'<span class="badge badge-green" style="font-size:10px;padding:1px 5px">✓</span>':'<span class="badge badge-red" style="font-size:10px;padding:1px 5px">✗</span>'}</td>
                     <td style="font-family:var(--mono);font-size:12px">${vi.sp||''}</td>
-                    <td style="font-family:var(--mono);font-size:12px;color:${(parseInt(vi.dc)||0)>0?'var(--red)':'var(--green)'}">${vi.dc||0}</td>
+                    <td style="font-family:var(--mono);font-size:12px;color:${(parseInt(vi.dc)||0)>0?'var(--red)':'var(--green)'}" title="${vi.defectType||''}">${vi.dc||0}${(parseInt(vi.dc)||0)>0&&vi.defectType?`<div style="font-size:9px;font-weight:400;color:var(--text3);white-space:nowrap">${vi.defectType.length>10?vi.defectType.slice(0,10)+'…':vi.defectType}</div>`:''}</td>
                     <td style="font-size:11px">${vi.capRequired?`<span style="color:var(--red);font-weight:700">⚠</span>`:`<span style="color:var(--text3)">—</span>`}</td>
                     <td style="font-size:11px;color:${(vi.ab||vi.cpa)?'var(--yellow)':'var(--text2)'};font-weight:${(vi.ab||vi.cpa)?'700':'400'}">${vi.absent?`<span style="color:var(--text3);font-weight:400">Abs</span>`:vi.ab||vi.cpa||'—'}</td>`
                   :`<td style="${bl}"></td><td></td><td></td><td></td><td></td>`;
@@ -1676,7 +1693,15 @@ function rovingPDF(rows,date){
     const operators=Object.values(opMap).sort((a,b)=>a.operation.localeCompare(b.operation));
     const body=operators.map(op=>{
       const row=[op.operatorId,op.operation];
-      [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'✓':'✗':'');row.push(vi?vi.sp||'':'');row.push(vi?vi.dc||'0':'');row.push(vi?(vi.capRequired?'⚠':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
+      [1,2,3,4].forEach(v=>{const vi=op.visits[v];
+        row.push(vi?(vi.trim==='pass'?'P':'F'):'');           // jsPDF default font can't render ✓/✗ — use ASCII P/F
+        row.push(vi?vi.sp||'':'');
+        const dcN=vi?(parseInt(vi.dc)||0):0;
+        const code=vi&&dcN>0?elResolveCode(vi.defectType):'';
+        row.push(vi?(code?dcN+' '+code:String(dcN)):'');        // defect code next to the count, e.g. "2 S29"
+        row.push(vi?(vi.capRequired?'!':'-'):'');               // ⚠ -> ASCII !
+        row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'-'):'');
+      });
       const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
       const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
       row.push(tSP,tDC);return row;
@@ -1691,13 +1716,23 @@ function rovingPDF(rows,date){
     pctRow.push(totSP,totSP?((totDC/totSP)*100).toFixed(1)+'%':'—');body.push(pctRow);
     doc.setFontSize(9);doc.setTextColor(60,60,60);
     doc.text(`Style: ${st}     Team: ${team}     Date: ${fd(date)}     Insp: ${totSP}   Def: ${totDC}   Def%: ${totSP?((totDC/totSP)*100).toFixed(1):0}%`,14,y);
-    doc.autoTable({head,body,startY:y+2,theme:'grid',styles:{fontSize:7,cellPadding:1.3,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:14},1:{halign:'left',cellWidth:26}},headStyles:{fillColor:[180,30,30],textColor:255,fontSize:7},margin:{left:8,right:8}});
+    // Tint each visit's 5 columns a different pastel colour so Visit 1 / 2 / 3 / 4 are visually
+    // distinct at a glance, instead of one solid block of 20+ columns.
+    const visitTints=[[219,234,254],[220,252,231],[254,249,195],[243,232,255]];
+    doc.autoTable({head,body,startY:y+2,theme:'grid',styles:{fontSize:7,cellPadding:1.3,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:14},1:{halign:'left',cellWidth:26}},headStyles:{fillColor:[180,30,30],textColor:255,fontSize:7},margin:{left:8,right:8},
+      didParseCell:function(data){
+        if(data.column.index>=2&&data.column.index<=21){
+          const vIdx=Math.floor((data.column.index-2)/5);
+          if(data.section==='body')data.cell.styles.fillColor=visitTints[vIdx];
+        }
+      }
+    });
     y=doc.lastAutoTable.finalY+8;
   });
   doc.setFontSize(7.5);doc.setTextColor(60,60,60);
-  doc.text('(a) 1 defect found → check another 7 pieces  (b) No defects in those 7 → allow operator to continue (no CPA)',14,y);y+=4;
-  doc.text('(c) 1+ defects in those 7 → stop operation, check all stitched garments, repair defects, complete CPA before resuming',14,y);y+=4;
-  doc.text('(d) 2+ defects in original sample → immediate CPA required (no 7-piece check needed)',14,y);y+=5;
+  doc.text('(a) 1 defect found -> check another 7 pieces  (b) No defects in those 7 -> allow operator to continue (no CPA)',14,y);y+=4;
+  doc.text('(c) 1+ defects in those 7 -> stop operation, check all stitched garments, repair defects, complete CPA before resuming',14,y);y+=4;
+  doc.text('(d) 2+ defects in original sample -> immediate CPA required (no 7-piece check needed)',14,y);y+=5;
   doc.text('A=Inline QC  B=Supervisor/Mechanic  C=Senior Technician  D=Production/Quality Executive',14,y);y+=7;
   doc.text('Technician: ____________________________      QA.Exe: ____________________________',14,y);
   pdfStamp(doc);
@@ -2441,7 +2476,40 @@ function pgAI(){
 
 function pgOps(){const q=(D.sq||'').toLowerCase();const ops=q?D.operations.filter(o=>(o.name||'').toLowerCase().includes(q)):D.operations;return`<div style="display:flex;flex-direction:column;gap:20px"><div class="card"><div class="card-header"><div><span class="card-title">Operations</span><div style="font-size:12px;color:var(--text3);margin-top:4px">These appear in worker dropdown</div></div><div style="display:flex;gap:6px;align-items:center"><input class="search-input" style="width:170px" placeholder="Search operation..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-primary btn-sm" onclick="showModal('addOp')">${ic('plus',14)} Add</button><button class="btn btn-ghost btn-sm" onclick="triggerCSV('operations')">📄 Import CSV</button></div></div>${ops.length===0?`<div style="padding:20px;text-align:center;color:var(--text3)">${q?'No operations match.':'No custom operations.'} <button class="btn btn-ghost btn-sm" onclick="seedOps()">Load Defaults</button></div>`:`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Added</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td style="font-weight:500">${o.name||''}</td><td style="font-size:12px;color:var(--text3)">${fd(o.createdAt)}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('operations','${o.fbKey}')">${ic('trash',14)}</button></td></tr>`).join('')}</tbody></table></div>`}</div></div>`;}
 
-function pgDefects(){const q=(D.sq||'').toLowerCase();const defs=(q?(D.defects||[]).filter(d=>(d.name||'').toLowerCase().includes(q)||(d.defectId||'').toLowerCase().includes(q)||(d.type||'').toLowerCase().includes(q)):(D.defects||[]));return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary" onclick="showModal('addDefect')">${ic('plus',14)} Add Defect</button><input class="search-input" style="width:180px" placeholder="Search defect..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-ghost" onclick="triggerCSV('defects')">📄 Import CSV</button></div></div>${defs.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No defects match.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Defect ID</th><th>Name</th><th>Type</th><th></th></tr></thead><tbody>${defs.map(d=>`<tr><td style="font-family:var(--mono);font-size:12px">${d.defectId||''}</td><td style="font-weight:500">${d.name||''}</td><td><span class="badge badge-${d.type==='Inline'?'blue':d.type==='Endline'?'purple':'green'}">${d.type||'Both'}</span></td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editDefect',${JSON.stringify(d).replace(/"/g,'&quot;')})">${ic('edit',14)}</button><button class="btn-icon" style="color:var(--red)" onclick="del('defects','${d.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}</div>`;}
+function pgDefects(){
+  const q=(D.sq||'').toLowerCase();const defs=(q?(D.defects||[]).filter(d=>(d.name||'').toLowerCase().includes(q)||(d.defectId||'').toLowerCase().includes(q)||(d.type||'').toLowerCase().includes(q)):(D.defects||[]));
+  const missingCodes=(D.defects||[]).filter(d=>!d.defectId).length;
+  const legendRows=EL_DEFECTS.map(d=>`<tr><td style="font-family:var(--mono);font-weight:600">${d.code}</td><td>${d.name}</td><td style="font-size:11px;color:var(--text3)">${elCategory(d.code,d.name)}</td></tr>`).join('');
+  const legendCard=`<div class="card" style="padding:0;overflow:hidden;border-color:rgba(0,212,168,.3)">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div><div style="font-weight:600">📋 Defect Code Legend (reference)</div><div style="font-size:11px;color:var(--text3);margin-top:2px">The full S/L/M/D/E/F code list — same codes used in End Line and Roving</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="D.showLegend=!D.showLegend;render()">${D.showLegend?'Hide':'Show'}</button>
+    </div>
+    ${D.showLegend?`<div class="table-wrap" style="max-height:360px;overflow-y:auto"><table><thead><tr><th>Code</th><th>Defect Name</th><th>Category</th></tr></thead><tbody>${legendRows}</tbody></table></div>`:''}
+  </div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn btn-primary" onclick="showModal('addDefect')">${ic('plus',14)} Add Defect</button><input class="search-input" style="width:180px" placeholder="Search defect..." value="${D.sq||''}" oninput="onSearch(this.value)"><button class="btn btn-ghost" onclick="triggerCSV('defects')">📄 Import CSV</button>
+      ${missingCodes>0?`<button class="btn btn-ghost btn-sm" style="border-color:rgba(212,168,0,.4);color:var(--yellow)" onclick="fixMissingDefectCodes()">⟲ Fix ${missingCodes} Missing Code${missingCodes>1?'s':''}</button>`:''}</div>
+    </div>
+    ${legendCard}
+    ${defs.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No defects match.</div>':`<div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table><thead><tr><th>Defect ID</th><th>Name</th><th>Type</th><th></th></tr></thead><tbody>${defs.map(d=>`<tr${!d.defectId?' style="background:rgba(212,168,0,.05)"':''}><td style="font-family:var(--mono);font-size:12px">${d.defectId||'<span style=\'color:var(--yellow)\'>— missing —</span>'}</td><td style="font-weight:500">${d.name||''}</td><td><span class="badge badge-${d.type==='Inline'?'blue':d.type==='Endline'?'purple':'green'}">${d.type||'Both'}</span></td><td><div style="display:flex;gap:4px"><button class="btn-icon" onclick="showModal('editDefect',${JSON.stringify(d).replace(/"/g,'&quot;')})">${ic('edit',14)}</button><button class="btn-icon" style="color:var(--red)" onclick="del('defects','${d.fbKey}')">${ic('trash',14)}</button></div></td></tr>`).join('')}</tbody></table></div></div>`}
+  </div>`;
+}
+
+// Backfill defectId for records imported/added without a code, by matching their name
+// against the official S/L/M/D/E/F taxonomy (case/spacing-insensitive).
+window.fixMissingDefectCodes=async function(){
+  const missing=(D.defects||[]).filter(d=>!d.defectId);
+  if(missing.length===0){toast('No missing codes');return;}
+  let fixed=0,unmatched=[];
+  for(const d of missing){
+    const code=EL_CODE_BY_NAME[elNorm(d.name)];
+    if(code){await window.fbUpd('defects',d.fbKey,{defectId:code});fixed++;}
+    else unmatched.push(d.name);
+  }
+  toast(fixed+' code(s) fixed'+(unmatched.length?'; '+unmatched.length+' need a manual code (name not in taxonomy)':''),fixed>0?'success':'error');
+};
 
 function roleBadge(role){
   if(!role)return'gray';
