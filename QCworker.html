@@ -913,7 +913,10 @@ function activeShift(){return wkCurrentShift();}
 function setupShift(){return WS._rosterShift||activeShift();}
 // Factory name for printed reports (CAP) — set by admin in Settings, synced via Firebase.
 function factoryName(){return (WS.factory&&WS.factory.name)||'GarmentFix QMS';}
-function rosterDate(){return new Date().toISOString().split('T')[0];}
+// Normally today, but during a backdated Add-Missed session this follows the date the QC
+// picked, so the roster fetch and the saved record both land on the right day automatically.
+function workDate(){return WS._backdateDate||new Date().toISOString().split('T')[0];}
+function rosterDate(){return workDate();}
 function rosterKeyFor(m,date,shift){date=date||rosterDate();shift=shift||activeShift();return (m.fbKey||m.moduleId)+'_'+date+'_'+shift;}
 function mapRosterWorkers(obj){return Object.values(obj).map(w=>({machineId:w.machineId,machineName:w.machineName,operatorId:w.operatorId,operation:w.operation,saved:true}));}
 
@@ -1294,7 +1297,7 @@ function renderEndlineHome(){
     +'</div>';
 
   return sheetAccessBanner('endline')
-    +(WS._backdateHour?'<div class="card" style="background:rgba(212,168,0,.1);border-color:rgba(212,168,0,.5);margin-bottom:12px"><div style="font-weight:700;color:var(--yellow)">⏪ Backdating Hour '+WS._backdateHour+':00</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Supervisor-approved. This entry will be tagged to '+WS._backdateHour+':00, not the current time.</div></div>':'')
+    +(WS._backdateHour?'<div class="card" style="background:rgba(212,168,0,.1);border-color:rgba(212,168,0,.5);margin-bottom:12px"><div style="font-weight:700;color:var(--yellow)">⏪ Backdating Hour '+WS._backdateHour+':00'+(WS._backdateDate?' — '+WS._backdateDate:'')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Supervisor-approved. This entry will be tagged to '+WS._backdateHour+':00'+(WS._backdateDate?' on '+WS._backdateDate:'')+', not now.</div></div>':'')
     +'<div class="card card-accent">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — End Line</div>'
     +'<div style="font-size:12px;color:var(--text2)">Style: <b style="color:#93c5fd">'+(curElStyle||'—')+'</b>'+(m?.buyer?' • '+m.buyer:'')+'</div>'
@@ -1501,7 +1504,7 @@ window.elSubmitHour=async function(){
     // QC actually missed instead of "now".
     const backdating=!!WS._backdateHour;
     const timeStr=backdating?(WS._backdateHour+':00'):(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date());
-    const base={type:'endline',date:new Date().toISOString().split('T')[0],
+    const base={type:'endline',date:workDate(),
       time:timeStr,shift:WS.elShift||'A',size:WS.elSize||'',color:WS.elColor||'',
       module:m?.name||'',style:WS.elStyle||m?.styleName||'',
       submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name,comments:notes,
@@ -1526,7 +1529,7 @@ window.elSubmitHour=async function(){
     }
     WS.elHourDefects=[];WS.elCheckedQty=0;
     if(WS._backdateReqKey){window._markAddReqDone(WS._backdateReqKey);}
-    WS._backdateHour=null;WS._backdateReqKey=null;
+    WS._backdateHour=null;WS._backdateReqKey=null;WS._backdateDate=null;
     toast(backdating?'Backdated hour submitted ✓':'Hour submitted ✓','success');
     WS.step='endline_home';renderW();
   }catch(e){toast('Failed: '+e.message,'error');if(btn){btn.disabled=false;btn.textContent='✓ Submit Hour';}}
@@ -1545,7 +1548,11 @@ function renderRovingHome(){
   // team gets a fresh Visit 1 instead of inheriting the outgoing team's visit count and getting
   // stuck (only Visits 1-4 exist, so "all 4 used" would otherwise lock the new team out).
   const curShift=recordShift();
-  const myRounds=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'')&&i.shift===curShift);
+  // WS.allRovingToday only ever holds TODAY's live records, so this date filter is a no-op
+  // normally — but it matters when backdating into a past date (workDate() then returns a
+  // date that's never in this array, correctly yielding "nothing done yet" instead of
+  // mistakenly reusing today's progress for that shift).
+  const myRounds=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'')&&i.shift===curShift&&i.date===workDate());
   const machineCount=machines.length;
   const opsByVisit={};
   myRounds.forEach(i=>{const v=parseInt(i.visitNum);if(!v)return;(opsByVisit[v]=opsByVisit[v]||new Set()).add(i.machineId||i.operatorId||i.machineName);});
@@ -1562,7 +1569,7 @@ function renderRovingHome(){
   // How many operators were checked in the in-progress visit, for the pill below.
   const partialCount=v=>opsByVisit[v]?opsByVisit[v].size:0;
   const noMachines=machines.length===0;
-  return (WS._rovingShiftOverride?'<div class="card" style="background:rgba(212,168,0,.1);border-color:rgba(212,168,0,.5);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div style="font-weight:700;color:var(--yellow)">⏪ Catching up Team '+WS._rovingShiftOverride+'\'s sheet</div><div style="font-size:11px;color:var(--text2);margin-top:2px">Not your current live shift. New entries are tagged to Team '+WS._rovingShiftOverride+'.</div></div><button onclick="WS._rovingShiftOverride=null;renderW()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 10px;border-radius:8px;font-size:11px;cursor:pointer">Exit</button></div>':'')
+  return ((WS._rovingShiftOverride||WS._backdateDate)?'<div class="card" style="background:rgba(212,168,0,.1);border-color:rgba(212,168,0,.5);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div style="font-weight:700;color:var(--yellow)">⏪ Catching up Team '+(WS._rovingShiftOverride||activeShift())+'\'s sheet'+(WS._backdateDate?' — '+WS._backdateDate:'')+'</div><div style="font-size:11px;color:var(--text2);margin-top:2px">Not your current live shift/day. New entries are tagged here, not "now".</div></div><button onclick="WS._rovingShiftOverride=null;WS._backdateDate=null;renderW()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 10px;border-radius:8px;font-size:11px;cursor:pointer">Exit</button></div>':'')
     +sheetAccessBanner('roving')
     +'<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — Roving QC</div>'
@@ -1628,7 +1635,7 @@ window.startRovingRound=async function(visitNum){
   if(!m){toast('No module selected','error');return;}
   // Resume: if this visit was already partly done (e.g. after a refresh), pre-mark the
   // operators already checked so the QC only continues with the ones still pending.
-  const priorResults=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'') && i.shift===recordShift() && parseInt(i.visitNum)===visitNum)
+  const priorResults=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'') && i.shift===recordShift() && i.date===workDate() && parseInt(i.visitNum)===visitNum)
     .map(i=>({machineId:i.machineId,operatorId:i.operatorId,operation:i.operation,machineName:i.machineName}));
   try{
     // Fetch the roster for the SHIFT THIS VISIT IS TAGGED TO — recordShift() respects the
@@ -1739,7 +1746,7 @@ window.skipRovingOperator=async function(machineId){
     const isFinishing=willRemain.length===0;
     await window.fbAdd('rovingInspections',{
       id:'ROV-'+Date.now(),visitNum:4,visitComplete:isFinishing,
-      date:new Date().toISOString().split('T')[0],
+      date:workDate(),
       time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
       shift:recordShift(),module:m?.name||'',style:w.style||WS.rovingStyle||'',
       machineId:w.machineId,machineName:w.machineName,operatorId:w.operatorId,operation:w.operation,
@@ -1748,7 +1755,7 @@ window.skipRovingOperator=async function(machineId){
       comments:'',submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
     });
     WS.rovingRoundResults.push({machineId:w.machineId,operatorId:w.operatorId,operation:w.operation,skipped:true,dc:0,sp:0});
-    if(isFinishing&&WS._rovingShiftOverride){WS._rovingShiftOverride=null;}
+    if(isFinishing){WS._rovingShiftOverride=null;WS._backdateDate=null;}
     toast('Skipped — not critical ✓');renderW();
   }catch(e){toast('Failed: '+e.message,'error');}
 };
@@ -2135,7 +2142,7 @@ function bindRovingSubmit(){
         id:'ROV-'+Date.now(),
         visitNum:parseInt(data.visitNum)||WS.rovingRound,
         visitComplete:isFinishing,
-        date:new Date().toISOString().split('T')[0],
+        date:workDate(),
         time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
         shift:recordShift(),   // record the inspector's actual shift (like End Line) — or the overridden target shift when backdating
         module:data.module,style:data.style,
@@ -2161,9 +2168,9 @@ function bindRovingSubmit(){
       WS.rovingRoundResults.push({...data,dc:parseInt(data.dc)||0,sp:parseInt(data.sp)||0});
       toast('Saved ✓');
       const remaining=WS.rovingRoundData.filter(w=>!WS.rovingRoundResults.some(d=>d.machineId===w.machineId));
-      // Once the backdated visit is fully done, drop back to the live/current shift —
+      // Once the backdated visit is fully done, drop back to the live/current shift+date —
       // the override should only apply for the duration of catching up that one visit.
-      if(isFinishing&&WS._rovingShiftOverride){WS._rovingShiftOverride=null;}
+      if(isFinishing){WS._rovingShiftOverride=null;WS._backdateDate=null;}
       WS.step=remaining.length>0?'roving_scan_pick':'roving_end';
       btn.disabled=false;renderW();
     }catch(e){toast('Failed: '+e.message,'error');btn.disabled=false;btn.innerHTML='✓ Save';}
@@ -2247,10 +2254,13 @@ window.openAddNow=function(reqKey){
   const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);
   if(!req||req.status!=='approved'){toast('Not approved yet','error');return;}
   const targetShift=req.targetShift||activeShift();
+  const today=new Date().toISOString().split('T')[0];
+  const targetDate=req.date||today;
+  WS._backdateDate=(targetDate!==today)?targetDate:null;
   if(req.recordType==='endline_add'){
     WS.elShift=targetShift;
     WS._backdateHour=req.targetHour;WS._backdateReqKey=reqKey;
-    toast('Logging Hour '+req.targetHour+':00 for Team '+targetShift+' — submit as normal');
+    toast('Logging Hour '+req.targetHour+':00 for Team '+targetShift+(WS._backdateDate?' on '+targetDate:'')+' — submit as normal');
     WS.step='endline_home';renderW();
   }else{
     // Roving: hand off to the existing visit flow at the missed visit number. The normal
@@ -2337,6 +2347,8 @@ window.openAddMissed=function(type){
   // exactly the case where the live shift has already moved on (e.g. now Team B) and they
   // need to catch up something they missed on Team A's sheet earlier.
   WS._addShift=(type==='endline'?(WS.elShift||activeShift()):activeShift());
+  WS._addDate=new Date().toISOString().split('T')[0];
+  WS._addPastRecords=null;WS._addPastLoading=false;
   WS.step='add_missed';renderW();
 };
 
@@ -2345,15 +2357,32 @@ window.setAddMissedShift=function(s){
   renderW();
 };
 
-// Look up whether THIS exact hour/visit already has a request in flight — so re-opening
-// "Add Missed Hour/Visit" after it was approved doesn't ask again and create a duplicate.
-function myAddReqFor(type,target,targetShift){
-  if(!target)return null;
+// Switch which day this missed entry belongs to (today / yesterday / 2 days ago). The live
+// data the app keeps only covers today, so for a past date we fetch that day's records
+// on demand — just for this module+type — to know what's already done.
+window.setAddMissedDate=async function(d){
+  WS._addDate=d;WS._addTarget=null;
   const today=new Date().toISOString().split('T')[0];
+  if(d===today){WS._addPastRecords=null;WS._addPastLoading=false;renderW();return;}
+  WS._addPastLoading=true;renderW();
+  const m=WS.scannedModule;const type=WS._addType;
+  try{
+    const path=type==='endline'?'inspections':'rovingInspections';
+    const snap=await window._get(window._ref(window._db,path));
+    const all=snap.exists()?Object.values(snap.val()):[];
+    WS._addPastRecords=all.filter(i=>i.module===(m?.name||'')&&i.date===d&&(type!=='endline'||i.type==='endline'));
+  }catch(e){WS._addPastRecords=[];toast('Could not load that day — try again','error');}
+  WS._addPastLoading=false;renderW();
+};
+
+// Look up whether THIS exact hour/visit (on this date) already has a request in flight — so
+// re-opening "Add Missed Hour/Visit" after it was approved doesn't ask again and create a duplicate.
+function myAddReqFor(type,target,targetShift,date){
+  if(!target)return null;
   return (WS.editRequests||[]).filter(r=>
     r.recordType===type+'_add' &&
     r.requestedBy===WS.user?.username &&
-    r.date===today &&
+    r.date===date &&
     (r.targetShift||'A')===(targetShift||'A') &&
     (type==='endline'?r.targetHour===target:r.targetVisit===target)
   ).sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''))[0]||null;
@@ -2363,16 +2392,37 @@ function renderAddMissed(){
   const type=WS._addType;
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
+  const addDate=WS._addDate||today;
+  const isToday=addDate===today;
   const back=type==='endline'?'endline_home':'roving_home';
   const targetShift=WS._addShift||(type==='endline'?(WS.elShift||activeShift()):activeShift());
+
+  // Date picker: today, yesterday, 2 days ago — keeps backdating tight rather than open-ended.
+  const dateOpts=[0,1,2].map(n=>{const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().split('T')[0];});
+  const dateLabel=(d,i)=>i===0?'Today':i===1?'Yesterday':d.slice(5);
+  const dateToggle='<div style="margin-bottom:14px"><div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Which day?</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'
+    +dateOpts.map((d,i)=>'<button onclick="setAddMissedDate(\''+d+'\')" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid '+(addDate===d?'var(--accent)':'var(--border)')+';background:'+(addDate===d?'rgba(0,212,168,.15)':'var(--bg3)')+';color:'+(addDate===d?'var(--accent)':'var(--text2)')+'">'+dateLabel(d,i)+'</button>').join('')
+    +'</div></div>';
+
   const shiftToggle='<div style="margin-bottom:14px"><div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Which team\'s sheet?</div>'
     +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">'
     +['A','B'].map(s=>'<button onclick="setAddMissedShift(\''+s+'\')" style="padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:2px solid '+(targetShift===s?'var(--accent)':'var(--border)')+';background:'+(targetShift===s?'rgba(0,212,168,.15)':'var(--bg3)')+';color:'+(targetShift===s?'var(--accent)':'var(--text2)')+'">Team '+s+'</button>').join('')
     +'</div></div>';
+
+  if(!isToday&&WS._addPastLoading){
+    return '<div class="card" style="text-align:center;padding:24px;color:var(--text3)"><span class="spinner"></span> Loading '+addDate+'...</div>'
+      +dateToggle+'<button class="btn-big btn-ghost" onclick="WS.step=\''+back+'\';renderW()">← Cancel</button>';
+  }
+  // Today's checks come from the live data already in memory; a past day uses the one-off
+  // fetch triggered by setAddMissedDate().
+  const sourceRecords=isToday?null:(WS._addPastRecords||[]);
+
   let pickerHtml,label;
   if(type==='endline'){
     label='Hour';
-    const doneHours=new Set((WS.myInspections||[]).filter(i=>i.type==='endline'&&i.date===today&&i.shift===targetShift).map(i=>(i.time||'').slice(0,2)));
+    const elRecords=isToday?(WS.myInspections||[]).filter(i=>i.type==='endline'):sourceRecords;
+    const doneHours=new Set(elRecords.filter(i=>i.date===addDate&&i.shift===targetShift).map(i=>(i.time||'').slice(0,2)));
     const hours=Array.from({length:16},(_,i)=>i+6); // 06:00–21:00 factory window
     pickerHtml=hours.map(h=>{
       const hs=String(h).padStart(2,'0');
@@ -2382,7 +2432,8 @@ function renderAddMissed(){
     }).join('');
   }else{
     label='Visit';
-    const myRounds=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'')&&i.shift===targetShift);
+    const rovRecords=isToday?(WS.allRovingToday||[]):sourceRecords;
+    const myRounds=rovRecords.filter(i=>i.module===(m?.name||'')&&i.date===addDate&&i.shift===targetShift);
     const machines=getModuleMachines(targetShift);const machineCount=machines.length;
     const opsByVisit={};
     myRounds.forEach(i=>{const v=parseInt(i.visitNum);if(!v)return;(opsByVisit[v]=opsByVisit[v]||new Set()).add(i.machineId||i.operatorId||i.machineName);});
@@ -2395,12 +2446,12 @@ function renderAddMissed(){
     }).join('');
   }
   const sheetUnlocked=hasSheetAccess(currentSheetId(type,targetShift));
-  // Has THIS exact hour/visit already been requested before? Recognize it instead of asking
-  // again — this is the fix for "I approved it but it's asking again."
-  const existingReq=myAddReqFor(type,WS._addTarget,targetShift);
+  // Has THIS exact hour/visit (on this date) already been requested before? Recognize it
+  // instead of asking again — this is the fix for "I approved it but it's asking again."
+  const existingReq=myAddReqFor(type,WS._addTarget,targetShift,addDate);
   const perTargetApproved=existingReq&&existingReq.status==='approved';
   const perTargetPending=existingReq&&existingReq.status==='pending';
-  const unlocked=sheetUnlocked||perTargetApproved;
+  const unlocked=(isToday&&sheetUnlocked)||perTargetApproved;
   let actionHtml;
   if(perTargetPending){
     actionHtml='<div class="card" style="text-align:center;padding:14px;color:var(--text3)">⏳ Already sent — waiting for supervisor approval on this one</div>';
@@ -2413,6 +2464,7 @@ function renderAddMissed(){
   return '<div class="card" style="background:rgba(212,168,0,.06);border-color:rgba(212,168,0,.4);margin-bottom:14px">'
     +'<div style="font-size:17px;font-weight:700">⏪ Add a Missed '+label+'</div>'
     +'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+(unlocked?'Approved — pick which one you missed and go straight in.':'Pick which one you missed. Your supervisor approves before you can fill it in — this prevents backdated numbers from going in unchecked.')+'</div></div>'
+    +dateToggle
     +shiftToggle
     +'<div class="card" style="margin-bottom:14px"><div style="display:grid;grid-template-columns:repeat('+(type==='endline'?4:2)+',1fr);gap:8px">'+pickerHtml+'</div></div>'
     +actionHtml
@@ -2423,7 +2475,10 @@ function renderAddMissed(){
 // flow. reqKey (if any) gets marked done once the entry is actually saved, for the audit trail.
 window.startAddMissedNow=function(reqKey){
   const type=WS._addType,target=WS._addTarget,targetShift=WS._addShift;
+  const targetDate=WS._addDate||new Date().toISOString().split('T')[0];
   if(!target){toast('Pick which one you missed','error');return;}
+  const today=new Date().toISOString().split('T')[0];
+  WS._backdateDate=(targetDate!==today)?targetDate:null;
   if(type==='endline'){
     WS.elShift=targetShift;             // tag the backdated entry to the correct team
     WS._backdateHour=target;WS._backdateReqKey=reqKey||null;
@@ -2437,17 +2492,18 @@ window.startAddMissedNow=function(reqKey){
 
 window.submitAddMissedRequest=async function(){
   const type=WS._addType,target=WS._addTarget,targetShift=WS._addShift;
+  const targetDate=WS._addDate||new Date().toISOString().split('T')[0];
   if(!target){toast('Pick which one you missed','error');return;}
   const reason=(document.getElementById('add-missed-reason')?.value||'').trim();
   if(!reason){toast('Enter a reason for your supervisor','error');return;}
   const m=WS.scannedModule;
   const now=new Date().toISOString();
-  const label=(type==='endline'?('Add Hour '+target+':00'):('Add Visit '+target))+' (Team '+targetShift+')';
+  const label=(type==='endline'?('Add Hour '+target+':00'):('Add Visit '+target))+' (Team '+targetShift+' · '+targetDate+')';
   try{
     await window.fbAdd('editRequests',{
       id:'AR-'+Date.now(),status:'pending',recordType:type+'_add',
       module:m?.name||'',style:(type==='endline'?(WS.elStyle||m?.styleName):WS.rovingStyle)||'',
-      date:new Date().toISOString().split('T')[0],label,targetShift,
+      date:targetDate,label,targetShift,
       targetHour:type==='endline'?target:null,targetVisit:type==='roving'?target:null,
       requestedBy:WS.user?.username||'',requestedByName:WS.user?.name||'',reason,requestedAt:now,
       audit:[{action:'requested',by:WS.user?.username||'',name:WS.user?.name||'',at:now,note:reason}]
