@@ -77,6 +77,7 @@
     onValue(ref(db,'rovingInspections'), s => { window.D.rovingInspections = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['roving','reports'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'correctiveActions'), s => { window.D.correctiveActions = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='cap') window.render(); });
     onValue(ref(db,'editRequests'), s => { window.D.editRequests = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'sheetAccess'), s => { window.D.sheetAccess = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/rotation'), s => { window.D.rotation = s.exists() ? s.val() : null; if(['settings','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/factory'), s => { window.D.factory = s.exists() ? s.val() : null; if(['settings','reports'].includes(window.D.page)) window.render(); });
   };
@@ -842,6 +843,16 @@ function rptModuleReport(fmt){
   moduleReportPDF(sel,ins,rov);
 }
 
+// This report spans every date the module has data for, so it can touch many sheets
+// (one per date+shift+type). Summarize rather than list them all: count + most recent ID.
+function sheetSummary(type,module,rows){
+  const pairs=[...new Set(rows.map(r=>(r.shift||'?')+'_'+(r.date||(r.createdAt||'').split('T')[0]||'?')))];
+  if(pairs.length===0)return'—';
+  const sorted=pairs.sort().reverse();
+  const [shift,date]=sorted[0].split('_');
+  const latest=sheetIdFor(type,module,shift,date);
+  return pairs.length===1?latest:(pairs.length+' sheets — latest: '+latest);
+}
 function moduleReportPDF(sel,ins,rov){
   const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const elRows=ins.filter(i=>i.type!=='inline'), inlineRows=ins.filter(i=>i.type==='inline');
@@ -852,6 +863,8 @@ function moduleReportPDF(sel,ins,rov){
   const dhu=elChk?((elDef/elChk)*100).toFixed(2):'0.00';
   const rovDhu=rovChk?((rovDef/rovChk)*100).toFixed(2):'0.00';
   pdfHeader(doc,'Module Report — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),`End Line output: ${elChk}   Good: ${elChk-elDef}   Defects: ${elDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}   |   Roving: ${rovChk} sampled · ${rovDef} def · ${rovDhu}%`,`Generated: ${new Date().toLocaleString()}`);
+  doc.setFontSize(7.5);doc.setTextColor(100,100,100);
+  doc.text(`End Line Sheet: ${sheetSummary('endline',sel.name,elRows)}     Roving Sheet: ${sheetSummary('roving',sel.name,rov)}`,14,34);
   // Operator table
   const byOp={};ins.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.checkedQty)||0;byOp[op].def+=parseInt(i.defectQty)||0;});
   rov.forEach(i=>{const op=i.operatorId||'';if(!op)return;if(!byOp[op])byOp[op]={chk:0,def:0,operation:i.operation||''};byOp[op].chk+=parseInt(i.sp)||0;byOp[op].def+=parseInt(i.dc)||0;});
@@ -875,6 +888,7 @@ function moduleReportExcel(sel,ins,rov){
   const rovDhu=rovChk?((rovDef/rovChk)*100).toFixed(2):'0.00';
   aoa.push([`End Line Output: ${elChk}`,`Good Garments: ${elChk-elDef}`,`Defects: ${elDef}`,`DHU: ${dhu}%`,`AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`]);
   aoa.push([`Roving (separate): ${rovChk} sampled`,`Roving Defects: ${rovDef}`,`Roving DHU: ${rovDhu}%`]);
+  aoa.push(['End Line Sheet',sheetSummary('endline',sel.name,elRows),'Roving Sheet',sheetSummary('roving',sel.name,rov)]);
   aoa.push([]);
   aoa.push(['OPERATOR-WISE']);
   aoa.push(['Operator','Operation','Checked','Defects','DHU%']);
@@ -1114,12 +1128,14 @@ function elPDF(R){
   doc.setFontSize(8.5);doc.setTextColor(60,60,60);
   doc.text(`Line: ${R.team}     ${R.styleMode?'Dates: '+R.dateRange:'Date: '+fd(R.date)}     Style: ${R.styleName} ${R.styleId?'('+R.styleId+')':''}     Colour: ${R.colorFilter||R.colour||'All'}     Size: ${R.size||'All'}     Team: ${R.shift||'—'}${R.inspectorFilter?'     QC: '+R.inspectorFilter:''}`,14,27);
   doc.text(`Dept: Quality     QC: ${R.qcNames||'—'}     Garments Inspected: ${R.totInsp}`,14,32);
+  doc.setFontSize(7.5);doc.setTextColor(100,100,100);
+  doc.text(`Sheet ID: ${R.styleMode?'(multiple dates — filter to one date for a single sheet)':sheetIdFor('endline',R.team,R.shift,R.date)}`,14,37);
   const hc=R.hours.map(elLabel);
   const head1=[['Emp #','Operation',...hc,'TTL']];
   const body1=R.groups.map(g=>[g.operatorId,g.operation,...R.hours.map(h=>{const cc=g.cells[h];return cc?Object.entries(cc).map(([code,n])=>code+(n>1?'x'+n:'')).join(' '):'';}),g.total||'']);
   // Tint each hour's column a different pastel colour so 1H / 2H / 3H... are visually distinct.
   const hourTints=[[219,234,254],[220,252,231],[254,249,195],[243,232,255],[255,228,196],[226,232,240]];
-  doc.autoTable({head:head1,body:body1,startY:36,theme:'grid',styles:{fontSize:7,cellPadding:1.4,halign:'center'},columnStyles:{0:{halign:'left'},1:{halign:'left',cellWidth:34}},headStyles:{fillColor:[0,180,140],textColor:255,fontSize:7},margin:{left:14,right:14},
+  doc.autoTable({head:head1,body:body1,startY:41,theme:'grid',styles:{fontSize:7,cellPadding:1.4,halign:'center'},columnStyles:{0:{halign:'left'},1:{halign:'left',cellWidth:34}},headStyles:{fillColor:[0,180,140],textColor:255,fontSize:7},margin:{left:14,right:14},
     didParseCell:function(data){
       if(data.column.index>=2&&data.column.index<2+R.hours.length&&data.section==='body'){
         data.cell.styles.fillColor=hourTints[(data.column.index-2)%hourTints.length];
@@ -1158,6 +1174,7 @@ function elExcel(R){
   aoa.push(['END LINE REPORT']);
   aoa.push(['Line',R.team,R.styleMode?'Dates':'Date',R.styleMode?R.dateRange:R.date,'Style',R.styleName,'Style ID',R.styleId]);
   aoa.push(['Colour',R.colorFilter||R.colour||'All','Size',R.size||'All','Team',R.shift||'All','Dept','Quality','QC',R.qcNames]);
+  aoa.push(['Sheet ID',R.styleMode?'(multiple dates — filter to one date)':sheetIdFor('endline',R.team,R.shift,R.date)]);
   aoa.push([]);
   aoa.push(['Emp #','Operation',...hc,'TTL']);
   R.groups.forEach(g=>aoa.push([g.operatorId,g.operation,...R.hours.map(h=>{const cc=g.cells[h];return cc?Object.entries(cc).map(([code,n])=>code+(n>1?'×'+n:'')).join(' '):'';}),g.total||0]));
@@ -1443,11 +1460,13 @@ function rovingStyleBlock(rows,team,style,dateLabel,multi){
                 const vi=op.visits[v];
                 const bl=v>1?'border-left:2px solid var(--border2)':'';
                 return vi
-                  ?`<td style="${bl}">${vi.trim==='pass'?'<span class="badge badge-green" style="font-size:10px;padding:1px 5px">✓</span>':'<span class="badge badge-red" style="font-size:10px;padding:1px 5px">✗</span>'}</td>
+                  ?(vi.skipped
+                    ?`<td colspan="5" style="${bl}text-align:center;font-size:10px;color:var(--text3);font-style:italic">— skipped (not critical) —</td>`
+                    :`<td style="${bl}">${vi.trim==='pass'?'<span class="badge badge-green" style="font-size:10px;padding:1px 5px">✓</span>':'<span class="badge badge-red" style="font-size:10px;padding:1px 5px">✗</span>'}</td>
                     <td style="font-family:var(--mono);font-size:12px">${vi.sp||''}</td>
                     <td style="font-family:var(--mono);font-size:12px;color:${(parseInt(vi.dc)||0)>0?'var(--red)':'var(--green)'}" title="${vi.defectType||''}">${vi.dc||0}${(parseInt(vi.dc)||0)>0&&vi.defectType?`<div style="font-size:9px;font-weight:400;color:var(--text3);white-space:nowrap">${vi.defectType.length>10?vi.defectType.slice(0,10)+'…':vi.defectType}</div>`:''}</td>
                     <td style="font-size:11px">${vi.capRequired?`<span style="color:var(--red);font-weight:700">⚠</span>`:`<span style="color:var(--text3)">—</span>`}</td>
-                    <td style="font-size:11px;color:${(vi.ab||vi.cpa)?'var(--yellow)':'var(--text2)'};font-weight:${(vi.ab||vi.cpa)?'700':'400'}">${vi.absent?`<span style="color:var(--text3);font-weight:400">Abs</span>`:vi.ab||vi.cpa||'—'}</td>`
+                    <td style="font-size:11px;color:${(vi.ab||vi.cpa)?'var(--yellow)':'var(--text2)'};font-weight:${(vi.ab||vi.cpa)?'700':'400'}">${vi.absent?`<span style="color:var(--text3);font-weight:400">Abs</span>`:vi.ab||vi.cpa||'—'}</td>`)
                   :`<td style="${bl}"></td><td></td><td></td><td></td><td></td>`;
               }).join('')}
               <td style="font-family:var(--mono);font-weight:600;border-left:2px solid var(--border2)">${totalOpSP}</td>
@@ -1694,6 +1713,10 @@ function rovingPDF(rows,date){
     const body=operators.map(op=>{
       const row=[op.operatorId,op.operation];
       [1,2,3,4].forEach(v=>{const vi=op.visits[v];
+        if(vi&&vi.skipped){
+          row.push({content:'skipped (not critical)',colSpan:5,styles:{halign:'center',fontStyle:'italic',textColor:[140,140,140]}});
+          return;
+        }
         row.push(vi?(vi.trim==='pass'?'P':'F'):'');           // jsPDF default font can't render ✓/✗ — use ASCII P/F
         row.push(vi?vi.sp||'':'');
         const dcN=vi?(parseInt(vi.dc)||0):0;
@@ -1716,6 +1739,13 @@ function rovingPDF(rows,date){
     pctRow.push(totSP,totSP?((totDC/totSP)*100).toFixed(1)+'%':'—');body.push(pctRow);
     doc.setFontSize(9);doc.setTextColor(60,60,60);
     doc.text(`Style: ${st}     Team: ${team}     Date: ${fd(date)}     Insp: ${totSP}   Def: ${totDC}   Def%: ${totSP?((totDC/totSP)*100).toFixed(1):0}%`,14,y);
+    y+=4.5;
+    // A roving report's rows can span both shifts if "All shifts" was selected — show one
+    // Sheet ID per shift present, since each shift is its own sheet on the floor.
+    const grpShifts=[...new Set(grp.map(r=>r.shift).filter(Boolean))];
+    doc.setFontSize(7.5);doc.setTextColor(100,100,100);
+    doc.text('Sheet ID: '+(grpShifts.length?grpShifts.map(sh=>sheetIdFor('roving',team,sh,date)).join('   |   '):'—'),14,y);
+    y+=2.5;
     // Tint each visit's 5 columns a different pastel colour so Visit 1 / 2 / 3 / 4 are visually
     // distinct at a glance, instead of one solid block of 20+ columns.
     const visitTints=[[219,234,254],[220,252,231],[254,249,195],[243,232,255]];
@@ -1757,10 +1787,15 @@ function rovingExcel(rows,date){
     grp.forEach(r=>{const key=(r.operatorId||'?')+'|'+(r.operation||'—');if(!opMap[key])opMap[key]={operatorId:r.operatorId||'',operation:r.operation||'',visits:{}};opMap[key].visits[parseInt(r.visitNum)||1]=r;});
     const operators=Object.values(opMap).sort((a,b)=>a.operation.localeCompare(b.operation));
     aoa.push(['Style',st,'Team',team,'Date',date]);
+    const grpShifts=[...new Set(grp.map(r=>r.shift).filter(Boolean))];
+    aoa.push(['Sheet ID',grpShifts.length?grpShifts.map(sh=>sheetIdFor('roving',team,sh,date)).join(' | '):'—']);
     aoa.push(['Operator','Operation','1V-TR','1V-SP','1V-DC','1V-CPA','1V-AB','2V-TR','2V-SP','2V-DC','2V-CPA','2V-AB','3V-TR','3V-SP','3V-DC','3V-CPA','3V-AB','4V-TR','4V-SP','4V-DC','4V-CPA','4V-AB','INSP','DEF']);
     operators.forEach(op=>{
       const row=[op.operatorId,op.operation];
-      [1,2,3,4].forEach(v=>{const vi=op.visits[v];row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?(vi.capRequired?'YES':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');});
+      [1,2,3,4].forEach(v=>{const vi=op.visits[v];
+        if(vi&&vi.skipped){row.push('SKIPPED','(not critical)','','','');return;}
+        row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?(vi.capRequired?'YES':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');
+      });
       const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
       const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
       row.push(tSP,tDC);aoa.push(row);
@@ -1950,7 +1985,7 @@ function pgAlerts(){return`<div style="display:flex;flex-direction:column;gap:20
 function pgInsp(){
   let ins=allInspections().sort((a,b)=>((b.createdAt||b.date||'')+'').localeCompare((a.createdAt||a.date||'')+''));const q=D.sq.toLowerCase();
   if(q)ins=ins.filter(i=>(i.type||'').includes(q)||(i.module||'').toLowerCase().includes(q)||(i.inspector||'').toLowerCase().includes(q)||(i.operatorId||'').toLowerCase().includes(q));
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='endline'?'purple':i.type==='roving'?'green':'blue'}">${i.type==='roving'?'Roving':i.type==='endline'?'End Line':i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td>${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('${i.type==='roving'?'rovingInspections':'inspections'}','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='endline'?'purple':i.type==='roving'?'green':'blue'}">${i.type==='roving'?'Roving':i.type==='endline'?'End Line':i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td title="Sheet: ${sheetIdFor(i.type==='roving'?'roving':'endline',i.module,i.shift,i.date||(i.createdAt||'').split('T')[0])}">${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('${i.type==='roving'?'rovingInspections':'inspections'}','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
 }
 
 function pgSuper(){
@@ -1974,13 +2009,25 @@ function pgSuper(){
   // ---- Worker edit requests: pending approvals + full audit log ----
   const allEdits=(D.editRequests||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
   const pendEdits=allEdits.filter(r=>r.status==='pending');
-  const edStChip=s=>{const m=({pending:['var(--yellow)','Pending'],approved:['var(--accent)','Approved'],rejected:['var(--red)','Rejected'],done:['var(--blue)','Edited']})[s]||['var(--text3)',s||'—'];return `<span style="font-size:11px;font-weight:700;border:1px solid ${m[0]};color:${m[0]};border-radius:6px;padding:2px 7px">${m[1]}</span>`;};
+  const typeLabel=r=>((r.recordType||'').startsWith('endline')?'End Line':'Roving')+(r.recordType==='endline_add'||r.recordType==='roving_add'?' (missed entry)':'');
+  const edStChip=s=>{const m=({pending:['var(--yellow)','Pending'],approved:['var(--accent)','Approved'],rejected:['var(--red)','Rejected'],done:['var(--blue)','Done']})[s]||['var(--text3)',s||'—'];return `<span style="font-size:11px;font-weight:700;border:1px solid ${m[0]};color:${m[0]};border-radius:6px;padding:2px 7px">${m[1]}</span>`;};
   let editReqHtml='';
   if(pendEdits.length>0){
-    editReqHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">✏️ Pending Edit Requests (${pendEdits.length})</span></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Module</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${r.recordType==='endline'?'End Line':'Roving'}</td><td>${r.module||''}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveEditReq('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectEditReq('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    editReqHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">✏️ Pending Edit Requests (${pendEdits.length})</span></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Module</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${typeLabel(r)}</td><td>${r.module||''}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveEditReq('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectEditReq('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
   }
-  const auditHtml=`<div class="card"><div class="card-header"><span class="card-title">📋 Edit Request Log (${allEdits.length})</span></div>${allEdits.length===0?'<div style="padding:20px;text-align:center;color:var(--text3)">No edit requests yet.</div>':`<div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${r.recordType==='endline'?'EL':'Rov'}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:200px;font-size:12px">${r.reason||'—'}</td><td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div>${pendingHtml}${editReqHtml}${ticketHtml}${auditHtml}<div class="grid-4">${kpi(elChk,'Line Output','End Line checked','var(--accent)')}${kpi(elGood,'Good Garments','Checked − defects','var(--green)')}${kpi(elDef,'Defects','End Line','var(--red)')}${kpi(dhuOf(el)+'%','DHU','End Line','var(--yellow)')}</div><div class="grid-4">${kpi(rovChk,'Roving Sampled','pieces · separate','var(--blue)')}${kpi(rovDef,'Roving Defects','in-process','var(--red)')}${kpi(dhuOf(rov)+'%','Roving DHU','','var(--purple)')}${kpi(el.length+rov.length,'Total Records','el + roving','var(--accent2)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div style="font-size:11px;color:var(--text3);padding:0 16px 8px">End Line = line output (good garments). Roving = separate in-process check.</div><div class="table-wrap"><table><thead><tr><th rowspan="2">Module</th><th colspan="4" style="text-align:center;border-bottom:1px solid var(--border)">End Line (output)</th><th colspan="3" style="text-align:center;border-left:2px solid var(--border2);border-bottom:1px solid var(--border)">Roving (separate)</th><th rowspan="2" style="border-left:2px solid var(--border2)">Status</th></tr><tr><th>Output</th><th>Good</th><th>Defects</th><th>DHU</th><th style="border-left:2px solid var(--border2)">Sampled</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.elChk?((d.elDef/d.elChk)*100).toFixed(1):0;const rv=d.rovChk?((d.rovDef/d.rovChk)*100).toFixed(1):0;const good=d.elChk-d.elDef;return`<tr><td style="font-weight:500">${m}</td><td style="font-family:var(--mono)">${d.elChk}</td><td style="font-family:var(--mono);color:var(--green)">${good}</td><td style="font-family:var(--mono);color:var(--red)">${d.elDef}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${d.elChk?v+'%':'—'}</td><td style="font-family:var(--mono);color:var(--text2);border-left:2px solid var(--border2)">${d.rovChk}</td><td style="font-family:var(--mono);color:var(--red)">${d.rovDef}</td><td style="color:${rv>5?'var(--red)':rv>3?'var(--yellow)':'var(--text2)'}">${d.rovChk?rv+'%':'—'}</td><td style="border-left:2px solid var(--border2)"><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
+  const auditHtml=`<div class="card"><div class="card-header"><span class="card-title">📋 Edit Request Log (${allEdits.length})</span></div>${allEdits.length===0?'<div style="padding:20px;text-align:center;color:var(--text3)">No edit requests yet.</div>':`<div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td style="font-size:12px">${typeLabel(r)}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:200px;font-size:12px">${r.reason||'—'}</td><td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
+
+  // ---- Sheet Access requests: one approval unlocks a whole module+shift+date+type sheet ----
+  const allSA=(D.sheetAccess||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
+  const pendSA=allSA.filter(r=>r.status==='pending');
+  const saRow=r=>`<tr><td style="font-size:12px"><div style="font-weight:600">${sheetLabel(r.recordType,r.module,r.shift,r.date)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">${r.sheetId||sheetIdFor(r.recordType,r.module,r.shift,r.date)}</div></td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td>`;
+  let sheetAccessHtml='';
+  if(pendSA.length>0){
+    sheetAccessHtml=`<div class="card" style="border-color:rgba(0,212,168,.4)"><div class="card-header"><span class="card-title" style="color:var(--accent)">🔓 Pending Sheet Access (${pendSA.length})</span></div><div style="font-size:11px;color:var(--text3);padding:0 16px 10px">Approving unlocks the WHOLE sheet — the QC can then edit or add any hour/visit on it for the rest of the day without asking again.</div><div class="table-wrap"><table><thead><tr><th>Sheet</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendSA.map(r=>saRow(r)+`<td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveSheetAccess('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectSheetAccess('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+  const saAuditHtml=allSA.length===0?'':`<div class="card"><div class="card-header"><span class="card-title">🔓 Sheet Access Log (${allSA.length})</span></div><div class="table-wrap"><table><thead><tr><th>Sheet</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allSA.map(r=>saRow(r)+`<td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div></div>`;
+
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div>${pendingHtml}${sheetAccessHtml}${editReqHtml}${ticketHtml}${saAuditHtml}${auditHtml}<div class="grid-4">${kpi(elChk,'Line Output','End Line checked','var(--accent)')}${kpi(elGood,'Good Garments','Checked − defects','var(--green)')}${kpi(elDef,'Defects','End Line','var(--red)')}${kpi(dhuOf(el)+'%','DHU','End Line','var(--yellow)')}</div><div class="grid-4">${kpi(rovChk,'Roving Sampled','pieces · separate','var(--blue)')}${kpi(rovDef,'Roving Defects','in-process','var(--red)')}${kpi(dhuOf(rov)+'%','Roving DHU','','var(--purple)')}${kpi(el.length+rov.length,'Total Records','el + roving','var(--accent2)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div style="font-size:11px;color:var(--text3);padding:0 16px 8px">End Line = line output (good garments). Roving = separate in-process check.</div><div class="table-wrap"><table><thead><tr><th rowspan="2">Module</th><th colspan="4" style="text-align:center;border-bottom:1px solid var(--border)">End Line (output)</th><th colspan="3" style="text-align:center;border-left:2px solid var(--border2);border-bottom:1px solid var(--border)">Roving (separate)</th><th rowspan="2" style="border-left:2px solid var(--border2)">Status</th></tr><tr><th>Output</th><th>Good</th><th>Defects</th><th>DHU</th><th style="border-left:2px solid var(--border2)">Sampled</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.elChk?((d.elDef/d.elChk)*100).toFixed(1):0;const rv=d.rovChk?((d.rovDef/d.rovChk)*100).toFixed(1):0;const good=d.elChk-d.elDef;return`<tr><td style="font-weight:500">${m}</td><td style="font-family:var(--mono)">${d.elChk}</td><td style="font-family:var(--mono);color:var(--green)">${good}</td><td style="font-family:var(--mono);color:var(--red)">${d.elDef}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${d.elChk?v+'%':'—'}</td><td style="font-family:var(--mono);color:var(--text2);border-left:2px solid var(--border2)">${d.rovChk}</td><td style="font-family:var(--mono);color:var(--red)">${d.rovDef}</td><td style="color:${rv>5?'var(--red)':rv>3?'var(--yellow)':'var(--text2)'}">${d.rovChk?rv+'%':'—'}</td><td style="border-left:2px solid var(--border2)"><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
 }
 
 window.approveShift = async function(k){
@@ -2007,6 +2054,27 @@ window.rejectEditReq = async function(k){
   const audit=(r.audit||[]).concat([{action:'rejected',by:D.user?.username||'',name:D.user?.name||D.user?.username||'',at:now,note}]);
   try{
     await window.fbUpd('editRequests',k,{status:'rejected',approvedBy:D.user?.username||'',approvedByName:D.user?.name||D.user?.username||'',approvedAt:now,decisionNote:note,audit});
+    toast('Rejected','success');
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+
+window.approveSheetAccess = async function(k){
+  const r=(D.sheetAccess||[]).find(x=>x.fbKey===k);if(!r)return;
+  if(!confirm('Unlock the whole sheet "'+sheetLabel(r.recordType,r.module,r.shift,r.date)+'" for '+(r.requestedByName||r.requestedBy)+'?\n\nThey will be able to edit or add ANY hour/visit on it for the rest of today without asking again.'))return;
+  const now=new Date().toISOString();
+  const audit=(r.audit||[]).concat([{action:'approved',by:D.user?.username||'',name:D.user?.name||D.user?.username||'',at:now}]);
+  try{
+    await window.fbUpd('sheetAccess',k,{status:'approved',approvedBy:D.user?.username||'',approvedByName:D.user?.name||D.user?.username||'',approvedAt:now,audit});
+    toast('Sheet unlocked ✓','success');
+  }catch(e){toast('Error: '+e.message,'error');}
+};
+window.rejectSheetAccess = async function(k){
+  const r=(D.sheetAccess||[]).find(x=>x.fbKey===k);if(!r)return;
+  const note=prompt('Reason for rejecting (optional):')||'';
+  const now=new Date().toISOString();
+  const audit=(r.audit||[]).concat([{action:'rejected',by:D.user?.username||'',name:D.user?.name||D.user?.username||'',at:now,note}]);
+  try{
+    await window.fbUpd('sheetAccess',k,{status:'rejected',approvedBy:D.user?.username||'',approvedByName:D.user?.name||D.user?.username||'',approvedAt:now,decisionNote:note,audit});
     toast('Rejected','success');
   }catch(e){toast('Error: '+e.message,'error');}
 };
@@ -2791,6 +2859,16 @@ function currentShift(){const st=rotationState();return wkClockSlot()==='morning
 // Factory name shown on official PDF/Excel report headers. Configurable per client in
 // Settings, so each factory's reports carry their own name. Defaults to the product brand.
 function factoryName(){return (D.factory&&D.factory.name)||'GarmentFix QMS';}
+
+// A "sheet" = one module + record type (endline/roving) + shift + date — what one paper
+// sheet on the floor covers. Same deterministic ID algorithm as the worker app, so an ID
+// printed on a report can be looked up directly against a worker's sheet-access request.
+function sheetIdFor(type,module,shift,date){
+  return (type+'_'+(module||'NA')+'_'+(shift||'X')+'_'+date).replace(/\s+/g,'-');
+}
+function sheetLabel(type,module,shift,date){
+  return (module||'—')+' • '+(type==='endline'?'End Line':'Roving')+' • Team '+(shift||'—')+' • '+(date||'—');
+}
 window.saveFactoryName=async function(){
   const el=document.getElementById('fac-name'); if(!el) return;
   const v=el.value.trim();
@@ -3059,3 +3137,4 @@ render();
 </script>
 </body>
 </html>
+
