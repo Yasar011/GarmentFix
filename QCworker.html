@@ -99,6 +99,12 @@
       WS.editRequests=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];
       if(['my_records','edit_record','sup_home','endline_home','roving_home','dashboard'].includes(WS.step)) renderW();
     });
+    // Sheet access: one approval unlocks editing/adding ANY hour or visit on today's
+    // module+shift+type "sheet" for that QC, instead of asking per hour/visit.
+    onValue(ref(db,'sheetAccess'),s=>{
+      WS.sheetAccess=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];
+      if(['my_records','sup_home','endline_home','roving_home','add_missed'].includes(WS.step)) renderW();
+    });
     if(WS.user?.fbKey){
       onValue(ref(db,'users/'+WS.user.fbKey),s=>{
         if(!s.exists())return;
@@ -386,6 +392,7 @@ function renderStep(){
   // Edit-request workflow
   if(s==='my_records')      return renderMyRecords();
   if(s==='edit_record')     return renderEditRecord();
+  if(s==='add_missed')      return renderAddMissed();
   if(s==='sup_home')        return renderSupHome();
   // Shared
   if(s==='my_report')       return renderMyReport();
@@ -912,13 +919,13 @@ function mapRosterWorkers(obj){return Object.values(obj).map(w=>({machineId:w.ma
 
 // Fetch today's roster workers for a module: this shift's key first, then a legacy
 // (no-shift) key, then the in-memory fallback. Used by start-round flows.
-async function fetchRosterWorkers(m){
+async function fetchRosterWorkers(m,shift){
   const date=rosterDate();
-  const keys=[rosterKeyFor(m,date),(m.fbKey||m.moduleId)+'_'+date];
+  const keys=[rosterKeyFor(m,date,shift),(m.fbKey||m.moduleId)+'_'+date];
   for(const k of keys){
     try{const snap=await window._get(window._ref(window._db,'machineRosters/'+k+'/workers'));if(snap.exists()){const v=Object.values(snap.val());if(v.length)return v;}}catch(e){}
   }
-  return getModuleMachines();
+  return getModuleMachines(shift);
 }
 
 // Build the roster-setup entries: today's shift roster if it exists, otherwise carry
@@ -979,11 +986,11 @@ window.openRosterSetup=async function(){
 };
 
 // ==================== GET MACHINES ====================
-function getModuleMachines(){
+function getModuleMachines(shift){
   const m=WS.scannedModule;if(!m)return[];
   const date=rosterDate();
   // Prefer this shift's roster; fall back to a legacy module_date roster.
-  const roster=WS.machineRosters.find(r=>r.fbKey===rosterKeyFor(m,date))
+  const roster=WS.machineRosters.find(r=>r.fbKey===rosterKeyFor(m,date,shift))
             || WS.machineRosters.find(r=>r.fbKey===(m.fbKey||m.moduleId)+'_'+date);
   if(roster?.workers&&Object.keys(roster.workers).length>0) return Object.values(roster.workers);
   const norm=s=>(s||'').toString().trim().toLowerCase();
@@ -1220,7 +1227,7 @@ function renderCheckForm(){
 // ====================================================================================
 
 function renderEndlineHome(){
-  const machines=getModuleMachines();
+  const machines=getModuleMachines(WS.elShift);
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
   const hourDefs=WS.elHourDefects||[];
@@ -1286,7 +1293,9 @@ function renderEndlineHome(){
       }).join('')
     +'</div>';
 
-  return '<div class="card card-accent">'
+  return sheetAccessBanner('endline')
+    +(WS._backdateHour?'<div class="card" style="background:rgba(212,168,0,.1);border-color:rgba(212,168,0,.5);margin-bottom:12px"><div style="font-weight:700;color:var(--yellow)">⏪ Backdating Hour '+WS._backdateHour+':00</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Supervisor-approved. This entry will be tagged to '+WS._backdateHour+':00, not the current time.</div></div>':'')
+    +'<div class="card card-accent">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — End Line</div>'
     +'<div style="font-size:12px;color:var(--text2)">Style: <b style="color:#93c5fd">'+(curElStyle||'—')+'</b>'+(m?.buyer?' • '+m.buyer:'')+'</div>'
     +'</div>'
@@ -1319,13 +1328,14 @@ function renderEndlineHome(){
     +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
+    +'<button class="btn-big btn-ghost" onclick="openAddMissed(\'endline\')">⏪ Add a Missed Hour</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
 }
 
 // ---- Add Defect screen (operator + code + qty) ----
 function renderEndlineAddDefect(){
-  const machines=getModuleMachines();
+  const machines=getModuleMachines(WS.elShift);
   const CAT_LABELS={S:'Sewing',L:'Thread',M:'MMT',D:'Stain',E:'Fabric',F:'Cut Hole'};
   const allDefs=WS.defects.filter(d=>d.type==='Endline'||d.type==='Both');
   const activeCat=WS.elAddDefCat||'S';
@@ -1487,10 +1497,15 @@ window.elSubmitHour=async function(){
     // checkedQty belongs to the HOUR, not each defect. If we put the full count on every
     // defect record, the admin sums them and multiplies the checked total (100 → 200, 300…).
     // So only the FIRST record carries the real checkedQty; the rest carry 0.
+    // If this is a supervisor-approved backdated entry (Add Missed Hour), stamp the hour the
+    // QC actually missed instead of "now".
+    const backdating=!!WS._backdateHour;
+    const timeStr=backdating?(WS._backdateHour+':00'):(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date());
     const base={type:'endline',date:new Date().toISOString().split('T')[0],
-      time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),shift:WS.elShift||'A',size:WS.elSize||'',color:WS.elColor||'',
+      time:timeStr,shift:WS.elShift||'A',size:WS.elSize||'',color:WS.elColor||'',
       module:m?.name||'',style:WS.elStyle||m?.styleName||'',
-      submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name,comments:notes};
+      submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name,comments:notes,
+      ...(backdating?{backdated:true}:{})};
     if(defs.length===0){
       await window.fbAdd('inspections',{id:'INS-'+Date.now(),...base,checkedQty:chk,operatorId:'',operation:'',defectQty:0,defectType:''});
     }else{
@@ -1510,7 +1525,9 @@ window.elSubmitHour=async function(){
         level:(totDef/chk)*100>8?'critical':'high',module:m?.name||'',read:false,createdBy:'qc-auto'});
     }
     WS.elHourDefects=[];WS.elCheckedQty=0;
-    toast('Hour submitted ✓','success');
+    if(WS._backdateReqKey){window._markAddReqDone(WS._backdateReqKey);}
+    WS._backdateHour=null;WS._backdateReqKey=null;
+    toast(backdating?'Backdated hour submitted ✓':'Hour submitted ✓','success');
     WS.step='endline_home';renderW();
   }catch(e){toast('Failed: '+e.message,'error');if(btn){btn.disabled=false;btn.textContent='✓ Submit Hour';}}
 };
@@ -1520,12 +1537,15 @@ window.elSubmitHour=async function(){
 // ====================================================================================
 
 function renderRovingHome(){
-  const machines=getModuleMachines();
+  const machines=getModuleMachines(recordShift());
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
-  // Per-LINE, this module only — visits on Module-10 must NOT show on Module-10.1, and the
-  // count belongs to the line (any QC), not just the logged-in one.
-  const myRounds=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||''));
+  // Per-LINE, this module + THIS SHIFT only. Scoping by shift too means that when the working
+  // team rotates mid-day (e.g. Team A finishes morning, Team B starts afternoon), the incoming
+  // team gets a fresh Visit 1 instead of inheriting the outgoing team's visit count and getting
+  // stuck (only Visits 1-4 exist, so "all 4 used" would otherwise lock the new team out).
+  const curShift=recordShift();
+  const myRounds=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'')&&i.shift===curShift);
   const machineCount=machines.length;
   const opsByVisit={};
   myRounds.forEach(i=>{const v=parseInt(i.visitNum);if(!v)return;(opsByVisit[v]=opsByVisit[v]||new Set()).add(i.machineId||i.operatorId||i.machineName);});
@@ -1539,15 +1559,24 @@ function renderRovingHome(){
   // Resume an unfinished visit if one exists; otherwise move to the next new visit.
   const nextVisit=inProgress.length>0?inProgress[0]:((completedVisits.length>0?Math.max(...completedVisits):0)+1);
   WS.rovingRound=nextVisit;
+  // How many operators were checked in the in-progress visit, for the pill below.
+  const partialCount=v=>opsByVisit[v]?opsByVisit[v].size:0;
   const noMachines=machines.length===0;
-  return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
+  return (WS._rovingShiftOverride?'<div class="card" style="background:rgba(212,168,0,.1);border-color:rgba(212,168,0,.5);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div style="font-weight:700;color:var(--yellow)">⏪ Catching up Team '+WS._rovingShiftOverride+'\'s sheet</div><div style="font-size:11px;color:var(--text2);margin-top:2px">Not your current live shift. New entries are tagged to Team '+WS._rovingShiftOverride+'.</div></div><button onclick="WS._rovingShiftOverride=null;renderW()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:6px 10px;border-radius:8px;font-size:11px;cursor:pointer">Exit</button></div>':'')
+    +sheetAccessBanner('roving')
+    +'<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:12px">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — Roving QC</div>'
-    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+' • Team '+activeShift()+'</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(m?.styleName||'')+' '+(m?.buyer?'• '+m.buyer:'')+' • Team '+curShift+'</div>'
     +'</div>'
     +'<div style="margin-bottom:16px">'
     +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Visits</div>'
     +'<div class="check-pill">'
-    +[1,2,3,4].map(n=>'<div class="check-btn '+(completedVisits.includes(n)?'done':n===nextVisit?'active':'')+'" onclick="'+(n===nextVisit?'startRovingRound('+n+')':'')+'">'+'Visit '+n+(completedVisits.includes(n)?' ✓':'')+'</div>').join('')
+    +[1,2,3,4].map(n=>{
+      const isDone=completedVisits.includes(n);
+      const isPartial=!isDone&&startedVisits.includes(n);
+      const label='Visit '+n+(isDone?' ✓':isPartial?' ('+partialCount(n)+'/'+machineCount+')':'');
+      return '<div class="check-btn '+(isDone?'done':n===nextVisit?'active':'')+'" onclick="'+(n===nextVisit?'startRovingRound('+n+')':'')+'">'+label+'</div>';
+    }).join('')
     +'</div></div>'
     +(!noMachines
       ?'<div class="card" style="margin-bottom:16px">'
@@ -1579,6 +1608,7 @@ function renderRovingHome(){
     +'▶ Start Visit '+nextVisit+'</button>'
     +renderCapNavButton()
     +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
+    +'<button class="btn-big btn-ghost" onclick="openAddMissed(\'roving\')">⏪ Add a Missed Visit</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
     +'<button class="btn-big btn-ghost" onclick="openRosterSetup()">📷 '+(noMachines?'Set Up':'Edit')+' Roster (scan)</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⌨️ Edit Roster Manually</button>'
@@ -1598,16 +1628,19 @@ window.startRovingRound=async function(visitNum){
   if(!m){toast('No module selected','error');return;}
   // Resume: if this visit was already partly done (e.g. after a refresh), pre-mark the
   // operators already checked so the QC only continues with the ones still pending.
-  const priorResults=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'') && parseInt(i.visitNum)===visitNum)
+  const priorResults=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'') && i.shift===recordShift() && parseInt(i.visitNum)===visitNum)
     .map(i=>({machineId:i.machineId,operatorId:i.operatorId,operation:i.operation,machineName:i.machineName}));
   try{
-    let machines=await fetchRosterWorkers(m);
+    // Fetch the roster for the SHIFT THIS VISIT IS TAGGED TO — recordShift() respects the
+    // backdate override (WS._rovingShiftOverride), so adding Team B's missed visit pulls
+    // Team B's operator roster, not whichever team happens to be live right now.
+    let machines=await fetchRosterWorkers(m,recordShift());
     if(machines.length===0){toast('No operators in roster — set up roster first','error');return;}
     WS.rovingRound=visitNum;WS.rovingRoundData=machines.map(w=>({...w}));
     WS.checkMachineIdx=0;WS.rovingRoundResults=priorResults;WS._currentCheckMachine=null;
     WS.step='roving_scan_pick';renderW();
   }catch(e){
-    const machines=getModuleMachines();
+    const machines=getModuleMachines(recordShift());
     if(machines.length===0){toast('No operators in roster','error');return;}
     WS.rovingRound=visitNum;WS.rovingRoundData=[...machines];
     WS.checkMachineIdx=0;WS.rovingRoundResults=priorResults;WS._currentCheckMachine=null;
@@ -1633,7 +1666,13 @@ function renderRovingScanPick(){
     +'<div class="qr-hint">— OR tap operator below —</div>'
     +'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
     +machines.map((w,i)=>{
-      const isDone=done.some(d=>d.machineId===w.machineId);
+      const doneRec=done.find(d=>d.machineId===w.machineId);
+      const isDone=!!doneRec;
+      const isSkipped=isDone&&doneRec.skipped;
+      // Visit 4 is policy-defined as "critical operations only" — non-critical operators
+      // don't need a full inspection that round. Let the QC skip them with one tap so the
+      // visit can complete without forcing every operator through the form.
+      const showSkip=WS.rovingRound===4&&!isDone;
       return '<div class="machine-row '+(isDone?'done':'')+'" onclick="'+(isDone?'':'selectRovingOperator(\''+w.machineId+'\')')+'">'
         +'<div style="flex:1">'
         +'<div style="font-size:14px;font-weight:700">'+(w.operatorId||'Operator '+(i+1))+'</div>'
@@ -1641,7 +1680,10 @@ function renderRovingScanPick(){
         +(w.operation?'<span class="badge badge-purple" style="font-size:11px">⚙ '+w.operation+'</span>':'')
         +(w.machineName?'<span class="badge badge-blue" style="font-size:11px">🔧 '+w.machineName+'</span>':'')
         +'</div></div>'
-        +(isDone?'<span class="badge badge-green">✓ Done</span>':'<span class="badge badge-red" style="background:rgba(224,85,85,.15)">Tap/Scan</span>')
+        +(isSkipped?'<span class="badge" style="background:rgba(150,150,150,.2);color:var(--text3)">— Skipped</span>'
+          :isDone?'<span class="badge badge-green">✓ Done</span>'
+          :showSkip?'<button onclick="event.stopPropagation();skipRovingOperator(\''+w.machineId+'\')" style="padding:7px 10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text3);font-size:11px;cursor:pointer;white-space:nowrap">Skip — not critical</button>'
+          :'<span class="badge badge-red" style="background:rgba(224,85,85,.15)">Tap/Scan</span>')
         +'</div>';
     }).join('')
     +'</div>'
@@ -1682,6 +1724,33 @@ function handleRovingPickQR(text){
 window.selectRovingOperator=function(machineId){
   const idx=WS.rovingRoundData.findIndex(w=>w.machineId===machineId);
   if(idx>=0){WS.checkMachineIdx=idx;WS._currentCheckMachine=WS.rovingRoundData[idx];WS.step='roving_form';renderW();}
+};
+
+// Visit 4 only covers critical operations — skip a non-critical operator with one tap instead
+// of forcing them through the full inspection form. Still saves a minimal record so the visit's
+// completion tracking (and the admin report) accounts for everyone on the line.
+window.skipRovingOperator=async function(machineId){
+  if(WS.rovingRound!==4){toast('Skipping is only for Visit 4','error');return;}
+  const w=WS.rovingRoundData.find(x=>x.machineId===machineId);
+  if(!w)return;
+  const m=WS.scannedModule;
+  try{
+    const willRemain=WS.rovingRoundData.filter(x=>x.machineId!==machineId&&!WS.rovingRoundResults.some(d=>d.machineId===x.machineId));
+    const isFinishing=willRemain.length===0;
+    await window.fbAdd('rovingInspections',{
+      id:'ROV-'+Date.now(),visitNum:4,visitComplete:isFinishing,
+      date:new Date().toISOString().split('T')[0],
+      time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
+      shift:recordShift(),module:m?.name||'',style:w.style||WS.rovingStyle||'',
+      machineId:w.machineId,machineName:w.machineName,operatorId:w.operatorId,operation:w.operation,
+      trim:'',absent:false,spi:0,sp:0,dc:0,dc7:0,defectType:'',capRequired:false,ab:'',cpa:'',
+      skipped:true,skipReason:'not critical — Visit 4',
+      comments:'',submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
+    });
+    WS.rovingRoundResults.push({machineId:w.machineId,operatorId:w.operatorId,operation:w.operation,skipped:true,dc:0,sp:0});
+    if(isFinishing&&WS._rovingShiftOverride){WS._rovingShiftOverride=null;}
+    toast('Skipped — not critical ✓');renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
 };
 
 function renderRovingForm(){
@@ -2044,6 +2113,14 @@ function bindRovingSubmit(){
   btn.onclick=async()=>{
     const f=document.getElementById('wf');if(!f)return;
     const fd=new FormData(f);const data=Object.fromEntries(fd.entries());
+    // A defect count with no defect type picked is useless on the report (no code to show).
+    // Force the QC to pick what the defect actually was before saving.
+    if((parseInt(data.dc)||0)>0&&!data.defectType){
+      toast('Select the Defect Type for the '+data.dc+' defect(s) found','error');
+      const sel=f.querySelector('[name="defectType"]');
+      if(sel){sel.style.border='2px solid var(--red)';sel.scrollIntoView({behavior:'smooth',block:'center'});sel.focus();}
+      return;
+    }
     btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving...';
     try{
       const dc=parseInt(data.dc)||0;
@@ -2060,7 +2137,7 @@ function bindRovingSubmit(){
         visitComplete:isFinishing,
         date:new Date().toISOString().split('T')[0],
         time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
-        shift:activeShift(),   // record the inspector's actual shift (like End Line), not the module's stored field
+        shift:recordShift(),   // record the inspector's actual shift (like End Line) — or the overridden target shift when backdating
         module:data.module,style:data.style,
         machineId:data.machineId,machineName:data.machineName,
         operatorId:data.operatorId,operation:data.operation,
@@ -2084,10 +2161,65 @@ function bindRovingSubmit(){
       WS.rovingRoundResults.push({...data,dc:parseInt(data.dc)||0,sp:parseInt(data.sp)||0});
       toast('Saved ✓');
       const remaining=WS.rovingRoundData.filter(w=>!WS.rovingRoundResults.some(d=>d.machineId===w.machineId));
+      // Once the backdated visit is fully done, drop back to the live/current shift —
+      // the override should only apply for the duration of catching up that one visit.
+      if(isFinishing&&WS._rovingShiftOverride){WS._rovingShiftOverride=null;}
       WS.step=remaining.length>0?'roving_scan_pick':'roving_end';
       btn.disabled=false;renderW();
     }catch(e){toast('Failed: '+e.message,'error');btn.disabled=false;btn.innerHTML='✓ Save';}
   };
+}
+
+// ==================== SHEET ACCESS (one approval unlocks the whole day's sheet) ====================
+// A "sheet" = one module + record type (endline/roving) + shift + date — exactly what one
+// paper sheet on the floor covers. The ID is deterministic, no Firebase doc needed for it.
+function sheetIdFor(type,module,shift,date){
+  return (type+'_'+(module||'NA')+'_'+(shift||'X')+'_'+date).replace(/\s+/g,'-');
+}
+// Roving has no manual shift toggle (it auto-tags by rotation), so a backdated entry needs an
+// override to target a DIFFERENT shift's sheet than the one currently active. End Line already
+// has a manual A/B toggle (WS.elShift) that serves the same purpose.
+function recordShift(){return WS._rovingShiftOverride||activeShift();}
+function currentSheetId(type,shiftOverride){
+  const m=WS.scannedModule;if(!m)return null;
+  const shift=shiftOverride||(type==='endline'?(WS.elShift||activeShift()):recordShift());
+  return sheetIdFor(type,m.name,shift,new Date().toISOString().split('T')[0]);
+}
+function mySheetAccessReq(sheetId){
+  return (WS.sheetAccess||[]).filter(a=>a.sheetId===sheetId&&a.requestedBy===WS.user?.username)
+    .sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''))[0]||null;
+}
+function hasSheetAccess(sheetId){
+  const req=mySheetAccessReq(sheetId);
+  return !!(req&&req.status==='approved');
+}
+window.requestSheetAccess=async function(type){
+  const sheetId=currentSheetId(type);
+  if(!sheetId){toast('Scan a module first','error');return;}
+  const existing=mySheetAccessReq(sheetId);
+  if(existing&&existing.status==='pending'){toast('Already waiting for supervisor approval','error');return;}
+  const reason=prompt('Why do you need to edit/add freely on today\'s sheet? (reason for supervisor)');
+  if(reason===null)return;
+  if(!reason.trim()){toast('Enter a reason','error');return;}
+  const m=WS.scannedModule;
+  const now=new Date().toISOString();
+  try{
+    await window.fbAdd('sheetAccess',{
+      id:'SA-'+Date.now(),status:'pending',sheetId,module:m?.name||'',recordType:type,
+      shift:activeShift(),date:new Date().toISOString().split('T')[0],
+      requestedBy:WS.user?.username||'',requestedByName:WS.user?.name||'',reason:reason.trim(),requestedAt:now,
+      audit:[{action:'requested',by:WS.user?.username||'',name:WS.user?.name||'',at:now,note:reason.trim()}]
+    });
+    toast('Access request sent to supervisor ✓');renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+// Small status banner shown on the End Line / Roving home screens.
+function sheetAccessBanner(type){
+  const sheetId=currentSheetId(type);if(!sheetId)return'';
+  const req=mySheetAccessReq(sheetId);
+  if(req&&req.status==='approved')return '<div class="card" style="background:rgba(0,212,168,.06);border-color:rgba(0,212,168,.35);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div style="font-weight:700;color:var(--accent);font-size:13px">🔓 Sheet Unlocked</div><div style="font-size:11px;color:var(--text2)">You can edit or add any hour/visit today without asking again</div></div></div>';
+  if(req&&req.status==='pending')return '<div class="card" style="background:rgba(212,168,0,.06);border-color:rgba(212,168,0,.35);margin-bottom:12px"><div style="font-weight:700;color:var(--yellow);font-size:13px">⏳ Sheet access requested — waiting for supervisor</div></div>';
+  return '<div class="card" style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div style="font-size:12px;color:var(--text2)">🔒 Need to edit or add several entries today? Unlock the whole sheet once instead of asking each time.</div><button class="btn-sm" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);padding:8px 12px;border-radius:8px;cursor:pointer;white-space:nowrap" onclick="requestSheetAccess(\''+type+'\')">🔓 Request Sheet Access</button></div>';
 }
 
 // ==================== EDIT REQUESTS (worker request → supervisor approve → worker edits) ====================
@@ -2109,21 +2241,64 @@ function recLabel(type,r){
 
 window.openMyRecords=function(){WS.step='my_records';renderW();};
 
+// Bridge from an approved "Add Missed Hour/Visit" request into the normal entry flow,
+// tagging the work to the missed slot instead of "now".
+window.openAddNow=function(reqKey){
+  const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);
+  if(!req||req.status!=='approved'){toast('Not approved yet','error');return;}
+  const targetShift=req.targetShift||activeShift();
+  if(req.recordType==='endline_add'){
+    WS.elShift=targetShift;
+    WS._backdateHour=req.targetHour;WS._backdateReqKey=reqKey;
+    toast('Logging Hour '+req.targetHour+':00 for Team '+targetShift+' — submit as normal');
+    WS.step='endline_home';renderW();
+  }else{
+    // Roving: hand off to the existing visit flow at the missed visit number. The normal
+    // per-line/per-shift completion tracking takes over from here.
+    WS._rovingShiftOverride=(targetShift!==activeShift())?targetShift:null;
+    window._markAddReqDone(reqKey);
+    window.startRovingRound(req.targetVisit);
+  }
+};
+window._markAddReqDone=async function(reqKey){
+  try{
+    const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);
+    const audit=((req&&req.audit)||[]).concat([{action:'started',by:WS.user?.username||'',name:WS.user?.name||'',at:new Date().toISOString()}]);
+    await window._update(window._ref(window._db,'editRequests/'+reqKey),{status:'done',audit});
+  }catch(e){}
+};
+
 function renderMyRecords(){
   const el=(WS.myInspections||[]).map(r=>({type:'endline',r}));
   const rov=(WS.myRovingInspections||[]).map(r=>({type:'roving',r}));
   const all=el.concat(rov).filter(x=>x.r.fbKey);
   all.sort((a,b)=>(((b.r.createdAt||b.r.time||'')+'').localeCompare((a.r.createdAt||a.r.time||'')+'')));
   const back=isEndline()?'endline_home':isRoving()?'roving_home':'check_home';
+  // Missed-entry requests (Add Hour / Add Visit) — separate from edits since there's no
+  // existing record to point at yet.
+  const myAddReqs=(WS.editRequests||[]).filter(r=>(r.recordType==='endline_add'||r.recordType==='roving_add')&&r.requestedBy===WS.user?.username&&r.status!=='done').sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
+  const addReqSection=myAddReqs.length===0?'':'<div class="card" style="margin-bottom:14px;border-color:rgba(212,168,0,.4)"><div style="font-size:13px;font-weight:700;color:var(--yellow);margin-bottom:10px">⏪ Missed Entries</div>'
+    +myAddReqs.map(r=>'<div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:8px">'
+      +'<div style="font-size:13px;font-weight:600">'+r.label+'</div>'
+      +'<div style="font-size:11px;color:var(--text3);margin-top:2px">'+(r.module||'')+(r.style?' • '+r.style:'')+'</div>'
+      +'<div style="margin-top:6px">'+editStatusChip(r)+(r.status==='rejected'&&r.decisionNote?'<span style="font-size:11px;color:var(--text3)"> — '+r.decisionNote+'</span>':'')+'</div>'
+      +(r.status==='approved'?'<button onclick="openAddNow(\''+r.fbKey+'\')" style="width:100%;margin-top:8px;padding:11px;background:var(--accent);color:#000;border:none;border-radius:9px;font-weight:700;cursor:pointer">▶ Add Now</button>':'')
+      +'</div>').join('')
+    +'</div>';
   return '<div class="card" style="margin-bottom:14px"><div style="font-size:17px;font-weight:700">✏️ My Records & Edits</div>'
     +'<div style="font-size:12px;color:var(--text2);margin-top:2px">Today\'s submissions. To fix one, request an edit — your supervisor approves, then you can edit it.</div></div>'
+    +addReqSection
     +(all.length===0?'<div class="card" style="text-align:center;color:var(--text3);padding:30px">No records submitted today yet.</div>'
       :all.map(function(x){
-        const type=x.type,r=x.r,req=latestEditReq(type,r.fbKey),canEdit=req&&req.status==='approved';
+        const type=x.type,r=x.r,req=latestEditReq(type,r.fbKey);
+        // Sheet access covers this record if it shares the same module+shift+date+type.
+        const recSheetId=sheetIdFor(type,r.module,r.shift,r.date);
+        const sheetUnlocked=hasSheetAccess(recSheetId);
+        const canEdit=sheetUnlocked||(req&&req.status==='approved');
         return '<div class="card" style="margin-bottom:10px">'
           +'<div style="font-size:13px;font-weight:600">'+recLabel(type,r)+'</div>'
           +'<div style="font-size:11px;color:var(--text3);margin-top:2px">'+(type==='endline'?'End Line':'Roving')+' • '+(r.module||'')+(r.style?' • '+r.style:'')+'</div>'
-          +(req?'<div style="margin-top:6px">'+editStatusChip(req)+(req.status==='rejected'&&req.decisionNote?'<span style="font-size:11px;color:var(--text3)"> — '+req.decisionNote+'</span>':'')+'</div>':'')
+          +(sheetUnlocked?'<div style="margin-top:6px"><span style="font-size:11px;font-weight:700;color:var(--accent)">🔓 sheet unlocked</span></div>':req?'<div style="margin-top:6px">'+editStatusChip(req)+(req.status==='rejected'&&req.decisionNote?'<span style="font-size:11px;color:var(--text3)"> — '+req.decisionNote+'</span>':'')+'</div>':'')
           +'<div style="margin-top:10px">'
           +(canEdit
             ?'<button onclick="openEditRecord(\''+type+'\',\''+r.fbKey+'\')" style="width:100%;padding:11px;background:var(--accent);color:#000;border:none;border-radius:9px;font-weight:700;cursor:pointer">✎ Edit Now</button>'
@@ -2153,10 +2328,141 @@ window.requestEdit=async function(type,key){
   }catch(e){toast('Failed: '+e.message,'error');}
 };
 
+// ---- ADD MISSED HOUR / VISIT (separate from editing — there's no existing record yet) ----
+// Same approval gate as editing: QC requests it with a reason, supervisor approves, then the
+// QC is let into the normal entry flow but tagged to the hour/visit they actually missed.
+window.openAddMissed=function(type){
+  WS._addType=type;WS._addTarget=null;
+  // Default to whatever shift is "natural" right now, but the QC can flip it — this is
+  // exactly the case where the live shift has already moved on (e.g. now Team B) and they
+  // need to catch up something they missed on Team A's sheet earlier.
+  WS._addShift=(type==='endline'?(WS.elShift||activeShift()):activeShift());
+  WS.step='add_missed';renderW();
+};
+
+window.setAddMissedShift=function(s){
+  WS._addShift=s;WS._addTarget=null; // changing the target sheet invalidates the picked slot
+  renderW();
+};
+
+// Look up whether THIS exact hour/visit already has a request in flight — so re-opening
+// "Add Missed Hour/Visit" after it was approved doesn't ask again and create a duplicate.
+function myAddReqFor(type,target,targetShift){
+  if(!target)return null;
+  const today=new Date().toISOString().split('T')[0];
+  return (WS.editRequests||[]).filter(r=>
+    r.recordType===type+'_add' &&
+    r.requestedBy===WS.user?.username &&
+    r.date===today &&
+    (r.targetShift||'A')===(targetShift||'A') &&
+    (type==='endline'?r.targetHour===target:r.targetVisit===target)
+  ).sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''))[0]||null;
+}
+
+function renderAddMissed(){
+  const type=WS._addType;
+  const m=WS.scannedModule;
+  const today=new Date().toISOString().split('T')[0];
+  const back=type==='endline'?'endline_home':'roving_home';
+  const targetShift=WS._addShift||(type==='endline'?(WS.elShift||activeShift()):activeShift());
+  const shiftToggle='<div style="margin-bottom:14px"><div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Which team\'s sheet?</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">'
+    +['A','B'].map(s=>'<button onclick="setAddMissedShift(\''+s+'\')" style="padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:2px solid '+(targetShift===s?'var(--accent)':'var(--border)')+';background:'+(targetShift===s?'rgba(0,212,168,.15)':'var(--bg3)')+';color:'+(targetShift===s?'var(--accent)':'var(--text2)')+'">Team '+s+'</button>').join('')
+    +'</div></div>';
+  let pickerHtml,label;
+  if(type==='endline'){
+    label='Hour';
+    const doneHours=new Set((WS.myInspections||[]).filter(i=>i.type==='endline'&&i.date===today&&i.shift===targetShift).map(i=>(i.time||'').slice(0,2)));
+    const hours=Array.from({length:16},(_,i)=>i+6); // 06:00–21:00 factory window
+    pickerHtml=hours.map(h=>{
+      const hs=String(h).padStart(2,'0');
+      const taken=doneHours.has(hs);
+      const sel=WS._addTarget===hs;
+      return '<button '+(taken?'disabled':'onclick="WS._addTarget=\''+hs+'\';renderW()"')+' style="padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:'+(taken?'not-allowed':'pointer')+';border:2px solid '+(sel?'var(--accent)':'var(--border)')+';background:'+(taken?'var(--bg2)':sel?'rgba(0,212,168,.15)':'var(--bg3)')+';color:'+(taken?'var(--text3)':sel?'var(--accent)':'var(--text2)')+'">'+hs+':00'+(taken?'<div style="font-size:9px;margin-top:2px">done</div>':'')+'</button>';
+    }).join('');
+  }else{
+    label='Visit';
+    const myRounds=(WS.allRovingToday||[]).filter(i=>i.module===(m?.name||'')&&i.shift===targetShift);
+    const machines=getModuleMachines(targetShift);const machineCount=machines.length;
+    const opsByVisit={};
+    myRounds.forEach(i=>{const v=parseInt(i.visitNum);if(!v)return;(opsByVisit[v]=opsByVisit[v]||new Set()).add(i.machineId||i.operatorId||i.machineName);});
+    const finishedFlag=new Set(myRounds.filter(i=>i.visitComplete).map(i=>parseInt(i.visitNum)));
+    pickerHtml=[1,2,3,4].map(v=>{
+      const doneCount=opsByVisit[v]?opsByVisit[v].size:0;
+      const complete=finishedFlag.has(v)||(machineCount>0&&doneCount>=machineCount);
+      const sel=WS._addTarget===v;
+      return '<button '+(complete?'disabled':'onclick="WS._addTarget='+v+';renderW()"')+' style="padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:'+(complete?'not-allowed':'pointer')+';border:2px solid '+(sel?'var(--accent)':'var(--border)')+';background:'+(complete?'var(--bg2)':sel?'rgba(0,212,168,.15)':'var(--bg3)')+';color:'+(complete?'var(--text3)':sel?'var(--accent)':'var(--text2)')+'">Visit '+v+(complete?'<div style="font-size:9px;margin-top:2px">done</div>':doneCount>0?'<div style="font-size:9px;margin-top:2px">'+doneCount+'/'+machineCount+'</div>':'')+'</button>';
+    }).join('');
+  }
+  const sheetUnlocked=hasSheetAccess(currentSheetId(type,targetShift));
+  // Has THIS exact hour/visit already been requested before? Recognize it instead of asking
+  // again — this is the fix for "I approved it but it's asking again."
+  const existingReq=myAddReqFor(type,WS._addTarget,targetShift);
+  const perTargetApproved=existingReq&&existingReq.status==='approved';
+  const perTargetPending=existingReq&&existingReq.status==='pending';
+  const unlocked=sheetUnlocked||perTargetApproved;
+  let actionHtml;
+  if(perTargetPending){
+    actionHtml='<div class="card" style="text-align:center;padding:14px;color:var(--text3)">⏳ Already sent — waiting for supervisor approval on this one</div>';
+  }else{
+    actionHtml=(unlocked?''
+      :'<div class="card" style="margin-bottom:14px"><label class="form-label">Why was it missed?</label>'
+       +'<textarea id="add-missed-reason" class="form-input" rows="2" placeholder="e.g. phone died, was pulled into CAP signing..."></textarea></div>')
+      +'<button class="btn-big btn-primary" onclick="'+(unlocked?'startAddMissedNow(\''+(existingReq?existingReq.fbKey:'')+'\')':'submitAddMissedRequest()')+'" '+(WS._addTarget?'':'disabled style="opacity:.4"')+'>'+(unlocked?'▶ Start Now':'📤 Send Request to Supervisor')+'</button>';
+  }
+  return '<div class="card" style="background:rgba(212,168,0,.06);border-color:rgba(212,168,0,.4);margin-bottom:14px">'
+    +'<div style="font-size:17px;font-weight:700">⏪ Add a Missed '+label+'</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+(unlocked?'Approved — pick which one you missed and go straight in.':'Pick which one you missed. Your supervisor approves before you can fill it in — this prevents backdated numbers from going in unchecked.')+'</div></div>'
+    +shiftToggle
+    +'<div class="card" style="margin-bottom:14px"><div style="display:grid;grid-template-columns:repeat('+(type==='endline'?4:2)+',1fr);gap:8px">'+pickerHtml+'</div></div>'
+    +actionHtml
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\''+back+'\';renderW()">← Cancel</button>';
+}
+
+// Sheet/per-target already unlocked — skip the request entirely, go straight into the entry
+// flow. reqKey (if any) gets marked done once the entry is actually saved, for the audit trail.
+window.startAddMissedNow=function(reqKey){
+  const type=WS._addType,target=WS._addTarget,targetShift=WS._addShift;
+  if(!target){toast('Pick which one you missed','error');return;}
+  if(type==='endline'){
+    WS.elShift=targetShift;             // tag the backdated entry to the correct team
+    WS._backdateHour=target;WS._backdateReqKey=reqKey||null;
+    WS.step='endline_home';renderW();
+  }else{
+    WS._rovingShiftOverride=(targetShift!==activeShift())?targetShift:null;
+    if(reqKey)window._markAddReqDone(reqKey);
+    window.startRovingRound(target);
+  }
+};
+
+window.submitAddMissedRequest=async function(){
+  const type=WS._addType,target=WS._addTarget,targetShift=WS._addShift;
+  if(!target){toast('Pick which one you missed','error');return;}
+  const reason=(document.getElementById('add-missed-reason')?.value||'').trim();
+  if(!reason){toast('Enter a reason for your supervisor','error');return;}
+  const m=WS.scannedModule;
+  const now=new Date().toISOString();
+  const label=(type==='endline'?('Add Hour '+target+':00'):('Add Visit '+target))+' (Team '+targetShift+')';
+  try{
+    await window.fbAdd('editRequests',{
+      id:'AR-'+Date.now(),status:'pending',recordType:type+'_add',
+      module:m?.name||'',style:(type==='endline'?(WS.elStyle||m?.styleName):WS.rovingStyle)||'',
+      date:new Date().toISOString().split('T')[0],label,targetShift,
+      targetHour:type==='endline'?target:null,targetVisit:type==='roving'?target:null,
+      requestedBy:WS.user?.username||'',requestedByName:WS.user?.name||'',reason,requestedAt:now,
+      audit:[{action:'requested',by:WS.user?.username||'',name:WS.user?.name||'',at:now,note:reason}]
+    });
+    toast('Request sent to supervisor ✓');
+    WS.step=type==='endline'?'endline_home':'roving_home';renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+
 window.openEditRecord=function(type,key){
+  const rec=type==='endline'?(WS.myInspections||[]).find(r=>r.fbKey===key):(WS.myRovingInspections||[]).find(r=>r.fbKey===key);
+  const sheetUnlocked=rec&&hasSheetAccess(sheetIdFor(type,rec.module,rec.shift,rec.date));
   const req=latestEditReq(type,key);
-  if(!req||req.status!=='approved'){toast('Not approved for edit yet','error');return;}
-  WS._editType=type;WS._editKey=key;WS._editReqKey=req.fbKey;WS.step='edit_record';renderW();
+  if(!sheetUnlocked&&(!req||req.status!=='approved')){toast('Not approved for edit yet','error');return;}
+  WS._editType=type;WS._editKey=key;WS._editReqKey=req?req.fbKey:null;WS.step='edit_record';renderW();
 };
 
 function renderEditRecord(){
@@ -2210,9 +2516,11 @@ window.saveEditRecord=async function(){
   }
   try{
     await window._update(window._ref(window._db,path),{...upd,editedAt:new Date().toISOString(),editedBy:WS.user?.username||''});
-    const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);
-    const audit=((req&&req.audit)||[]).concat([{action:'edited',by:WS.user?.username||'',name:WS.user?.name||'',at:new Date().toISOString(),note:'fields updated'}]);
-    await window._update(window._ref(window._db,'editRequests/'+reqKey),{status:'done',editedAt:new Date().toISOString(),audit});
+    if(reqKey){
+      const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);
+      const audit=((req&&req.audit)||[]).concat([{action:'edited',by:WS.user?.username||'',name:WS.user?.name||'',at:new Date().toISOString(),note:'fields updated'}]);
+      await window._update(window._ref(window._db,'editRequests/'+reqKey),{status:'done',editedAt:new Date().toISOString(),audit});
+    }
     toast('Record updated ✓');WS.step='my_records';renderW();
   }catch(e){toast('Failed: '+e.message,'error');}
 };
@@ -2222,14 +2530,36 @@ function renderSupHome(){
   const reqs=(WS.editRequests||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
   const pending=reqs.filter(r=>r.status==='pending');
   const recent=reqs.filter(r=>r.status!=='pending').slice(0,15);
+  const typeLabel=r=>((r.recordType||'').startsWith('endline')?'End Line':'Roving')+(r.recordType==='endline_add'||r.recordType==='roving_add'?' • Missed Entry':'');
   const card=function(r){return '<div class="card" style="margin-bottom:10px">'
     +'<div style="font-size:13px;font-weight:600">'+(r.label||'(record)')+'</div>'
-    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">'+(r.recordType==='endline'?'End Line':'Roving')+' • '+(r.module||'')+' • by '+(r.requestedByName||r.requestedBy||'?')+'</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">'+typeLabel(r)+' • '+(r.module||'')+' • by '+(r.requestedByName||r.requestedBy||'?')+'</div>'
     +'<div style="font-size:12px;color:var(--text2);margin-top:6px">Reason: '+(r.reason||'—')+'</div>';};
+
+  const sa=(WS.sheetAccess||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
+  const saPending=sa.filter(r=>r.status==='pending');
+  const saRecent=sa.filter(r=>r.status!=='pending').slice(0,15);
+  const saCard=function(r){return '<div class="card" style="margin-bottom:10px;border-color:rgba(0,212,168,.3)">'
+    +'<div style="font-size:13px;font-weight:600">🔓 Sheet Access — '+(r.module||'')+' • '+((r.recordType||'').startsWith('endline')?'End Line':'Roving')+' • Team '+(r.shift||'—')+'</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">'+(r.date||'')+' • by '+(r.requestedByName||r.requestedBy||'?')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:6px">Reason: '+(r.reason||'—')+'</div>';};
+
   return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);margin-bottom:14px">'
     +'<div style="font-size:18px;font-weight:700">👔 Supervisor</div>'
-    +'<div style="font-size:12px;color:var(--text2)">'+(WS.user?.name||'')+' • Approve worker edit requests</div></div>'
-    +'<div style="font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px">Pending ('+pending.length+')</div>'
+    +'<div style="font-size:12px;color:var(--text2)">'+(WS.user?.name||'')+' • Approve worker requests</div></div>'
+
+    +'<div style="font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px">Sheet Access ('+saPending.length+')</div>'
+    +(saPending.length===0?'<div class="card" style="text-align:center;color:var(--text3);padding:24px">No pending sheet access requests</div>'
+      :saPending.map(function(r){return saCard(r)
+        +'<div style="display:flex;gap:8px;margin-top:10px">'
+        +'<button onclick="supApproveSheetAccess(\''+r.fbKey+'\')" style="flex:1;padding:11px;background:var(--accent);color:#000;border:none;border-radius:9px;font-weight:700;cursor:pointer">✓ Approve</button>'
+        +'<button onclick="supRejectSheetAccess(\''+r.fbKey+'\')" style="flex:1;padding:11px;background:rgba(224,85,85,.12);color:var(--red);border:1px solid rgba(224,85,85,.3);border-radius:9px;font-weight:700;cursor:pointer">✗ Reject</button>'
+        +'</div></div>';}).join(''))
+    +(saRecent.length>0?'<div style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px">Recent sheet access</div>'
+      +saRecent.map(function(r){return saCard(r)
+        +'<div style="margin-top:8px">'+editStatusChip(r)+(r.approvedByName?'<span style="font-size:11px;color:var(--text3)"> — by '+r.approvedByName+'</span>':'')+'</div></div>';}).join(''):'')
+
+    +'<div style="font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:18px 0 8px">Edit Requests ('+pending.length+')</div>'
     +(pending.length===0?'<div class="card" style="text-align:center;color:var(--text3);padding:24px">No pending requests 🎉</div>'
       :pending.map(function(r){return card(r)
         +'<div style="display:flex;gap:8px;margin-top:10px">'
@@ -2242,6 +2572,26 @@ function renderSupHome(){
         +'<div style="margin-top:8px">'+editStatusChip(r)+(r.approvedByName?'<span style="font-size:11px;color:var(--text3)"> — by '+r.approvedByName+'</span>':'')+'</div></div>';}).join(''))
     +'<button class="btn-big btn-ghost" onclick="doLogout()">Log out</button>';
 }
+
+window.supApproveSheetAccess=async function(reqKey){
+  const req=(WS.sheetAccess||[]).find(r=>r.fbKey===reqKey);if(!req)return;
+  const now=new Date().toISOString();
+  const audit=(req.audit||[]).concat([{action:'approved',by:WS.user?.username||'',name:WS.user?.name||'',at:now}]);
+  try{
+    await window._update(window._ref(window._db,'sheetAccess/'+reqKey),{status:'approved',approvedBy:WS.user?.username||'',approvedByName:WS.user?.name||'',approvedAt:now,audit});
+    toast('Approved ✓ — QC can edit/add freely on this sheet today');renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+window.supRejectSheetAccess=async function(reqKey){
+  const req=(WS.sheetAccess||[]).find(r=>r.fbKey===reqKey);if(!req)return;
+  const note=prompt('Reason for rejecting (optional):')||'';
+  const now=new Date().toISOString();
+  const audit=(req.audit||[]).concat([{action:'rejected',by:WS.user?.username||'',name:WS.user?.name||'',at:now,note}]);
+  try{
+    await window._update(window._ref(window._db,'sheetAccess/'+reqKey),{status:'rejected',approvedBy:WS.user?.username||'',approvedByName:WS.user?.name||'',approvedAt:now,decisionNote:note,audit});
+    toast('Rejected');renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
 
 window.supApproveEdit=async function(reqKey){
   const req=(WS.editRequests||[]).find(r=>r.fbKey===reqKey);if(!req)return;
@@ -2582,7 +2932,7 @@ function renderCheckEnd(){
 // ==================== MANUAL ROSTER ====================
 window.openManualRoster=function(){
   if(!WS._rosterShift)WS._rosterShift=activeShift();   // default to current time shift; togglable on the setup screen
-  const machines=getModuleMachines();
+  const machines=getModuleMachines(WS._rosterShift);
   WS._manualRows=machines.length>0
     ?machines.map(w=>({machineId:w.machineId||'',machineName:w.machineName||'',operatorId:w.operatorId||'',operation:w.operation||''}))
     :[{machineId:'',machineName:'',operatorId:'',operation:''}];
