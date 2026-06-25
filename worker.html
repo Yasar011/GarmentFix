@@ -593,7 +593,7 @@
                 const entry = Object.entries(machines).find(([id, m]) => id === decodedText || m.name === decodedText);
                 if (!entry) { alert(`Machine "${decodedText}" not found in database.`); setShowServiceScan(false); return; }
                 const [id, m] = entry;
-                setServiceMachine({ id, ...m });
+                setServiceMachine({ ...m, id }); // key wins, so machines/${id} always targets the right node
                 setShowServiceScan(false);
                 setServiceType('choose'); // show the action chooser
                 // Mark the mechanic busy so the admin board shows where they are.
@@ -622,49 +622,59 @@
                 setServiceType(null); setServiceMachine(null); setServiceItems({}); setServiceRemarks("");
             };
 
-            const submitService = () => {
+            const submitService = async () => {
                 if (!serviceMachine) return;
                 const now = new Date();
                 const isMonthly = serviceType === 'monthly';
                 const items = isMonthly ? MONTHLY_ITEMS : SIXMONTH_ITEMS;
                 const issuesFound = items.filter(it => serviceItems[it] === 'issue');
+                // IMPORTANT: store the checklist as an ARRAY of {name,state}, NOT an object keyed
+                // by item name — several item names contain "/" (e.g. "Tube / Cable Tied",
+                // "Control Box / Motor") and Firebase RTDB forbids "/" (and . # $ [ ]) in keys,
+                // which would make the whole write throw and silently save nothing.
+                const itemList = items.map(it => ({ name: it, state: serviceItems[it] || 'na' }));
 
-                // Write the service card record (the digital version of the physical sheet).
-                push(ref(db, 'serviceRecords'), {
-                    machineId: serviceMachine.id,
-                    machineName: serviceMachine.name || serviceMachine.id,
-                    serviceType: isMonthly ? 'monthly' : 'sixmonth',
-                    period: periodKey(now),
-                    month: now.getMonth() + 1,
-                    year: now.getFullYear(),
-                    date: now.toISOString(),
-                    performedById: currentUser.id,
-                    performedByName: currentUser.name,
-                    items: serviceItems,
-                    issuesFound,
-                    remarks: serviceRemarks || ""
-                });
+                try {
+                    // Write the service card record (the digital version of the physical sheet).
+                    await push(ref(db, 'serviceRecords'), {
+                        machineId: serviceMachine.id,
+                        machineName: serviceMachine.name || serviceMachine.id,
+                        serviceType: isMonthly ? 'monthly' : 'sixmonth',
+                        period: periodKey(now),
+                        month: now.getMonth() + 1,
+                        year: now.getFullYear(),
+                        date: now.toISOString(),
+                        performedById: currentUser.id || '',
+                        performedByName: currentUser.name || currentUser.username || 'Worker',
+                        items: itemList,
+                        issuesFound,
+                        remarks: serviceRemarks || ""
+                    });
 
-                // Stamp the machine so dashboards can compute due/overdue.
-                const machineUpdate = isMonthly
-                    ? { lastMonthlyService: periodKey(now), lastMonthlyServiceAt: now.toISOString() }
-                    : { lastSixMonthServiceAt: now.toISOString(), nextSixMonthDue: periodKey(addMonths(now, 6)), lastMonthlyService: periodKey(now), lastMonthlyServiceAt: now.toISOString() };
-                update(ref(db, `machines/${serviceMachine.id}`), machineUpdate);
+                    // Stamp the machine so dashboards can compute due/overdue.
+                    const machineUpdate = isMonthly
+                        ? { lastMonthlyService: periodKey(now), lastMonthlyServiceAt: now.toISOString() }
+                        : { lastSixMonthServiceAt: now.toISOString(), nextSixMonthDue: periodKey(addMonths(now, 6)), lastMonthlyService: periodKey(now), lastMonthlyServiceAt: now.toISOString() };
+                    await update(ref(db, `machines/${serviceMachine.id}`), machineUpdate);
 
-                // Light log entry for the machine health timeline (no metrics — not a breakdown).
-                push(ref(db, 'logs'), {
-                    machineId: serviceMachine.id,
-                    action: isMonthly ? 'Monthly Service' : '6-Month Service',
-                    department: 'Mechanical',
-                    userId: currentUser.id,
-                    userName: currentUser.name,
-                    details: issuesFound.length ? `Issues: ${issuesFound.join(', ')}` : 'All checks passed',
-                    timestamp: now.toISOString()
-                });
+                    // Light log entry for the machine health timeline (no metrics — not a breakdown).
+                    await push(ref(db, 'logs'), {
+                        machineId: serviceMachine.id,
+                        action: isMonthly ? 'Monthly Service' : '6-Month Service',
+                        department: 'Mechanical',
+                        userId: currentUser.id || '',
+                        userName: currentUser.name || currentUser.username || 'Worker',
+                        details: issuesFound.length ? `Issues: ${issuesFound.join(', ')}` : 'All checks passed',
+                        timestamp: now.toISOString()
+                    });
 
-                update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
-                setServiceType(null); setServiceMachine(null); setServiceItems({}); setServiceRemarks("");
-                alert(`${isMonthly ? 'Monthly' : '6-Month'} service saved for ${serviceMachine.name || serviceMachine.id}${issuesFound.length ? ` — ${issuesFound.length} issue(s) flagged` : ''}.`);
+                    update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
+                    setServiceType(null); setServiceMachine(null); setServiceItems({}); setServiceRemarks("");
+                    alert(`${isMonthly ? 'Monthly' : '6-Month'} service saved for ${serviceMachine.name || serviceMachine.id}${issuesFound.length ? ` — ${issuesFound.length} issue(s) flagged` : ''}.`);
+                } catch (e) {
+                    // Surface the real reason instead of silently failing.
+                    alert(`Could not save service card: ${e.code || e.message}. Nothing was saved — please try again.`);
+                }
             };
 
             // Move a machine from the yard onto the floor (single scan, places it Running).
@@ -1041,4 +1051,3 @@
     </script>
 </body>
 </html>
-
