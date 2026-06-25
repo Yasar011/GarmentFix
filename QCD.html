@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -313,14 +314,14 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'module-report',ic:'layout',l:'Module Report'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'module-report',ic:'layout',l:'Module Report'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
   return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
-  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
+  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
   return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
 }
 
@@ -338,6 +339,7 @@ function renderPg(){
   if(p==='roving')return pgRoving();
   if(p==='cap')return pgCap();
   if(p==='shift-summary')return pgShiftSummary();
+  if(p==='defect-category')return pgDefectCategory();
   if(p==='reports')return pgReports();
   if(p==='styles')return pgStyles();
   if(p==='style-report')return pgStyleReport();
@@ -1384,7 +1386,7 @@ function pgEndLine(){
     {label:'DEFECT QTY',   vals:HOURS.map(h=>(R.perHour[h]?.def||'')),    tot:R.totDef,    color:'var(--red)'},
     {label:'DEFECTS %',    vals:HOURS.map(h=>R.perHour[h]?.insp?(R.perHour[h].pct.toFixed(1)+'%'):''), tot:R.overallDhu.toFixed(1)+'%', color:parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'},
   ].map(r=>`<tr style="background:rgba(0,212,168,.04)">
-    <td colspan="2" style="${tdLB};color:${r.color||'var(--text1)'}">${r.label}</td>
+    <td colspan="2" style="${tdLB};color:${r.color||'var(--text)'}">${r.label}</td>
     ${HOURS.map((h,i)=>`<td style="${tdStyle(hasData.has(h),false)};color:${r.color||'inherit'}">${r.vals[i]||''}</td>`).join('')}
     <td style="${tdStyle(true,true)};font-weight:700;color:${r.color||'inherit'}">${r.tot}</td>
   </tr>`).join('');
@@ -1979,6 +1981,424 @@ function shiftSummaryExcel(rows){
   toast('Shift End Summary Excel downloaded');
 }
 
+// ======================== DEFECT CATEGORY REPORT ========================
+// Automated breakdown by category (Sewing / Uncut Thread / MMT / Oil Mark / Stain / Fabric /
+// Cut Hole) over a chosen Day / Week / Month — built straight from inspection records, no
+// manual compiling. Same elCategory() taxonomy already used by the End Line report.
+function dcDateRange(){
+  const mode=D.dcMode||'day';
+  const anchor=D.dcDate||new Date().toISOString().split('T')[0];
+  if(mode==='day')return[anchor,anchor];
+  if(mode==='week'){
+    const end=new Date(anchor);const start=new Date(anchor);start.setDate(start.getDate()-6);
+    return[start.toISOString().split('T')[0],end.toISOString().split('T')[0]];
+  }
+  // month: anchor is 'YYYY-MM'
+  const [y,m]=(D.dcMonth||anchor.slice(0,7)).split('-').map(Number);
+  const start=new Date(y,m-1,1),end=new Date(y,m,0);
+  return[start.toISOString().split('T')[0],end.toISOString().split('T')[0]];
+}
+function buildDefectCategory(){
+  const[from,to]=dcDateRange();
+  const mod=D.dcModule&&D.dcModule!=='__all'?D.dcModule:null;
+  let rows=(D.inspections||[]).filter(i=>i.type==='endline'&&(i.date||(i.createdAt||'').split('T')[0])>=from&&(i.date||(i.createdAt||'').split('T')[0])<=to);
+  if(mod)rows=rows.filter(i=>i.module===mod);
+  const cat={};EL_CAT_ORDER.forEach(c=>cat[c]=0);
+  const byDate={};
+  let totInsp=0,totDef=0;
+  rows.forEach(i=>{
+    const d=i.date||(i.createdAt||'').split('T')[0];
+    const c=parseInt(i.checkedQty)||0,dq=parseInt(i.defectQty)||0;
+    if(!byDate[d])byDate[d]=Object.fromEntries(EL_CAT_ORDER.map(c=>[c,0]).concat([['insp',0],['def',0]]));
+    byDate[d].insp+=c;totInsp+=c;
+    if(dq>0&&i.defectType){
+      const code=elResolveCode(i.defectType);
+      const k=elCategory(code,i.defectType);
+      cat[k]=(cat[k]||0)+dq;
+      byDate[d][k]=(byDate[d][k]||0)+dq;
+      byDate[d].def+=dq;totDef+=dq;
+    }
+  });
+  const dates=Object.keys(byDate).sort();
+  const dhu=totInsp?(totDef/totInsp)*100:0;
+  return{from,to,mod,cat,byDate,dates,totInsp,totDef,dhu,mode:D.dcMode||'day',rows};
+}
+function pgDefectCategory(){
+  const R=buildDefectCategory();
+  const mode=D.dcMode||'day';
+  const mods=[...new Set((D.inspections||[]).filter(i=>i.type==='endline').map(i=>i.module).filter(Boolean))].sort();
+  const periodPicker=mode==='month'
+    ?`<input type="month" class="form-control" style="width:160px" value="${D.dcMonth||new Date().toISOString().slice(0,7)}" onchange="D.dcMonth=this.value;render()">`
+    :`<input type="date" class="form-control" style="width:160px" value="${D.dcDate||new Date().toISOString().split('T')[0]}" onchange="D.dcDate=this.value;render()">`;
+  const filters=`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+    <select class="form-control" style="width:130px" onchange="D.dcMode=this.value;render()">
+      <option value="day" ${mode==='day'?'selected':''}>Daily</option>
+      <option value="week" ${mode==='week'?'selected':''}>Weekly</option>
+      <option value="month" ${mode==='month'?'selected':''}>Monthly</option>
+    </select>
+    ${periodPicker}
+    <select class="form-control" style="width:180px" onchange="D.dcModule=this.value;render()">
+      <option value="__all">All Modules</option>
+      ${mods.map(m=>`<option value="${m}" ${D.dcModule===m?'selected':''}>${m}</option>`).join('')}
+    </select>
+    <select class="form-control" style="width:170px" onchange="D.dcCat=this.value;render()">
+      <option value="__all" ${(!D.dcCat||D.dcCat==='__all')?'selected':''}>All Categories</option>
+      ${EL_CAT_ORDER.map(c=>`<option value="${c}" ${D.dcCat===c?'selected':''}>${c}</option>`).join('')}
+    </select>
+    <span style="font-size:12px;color:var(--text3)">${fd(R.from)} → ${fd(R.to)}</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end">
+    ${(D.dcCat&&D.dcCat!=='__all')
+      ?`<button class="btn btn-primary btn-sm" onclick="dcMatrixPDF('${D.dcCat}')" title="Colour-coded heatmap for just this category">${ic('pdf',14)} ${D.dcCat} — Colour PDF</button>
+        <button class="btn btn-ghost btn-sm" onclick="dcMatrixExportOne('${D.dcCat}')">${ic('excel',14)} ${D.dcCat} — Excel</button>`
+      :`<button class="btn btn-primary btn-sm" onclick="dcMatrixPDFAll()" title="Colour-coded heatmap matrix for all 7 categories, one section each">${ic('pdf',14)} Matrix PDF (all categories)</button>
+        <button class="btn btn-primary btn-sm" onclick="dcMatrixExport()" title="Module × Date matrix, one sheet per category & team (like the quality-meeting sheets)">${ic('excel',14)} Matrix Excel (all categories)</button>`}
+    <button class="btn btn-ghost btn-sm" onclick="rptDefectCategory('excel')">${ic('excel',14)} Summary Excel</button>
+    <button class="btn btn-ghost btn-sm" onclick="rptDefectCategory('pdf')">${ic('pdf',14)} PDF</button>
+  </div>
+  <div style="font-size:11px;color:var(--text3)">💡 Pick a single <b>Category</b> above for a colour-coded heatmap PDF of just that one. Leave it on "All Categories" to export the full multi-sheet matrix. <b>Note:</b> colour cells are only possible in the PDF — Excel's free export library can't colour cell backgrounds.</div>`;
+  const kpis=`<div class="grid-4">${kpi(R.totInsp,'Inspected','','var(--accent)')}${kpi(R.totDef,'Defects','','var(--red)')}${kpi(R.dhu.toFixed(2)+'%','DHU','','var(--yellow)')}${kpi(R.dhu<=2.5?'PASS':'REVIEW','AQL Result','','var(--green)')}</div>`;
+  const totCat=Object.values(R.cat).reduce((a,v)=>a+v,0);
+  const catTable=`<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Defect Category Breakdown</div>
+    ${totCat===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No defects in this period</div>':`<div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+    ${EL_CAT_ORDER.map(c=>{const n=R.cat[c]||0;const pct=totCat?((n/totCat)*100).toFixed(1):0;return`<div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>${c}</span><span style="font-family:var(--mono);color:var(--red)">${n} (${pct}%)</span></div>
+      <div style="height:8px;background:var(--bg3);border-radius:4px"><div style="height:100%;border-radius:4px;background:var(--accent);width:${pct}%"></div></div>
+    </div>`;}).join('')}
+    </div>`}
+  </div>`;
+  const trendTable=R.dates.length===0?'':`<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Daily Trend</div>
+    <div class="table-wrap"><table><thead><tr><th>Date</th>${EL_CAT_ORDER.map(c=>`<th>${c}</th>`).join('')}<th>Insp</th><th>Def</th><th>DHU%</th></tr></thead>
+    <tbody>${R.dates.map(d=>{const g=R.byDate[d];const dh=g.insp?((g.def/g.insp)*100).toFixed(1):'0.0';return`<tr><td style="font-size:12px">${fd(d)}</td>${EL_CAT_ORDER.map(c=>`<td style="font-family:var(--mono);font-size:12px">${g[c]||0}</td>`).join('')}<td style="font-family:var(--mono)">${g.insp}</td><td style="font-family:var(--mono);color:var(--red)">${g.def}</td><td style="font-family:var(--mono);color:${dh>5?'var(--red)':dh>3?'var(--yellow)':'var(--green)'}">${dh}%</td></tr>`;}).join('')}</tbody></table></div>
+  </div>`;
+  // When one specific category is picked, show exactly which defects made up its total —
+  // not just the one aggregate number.
+  const typeBreakdownCard=(D.dcCat&&D.dcCat!=='__all')?(()=>{
+    const breakdown=dcTypeBreakdown(R.rows,D.dcCat);
+    if(breakdown.length===0)return'';
+    const catTot=breakdown.reduce((a,[,n])=>a+n,0);
+    return`<div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">${D.dcCat} — Defect Type Breakdown</div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+      ${breakdown.map(([name,n])=>{const pct=catTot?((n/catTot)*100).toFixed(1):0;return`<div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>${name}</span><span style="font-family:var(--mono);color:var(--red)">${n} (${pct}%)</span></div>
+        <div style="height:8px;background:var(--bg3);border-radius:4px"><div style="height:100%;border-radius:4px;background:var(--purple);width:${pct}%"></div></div>
+      </div>`;}).join('')}
+      </div>
+    </div>`;
+  })():'';
+  return`<div style="display:flex;flex-direction:column;gap:20px">${filters}${kpis}${catTable}${typeBreakdownCard}${trendTable}</div>`;
+}
+function rptDefectCategory(fmt){
+  const R=buildDefectCategory();
+  if(R.totInsp===0){toast('No data for this period','error');return;}
+  if(fmt==='excel')return dcExcel(R);
+  dcPDF(R);
+}
+function dcPDF(R){
+  const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  doc.setFontSize(14);doc.setTextColor(0,100,80);doc.text(factoryName(),14,12);
+  doc.setFontSize(11);doc.setTextColor(40,40,40);doc.text('Defect Category Report',14,18);
+  doc.setFontSize(8.5);doc.setTextColor(60,60,60);
+  doc.text(`Period: ${R.mode.toUpperCase()}     ${fd(R.from)} -> ${fd(R.to)}     Module: ${R.mod||'All'}     Inspected: ${R.totInsp}   Defects: ${R.totDef}   DHU: ${R.dhu.toFixed(2)}%   AQL: ${R.dhu<=2.5?'PASS':'REVIEW'}`,14,24);
+  const totCat=Object.values(R.cat).reduce((a,v)=>a+v,0);
+  const catBody=EL_CAT_ORDER.map(c=>{const n=R.cat[c]||0;return[c,n,totCat?((n/totCat)*100).toFixed(1)+'%':'0%'];});
+  doc.autoTable({startY:30,head:[['Category','Defects','% of Total']],body:catBody,styles:{fontSize:9,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',margin:{left:14,right:160}});
+  let y=Math.max(doc.lastAutoTable.finalY,30)+8;
+  if(R.dates.length>0){
+    const head=[['Date',...EL_CAT_ORDER,'Insp','Def','DHU%']];
+    const body=R.dates.map(d=>{const g=R.byDate[d];const dh=g.insp?((g.def/g.insp)*100).toFixed(1):'0.0';return[fd(d),...EL_CAT_ORDER.map(c=>g[c]||0),g.insp,g.def,dh+'%'];});
+    doc.autoTable({startY:y,head,body,styles:{fontSize:7.5,cellPadding:1.6,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:24}},headStyles:{fillColor:[68,80,100],textColor:255,fontSize:7.5},margin:{left:14,right:14}});
+  }
+  pdfStamp(doc);
+  doc.save(`Defect_Category_${R.mode}_${R.from}_${R.to}.pdf`);
+  toast('Defect Category PDF downloaded');
+}
+function dcExcel(R){
+  const aoa=[];
+  aoa.push([factoryName()]);
+  aoa.push(['DEFECT CATEGORY REPORT']);
+  aoa.push(['Period',R.mode.toUpperCase(),'From',R.from,'To',R.to,'Module',R.mod||'All']);
+  aoa.push(['Inspected',R.totInsp,'Defects',R.totDef,'DHU%',R.dhu.toFixed(2),'AQL',R.dhu<=2.5?'PASS':'REVIEW']);
+  aoa.push([]);
+  aoa.push(['CATEGORY BREAKDOWN']);
+  aoa.push(['Category','Defects','% of Total']);
+  const totCat=Object.values(R.cat).reduce((a,v)=>a+v,0);
+  EL_CAT_ORDER.forEach(c=>{const n=R.cat[c]||0;aoa.push([c,n,totCat?parseFloat(((n/totCat)*100).toFixed(1)):0]);});
+  aoa.push([]);
+  if(R.dates.length>0){
+    aoa.push(['DAILY TREND']);
+    aoa.push(['Date',...EL_CAT_ORDER,'Inspected','Defects','DHU%']);
+    R.dates.forEach(d=>{const g=R.byDate[d];const dh=g.insp?((g.def/g.insp)*100).toFixed(1):'0.0';aoa.push([d,...EL_CAT_ORDER.map(c=>g[c]||0),g.insp,g.def,dh+'%']);});
+  }
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:14},...EL_CAT_ORDER.map(()=>({wch:12})),{wch:10},{wch:10},{wch:8}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Defect Category');
+  XLSX.writeFile(wb,`Defect_Category_${R.mode}_${R.from}_${R.to}.xlsx`);
+  toast('Defect Category Excel downloaded');
+}
+
+// ---- MATRIX EXPORT: Module (rows) x Date (columns), one sheet per category & team.
+// Mirrors the manual "OIL MARKS DETAILS MTD" quality-meeting sheets — automated.
+function dcMatrixDates(){
+  const[from,to]=dcDateRange();const out=[];
+  // Date-only strings parse as UTC midnight (per spec). Appending "T00:00:00" instead makes
+  // JS parse it as LOCAL midnight, which lands on the PREVIOUS day once converted back via
+  // toISOString() for any positive-UTC-offset timezone (e.g. India/Sri Lanka, +5:30) — that
+  // was the bug showing yesterday's date in the matrix column headers.
+  let d=new Date(from);const end=new Date(to);
+  while(d.getTime()<=end.getTime()){out.push(d.toISOString().split('T')[0]);d.setUTCDate(d.getUTCDate()+1);}
+  return{from,to,dates:out};
+}
+function dcFmtDate(s){const p=s.split('-');return p[2]+'-'+p[1]+'-'+p[0];}
+function dcModulesSorted(mods){
+  return[...mods].sort((a,b)=>{const na=parseInt((String(a).match(/\d+/)||[])[0]),nb=parseInt((String(b).match(/\d+/)||[])[0]);
+    if(!isNaN(na)&&!isNaN(nb)&&na!==nb)return na-nb;return String(a).localeCompare(String(b));});
+}
+// AOA for one category × team sheet.
+// Breaks a category's total down by the SPECIFIC defect (e.g. within SEWING: Broken Stitch,
+// Open Seam, Skip Stitch...) instead of leaving it as one aggregate number. Groups by the
+// canonical name from the code (via EL_DEFECTS) so typos/variations in the typed-in
+// defectType string don't fragment the same defect into separate rows.
+function dcTypeBreakdown(rows,catKey){
+  const byType={};
+  rows.forEach(i=>{
+    const dq=parseInt(i.defectQty)||0;if(dq<=0||!i.defectType)return;
+    const code=elResolveCode(i.defectType);
+    if(elCategory(code,i.defectType)!==catKey)return;
+    const def=EL_DEFECTS.find(d=>d.code===code);
+    const name=def?(def.code+' '+def.name):(i.defectType||'Unknown');
+    byType[name]=(byType[name]||0)+dq;
+  });
+  return Object.entries(byType).sort((a,b)=>b[1]-a[1]);
+}
+function dcCatMatrixAOA(catKey,teamFilter,label){
+  const{from,to,dates}=dcMatrixDates();
+  const modFilter=D.dcModule&&D.dcModule!=='__all'?D.dcModule:null;
+  let rows=(D.inspections||[]).filter(i=>i.type==='endline');
+  rows=rows.filter(i=>{const d=i.date||(i.createdAt||'').split('T')[0];return d>=from&&d<=to;});
+  if(teamFilter)rows=rows.filter(i=>(i.shift||'')===teamFilter);
+  if(modFilter)rows=rows.filter(i=>i.module===modFilter);
+  const modules=dcModulesSorted(new Set(rows.map(i=>i.module).filter(Boolean)));
+  const cell={};modules.forEach(m=>{cell[m]={};dates.forEach(d=>cell[m][d]=0);});
+  rows.forEach(i=>{
+    const dq=parseInt(i.defectQty)||0;if(dq<=0||!i.defectType)return;
+    if(elCategory(elResolveCode(i.defectType),i.defectType)!==catKey)return;
+    const d=i.date||(i.createdAt||'').split('T')[0];
+    if(cell[i.module]&&cell[i.module][d]!=null)cell[i.module][d]+=dq;
+  });
+  const aoa=[];
+  aoa.push([catKey+' DETAILS — '+label]);
+  aoa.push(['MODULE \\ DATE',...dates.map(dcFmtDate),'MTD TOTAL']);
+  const colTot={};dates.forEach(d=>colTot[d]=0);let grand=0;
+  modules.forEach(m=>{let rt=0;const r=[m];dates.forEach(d=>{const v=cell[m][d]||0;r.push(v);rt+=v;colTot[d]+=v;});r.push(rt);grand+=rt;aoa.push(r);});
+  aoa.push(['TOTAL',...dates.map(d=>colTot[d]),grand]);
+  // Defect-type breakdown — which SPECIFIC defects (not just the category aggregate) made up
+  // this total, e.g. under SEWING: S5 Broken Stitch, S22 Skip Stitch...
+  const breakdown=dcTypeBreakdown(rows,catKey);
+  if(breakdown.length>0){
+    aoa.push([]);
+    aoa.push(['DEFECT TYPE BREAKDOWN']);
+    aoa.push(['Defect','Qty','% of Category']);
+    const catTot=breakdown.reduce((a,[,n])=>a+n,0);
+    breakdown.forEach(([name,n])=>aoa.push([name,n,catTot?parseFloat(((n/catTot)*100).toFixed(1)):0]));
+  }
+  return aoa;
+}
+window.dcMatrixExport=function(){
+  const{from,to,dates}=dcMatrixDates();
+  const inRange=(D.inspections||[]).filter(i=>i.type==='endline').filter(i=>{const d=i.date||(i.createdAt||'').split('T')[0];return d>=from&&d<=to;});
+  if(inRange.length===0){toast('No data for this period','error');return;}
+  const teams=[...new Set(inRange.map(i=>i.shift||'').filter(Boolean))].sort();
+  const wb=XLSX.utils.book_new();
+  const used={};
+  const safe=s=>{let n=s.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,28);let b=n,k=2;while(used[n]){n=(b.slice(0,26)+' '+k);k++;}used[n]=1;return n;};
+  const cols=[{wch:14},...dates.map(()=>({wch:7})),{wch:10}];
+  const addSheet=(cat,team,label)=>{const ws=XLSX.utils.aoa_to_sheet(dcCatMatrixAOA(cat,team,label));ws['!cols']=cols;XLSX.utils.book_append_sheet(wb,ws,safe(cat+(team?' '+team:' MTD')));};
+  EL_CAT_ORDER.forEach(cat=>{
+    if(teams.length>1){
+      addSheet(cat,null,'MTD (A+B)');
+      teams.forEach(t=>addSheet(cat,t,'TEAM-'+t));
+    }else{
+      addSheet(cat,teams[0]||null,teams[0]?'TEAM-'+teams[0]:'MTD');
+    }
+  });
+  XLSX.writeFile(wb,`Defect_Matrix_${from}_${to}.xlsx`);
+  toast('Matrix workbook downloaded ('+wb.SheetNames.length+' sheets)','success');
+};
+
+// One sheet (or a few, per team) for just ONE category — Excel has no cell colour, but this
+// is the lighter download when you only need a single category's numbers.
+window.dcMatrixExportOne=function(catKey){
+  const{from,to,dates}=dcMatrixDates();
+  const inRange=(D.inspections||[]).filter(i=>i.type==='endline').filter(i=>{const d=i.date||(i.createdAt||'').split('T')[0];return d>=from&&d<=to;});
+  if(inRange.length===0){toast('No data for this period','error');return;}
+  const teams=[...new Set(inRange.map(i=>i.shift||'').filter(Boolean))].sort();
+  const wb=XLSX.utils.book_new();
+  const cols=[{wch:14},...dates.map(()=>({wch:7})),{wch:10}];
+  const addSheet=(team,label)=>{const ws=XLSX.utils.aoa_to_sheet(dcCatMatrixAOA(catKey,team,label));ws['!cols']=cols;XLSX.utils.book_append_sheet(wb,ws,(team?catKey.slice(0,24)+' '+team:catKey.slice(0,26)+' MTD'));};
+  if(teams.length>1){addSheet(null,'MTD (A+B)');teams.forEach(t=>addSheet(t,'TEAM-'+t));}
+  else addSheet(teams[0]||null,teams[0]?'TEAM-'+teams[0]:'MTD');
+  XLSX.writeFile(wb,`${catKey.replace(/\s+/g,'_')}_Matrix_${from}_${to}.xlsx`);
+  toast(catKey+' Excel downloaded');
+};
+
+// Colour bands for the heatmap — more defects = hotter colour, matching the red/yellow/green
+// convention already used everywhere else in this app for DHU.
+function dcHeatColor(v){
+  if(!v||v<=0)return null;
+  if(v<=5)return[200,230,255];    // light blue — low
+  if(v<=15)return[255,243,176];   // yellow — medium
+  if(v<=30)return[255,200,150];   // orange — high
+  return[255,160,160];            // red — critical
+}
+// Colour-coded heatmap PDF for ONE category — this is the closest match to the manual
+// "OIL MARKS DETAILS" sheets, since Excel's free export library can't colour cells.
+window.dcMatrixPDF=function(catKey){
+  const{from,to,dates}=dcMatrixDates();
+  const modFilter=D.dcModule&&D.dcModule!=='__all'?D.dcModule:null;
+  let rows=(D.inspections||[]).filter(i=>i.type==='endline');
+  rows=rows.filter(i=>{const d=i.date||(i.createdAt||'').split('T')[0];return d>=from&&d<=to;});
+  if(modFilter)rows=rows.filter(i=>i.module===modFilter);
+  if(rows.length===0){toast('No data for this period','error');return;}
+  const teams=[...new Set(rows.map(i=>i.shift||'').filter(Boolean))].sort();
+  const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  doc.setFontSize(14);doc.setTextColor(0,100,80);doc.text(factoryName(),14,12);
+  doc.setFontSize(11);doc.setTextColor(40,40,40);doc.text(catKey+' DETAILS',14,18);
+  doc.setFontSize(8);doc.setTextColor(80,80,80);
+  doc.text(`${fd(from)} -> ${fd(to)}     Module: ${modFilter||'All'}`,14,23);
+  let y=29;
+  const buildTeamTable=(teamFilter,label)=>{
+    let r2=rows;if(teamFilter)r2=r2.filter(i=>(i.shift||'')===teamFilter);
+    const modules=dcModulesSorted(new Set(r2.map(i=>i.module).filter(Boolean)));
+    if(modules.length===0)return;
+    const cell={};modules.forEach(m=>{cell[m]={};dates.forEach(d=>cell[m][d]=0);});
+    r2.forEach(i=>{
+      const dq=parseInt(i.defectQty)||0;if(dq<=0||!i.defectType)return;
+      if(elCategory(elResolveCode(i.defectType),i.defectType)!==catKey)return;
+      const d=i.date||(i.createdAt||'').split('T')[0];
+      if(cell[i.module]&&cell[i.module][d]!=null)cell[i.module][d]+=dq;
+    });
+    doc.setFontSize(9);doc.setTextColor(60,60,60);doc.text(label,14,y);
+    const head=[['Module',...dates.map(dcFmtDate),'MTD']];
+    const colTot={};dates.forEach(d=>colTot[d]=0);let grand=0;
+    const body=modules.map(m=>{let rt=0;const row=[m];dates.forEach(d=>{const v=cell[m][d]||0;row.push(v||'');rt+=v;colTot[d]+=v;});row.push(rt);grand+=rt;return row;});
+    const totRowIdx=body.length;
+    body.push(['TOTAL',...dates.map(d=>colTot[d]||''),grand]);
+    doc.autoTable({head,body,startY:y+2,theme:'grid',styles:{fontSize:6.3,cellPadding:1,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:16,fontStyle:'bold'}},headStyles:{fillColor:[68,80,100],textColor:255,fontSize:6.3},margin:{left:14,right:14},
+      didParseCell:function(data){
+        if(data.section!=='body')return;
+        if(data.row.index===totRowIdx){data.cell.styles.fillColor=[225,225,225];data.cell.styles.fontStyle='bold';return;}
+        if(data.column.index>0&&data.column.index<=dates.length){
+          const v=parseInt(data.cell.raw)||0;
+          const c=dcHeatColor(v);
+          if(c)data.cell.styles.fillColor=c;
+        }
+      }
+    });
+    y=doc.lastAutoTable.finalY+8;
+    if(y>175){doc.addPage('a4','landscape');y=14;}
+  };
+  if(teams.length>1){
+    buildTeamTable(null,'MTD (Team A + B)');
+    teams.forEach(t=>buildTeamTable(t,'TEAM-'+t));
+  }else{
+    buildTeamTable(teams[0]||null,teams[0]?'TEAM-'+teams[0]:'MTD');
+  }
+  // Which SPECIFIC defects made up this category's total — not just one aggregate number.
+  const breakdown=dcTypeBreakdown(rows,catKey);
+  if(breakdown.length>0){
+    const catTot=breakdown.reduce((a,[,n])=>a+n,0);
+    doc.setFontSize(9);doc.setTextColor(60,60,60);doc.text('Defect Type Breakdown',14,y);
+    doc.autoTable({startY:y+2,head:[['Defect','Qty','% of Category']],
+      body:breakdown.map(([name,n])=>[name,n,catTot?((n/catTot)*100).toFixed(1)+'%':'0%']),
+      styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:255,fontStyle:'bold'},
+      alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',margin:{left:14,right:160}});
+    y=doc.lastAutoTable.finalY+8;
+  }
+  pdfStamp(doc);
+  doc.save(`${catKey.replace(/\s+/g,'_')}_Matrix_${from}_${to}.pdf`);
+  toast(catKey+' colour-coded PDF downloaded');
+};
+
+// Same colour-coded heatmap as dcMatrixPDF, but all 7 categories in one PDF — each category
+// starts on its own page. This is the missing "all categories" PDF; before this, "All
+// Categories" only had an Excel matrix and the plain percentage-summary PDF.
+window.dcMatrixPDFAll=function(){
+  const{from,to,dates}=dcMatrixDates();
+  const modFilter=D.dcModule&&D.dcModule!=='__all'?D.dcModule:null;
+  let allRows=(D.inspections||[]).filter(i=>i.type==='endline');
+  allRows=allRows.filter(i=>{const d=i.date||(i.createdAt||'').split('T')[0];return d>=from&&d<=to;});
+  if(modFilter)allRows=allRows.filter(i=>i.module===modFilter);
+  if(allRows.length===0){toast('No data for this period','error');return;}
+  const teams=[...new Set(allRows.map(i=>i.shift||'').filter(Boolean))].sort();
+  const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  let first=true;
+  EL_CAT_ORDER.forEach(catKey=>{
+    const rows=allRows.filter(i=>(parseInt(i.defectQty)||0)>0&&i.defectType&&elCategory(elResolveCode(i.defectType),i.defectType)===catKey);
+    if(rows.length===0)return; // skip categories with zero defects this period — nothing to show
+    if(!first)doc.addPage('a4','landscape');
+    first=false;
+    doc.setFontSize(14);doc.setTextColor(0,100,80);doc.text(factoryName(),14,12);
+    doc.setFontSize(11);doc.setTextColor(40,40,40);doc.text(catKey+' DETAILS',14,18);
+    doc.setFontSize(8);doc.setTextColor(80,80,80);
+    doc.text(`${fd(from)} -> ${fd(to)}     Module: ${modFilter||'All'}`,14,23);
+    let y=29;
+    const buildTeamTable=(teamFilter,label)=>{
+      let r2=rows;if(teamFilter)r2=r2.filter(i=>(i.shift||'')===teamFilter);
+      const modules=dcModulesSorted(new Set(r2.map(i=>i.module).filter(Boolean)));
+      if(modules.length===0)return;
+      const cell={};modules.forEach(m=>{cell[m]={};dates.forEach(d=>cell[m][d]=0);});
+      r2.forEach(i=>{
+        const dq=parseInt(i.defectQty)||0;
+        const d=i.date||(i.createdAt||'').split('T')[0];
+        if(cell[i.module]&&cell[i.module][d]!=null)cell[i.module][d]+=dq;
+      });
+      doc.setFontSize(9);doc.setTextColor(60,60,60);doc.text(label,14,y);
+      const head=[['Module',...dates.map(dcFmtDate),'MTD']];
+      const colTot={};dates.forEach(d=>colTot[d]=0);let grand=0;
+      const body=modules.map(m=>{let rt=0;const row=[m];dates.forEach(d=>{const v=cell[m][d]||0;row.push(v||'');rt+=v;colTot[d]+=v;});row.push(rt);grand+=rt;return row;});
+      const totRowIdx=body.length;
+      body.push(['TOTAL',...dates.map(d=>colTot[d]||''),grand]);
+      doc.autoTable({head,body,startY:y+2,theme:'grid',styles:{fontSize:6.3,cellPadding:1,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:16,fontStyle:'bold'}},headStyles:{fillColor:[68,80,100],textColor:255,fontSize:6.3},margin:{left:14,right:14},
+        didParseCell:function(data){
+          if(data.section!=='body')return;
+          if(data.row.index===totRowIdx){data.cell.styles.fillColor=[225,225,225];data.cell.styles.fontStyle='bold';return;}
+          if(data.column.index>0&&data.column.index<=dates.length){
+            const v=parseInt(data.cell.raw)||0;
+            const c=dcHeatColor(v);
+            if(c)data.cell.styles.fillColor=c;
+          }
+        }
+      });
+      y=doc.lastAutoTable.finalY+8;
+      if(y>175){doc.addPage('a4','landscape');y=14;}
+    };
+    if(teams.length>1){
+      buildTeamTable(null,'MTD (Team A + B)');
+      teams.forEach(t=>buildTeamTable(t,'TEAM-'+t));
+    }else{
+      buildTeamTable(teams[0]||null,teams[0]?'TEAM-'+teams[0]:'MTD');
+    }
+    // Which SPECIFIC defects made up this category's total.
+    const breakdown=dcTypeBreakdown(rows,catKey);
+    if(breakdown.length>0){
+      const catTot=breakdown.reduce((a,[,n])=>a+n,0);
+      doc.setFontSize(9);doc.setTextColor(60,60,60);doc.text('Defect Type Breakdown',14,y);
+      doc.autoTable({startY:y+2,head:[['Defect','Qty','% of Category']],
+        body:breakdown.map(([name,n])=>[name,n,catTot?((n/catTot)*100).toFixed(1)+'%':'0%']),
+        styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[0,150,120],textColor:255,fontStyle:'bold'},
+        alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',margin:{left:14,right:160}});
+    }
+  });
+  if(first){toast('No defects in any category for this period','error');return;} // nothing was ever drawn
+  pdfStamp(doc);
+  doc.save(`Defect_Matrix_All_${from}_${to}.pdf`);
+  toast('All-categories colour PDF downloaded');
+};
+
 // ======================== OTHER PAGES ========================
 function pgAlerts(){return`<div style="display:flex;flex-direction:column;gap:20px"><div><button class="btn btn-primary" onclick="showModal('addAlert')">${ic('plus',14)} Create Alert</button></div>${D.alerts.length===0?'<div class="card" style="text-align:center;padding:48px;color:var(--text3)">No alerts</div>':D.alerts.slice().reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',16)}<div style="flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">${a.title||''}</span><span class="badge badge-${a.level==='critical'?'red':a.level==='high'?'yellow':'blue'}">${a.level||''}</span>${a.read?'':'<span class="badge badge-red" style="font-size:9px">NEW</span>'}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">${a.message||''}</div><div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span style="font-size:10px;color:var(--text3)">${ft(a.createdAt)}</span>${!a.read?`<button class="btn btn-ghost btn-sm" onclick="markRead('${a.fbKey}')">Mark Read</button>`:''}<button class="btn-icon" style="color:var(--red)" onclick="del('alerts','${a.fbKey}')">${ic('trash',14)}</button></div></div></div>`).join('')}</div>`;}
 
@@ -2339,7 +2759,7 @@ function pgAI(){
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
       <div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center">
         <div style="font-size:10px;color:var(--text3);margin-bottom:3px">DHU</div>
-        <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${statusColor[latest.overallStatus]||'var(--text1)'}">${latest.dhu||dhu}%</div>
+        <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${statusColor[latest.overallStatus]||'var(--text)'}">${latest.dhu||dhu}%</div>
       </div>
       <div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center">
         <div style="font-size:10px;color:var(--text3);margin-bottom:3px">INSPECTED</div>
@@ -2422,7 +2842,7 @@ function pgAI(){
     </div>
     <div class="card" style="padding:14px;border-color:${latest?statusColor[latest.overallStatus]||'var(--border)':'var(--border)'}">
       <div style="font-size:10px;color:var(--text3);margin-bottom:4px">AI STATUS</div>
-      <div style="font-size:18px;font-weight:700;color:${latest?statusColor[latest.overallStatus]||'var(--text1)':'var(--text3)'}">${latest?latest.overallStatus:'No data'}</div>
+      <div style="font-size:18px;font-weight:700;color:${latest?statusColor[latest.overallStatus]||'var(--text)':'var(--text3)'}">${latest?latest.overallStatus:'No data'}</div>
       <div style="font-size:11px;color:${latest?trendColor[latest.trend]||'var(--text2)':'var(--text3)'}">${latest?(trendIcon[latest.trend]||'')+'  '+(latest.trend||''):'Run n8n workflow'}</div>
     </div>
   </div>
