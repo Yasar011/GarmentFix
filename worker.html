@@ -4,7 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GarmentFix - Worker Portal</title>
-    
+
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GarmentFix">
+    <meta name="mobile-web-app-capable" content="yes">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
@@ -14,10 +22,12 @@
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
         "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
-        "firebase/database": "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js"
+        "firebase/database": "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js",
+        "firebase/messaging": "https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging.js"
       }
     }
     </script>
@@ -31,15 +41,88 @@
         import { 
             ClipboardList, Wrench, Clock, CheckSquare, ScanLine, X, 
             LogOut, User, Lock, Activity, TrendingUp, AlertTriangle, PlayCircle,
-            AlertOctagon, ArrowRight, CheckCircle, History, RefreshCw
+            AlertOctagon, ArrowRight, CheckCircle, History, RefreshCw, Bell, BellOff
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
         import { getDatabase, ref, onValue, update, remove, push, onDisconnect } from "firebase/database";
+        import { getMessaging, getToken, onMessage, isSupported as isMessagingSupported } from "firebase/messaging";
 
         // --- FIREBASE CONFIG ---
-        const firebaseConfig = { databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com" };
+        const firebaseConfig = {
+            apiKey: "AIzaSyBUbE6WtnWnHQsCul_5bDDPHz78jlaHCxs",
+            authDomain: "apparel-maintenance.firebaseapp.com",
+            databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com",
+            projectId: "apparel-maintenance",
+            storageBucket: "apparel-maintenance.firebasestorage.app",
+            messagingSenderId: "716246308986",
+            appId: "1:716246308986:web:0f5f33db9c65ffba1543c3"
+        };
+        const VAPID_KEY = "NhDYkUb9OFz4Li2Af8GPpvsoEVywJ4llFTBHwOP6W58";
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
+
+        // --- PREVENTIVE MAINTENANCE (PM) SERVICE CARDS ---
+        // Digitizes the two physical machine cards. No AI — routine scan-and-tick.
+        // Monthly card (Brandix monthly grid) and the 6-month deep service card.
+        const MONTHLY_ITEMS = [
+            'Finger Guard','Eye Guard','Belt Guard','Earth Wire','Oil Leakage','Oil Level',
+            'Pressure Foot','Thread Winder','Bobbin Case','Machine Head Condition',
+            'Synchronizer Status','Thread Stand Status','Air Regulator','Dust Collector',
+            'Missing Screw','Plug Top','Machine Switch','Puller','Thread Wiper','Rubber Bush',
+            'Tension Device','Thread Guide','Tube / Cable Tied','Pedal Carpet','Pedal Function','Castro Wheel'
+        ];
+        const SIXMONTH_ITEMS = [
+            'Machine Cleaning','Oil Changing','Filter Changing','Safety Guard','Screws Check',
+            'Painting OK','Oil Leakage','Timing','Control Box / Motor','Castro Wheel'
+        ];
+        // Tri-state per item: ok (✓ done), issue (✗ problem/not present), na (— not applicable).
+        const SERVICE_STATES = { ok: '✓ OK', issue: '✗ Issue', na: '— N/A' };
+        const SIX_MONTH_DAYS = 182; // ~6 months
+        const periodKey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`; };
+        const addMonths = (d, n) => { const x = new Date(d); x.setMonth(x.getMonth()+n); return x; };
+        // Service status for a machine (used by worker + mirrored logic in the hub):
+        const monthlyDue = (m) => (m?.lastMonthlyService || '') !== periodKey(new Date());
+        const sixMonthDue = (m) => {
+            if (!m?.lastSixMonthServiceAt) return true;
+            return (Date.now() - new Date(m.lastSixMonthServiceAt).getTime()) > SIX_MONTH_DAYS*86400000;
+        };
+
+        // --- TOAST NOTIFICATIONS (replaces blocking alert popups) ---
+        const _toastListeners = new Set();
+        let _toastSeq = 0;
+        const toast = (message, type) => {
+            const t = { id: ++_toastSeq, message: String(message), type: type || 'info' };
+            _toastListeners.forEach(fn => fn(t));
+        };
+        // Shim: route existing alert(...) calls through the toast UI, inferring tone from the text.
+        const alert = (message) => {
+            const m = String(message);
+            let type = 'info';
+            if (/error|invalid|wrong|required|fail|denied|not found|unable|must|please/i.test(m)) type = 'error';
+            else if (/success|submitted|saved|approved|complete|added|sent|done|back running/i.test(m)) type = 'success';
+            toast(m, type);
+        };
+        const ToastHost = () => {
+            const [items, setItems] = useState([]);
+            useEffect(() => {
+                const add = (t) => {
+                    setItems(prev => [...prev, t]);
+                    setTimeout(() => setItems(prev => prev.filter(x => x.id !== t.id)), 4000);
+                };
+                _toastListeners.add(add);
+                return () => _toastListeners.delete(add);
+            }, []);
+            const colors = { info: 'bg-slate-800', success: 'bg-emerald-600', error: 'bg-red-600', warning: 'bg-orange-500' };
+            return (
+                <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 items-end pointer-events-none">
+                    {items.map(t => (
+                        <div key={t.id} className={`${colors[t.type] || colors.info} text-white px-4 py-3 rounded-xl shadow-lg text-sm font-medium max-w-xs animate-in slide-in-from-right-4 fade-in duration-200`}>
+                            {t.message}
+                        </div>
+                    ))}
+                </div>
+            );
+        };
 
         // --- UI COMPONENTS ---
         const Card = ({ children, className = "" }) => (
@@ -133,13 +216,76 @@
             const [showEscalate, setShowEscalate] = useState(false);
             const [showReroute, setShowReroute] = useState(false);
             const [rerouteTicket, setRerouteTicket] = useState(null);
-            const [rerouteDept, setRerouteDept] = useState("Quality");
+            const [rerouteDept, setRerouteDept] = useState("Technical");
 
             // REPLACE FLOW STATE (Mechanical Only)
             const [replaceFlow, setReplaceFlow] = useState({ active: false, step: 1 });
 
+            // PM SERVICE CARD STATE
+            const [serviceRecords, setServiceRecords] = useState([]);
+            const [showServiceScan, setShowServiceScan] = useState(false); // scanner open for a service
+            const [serviceMachine, setServiceMachine] = useState(null);    // machine resolved from scan
+            const [serviceType, setServiceType] = useState(null);          // 'choose' | 'monthly' | 'sixmonth' | 'floor'
+            const [serviceItems, setServiceItems] = useState({});          // { itemName: 'ok'|'issue'|'na' }
+            const [serviceRemarks, setServiceRemarks] = useState("");
+
             // Sound Alert Tracking
             const [lastTaskCount, setLastTaskCount] = useState(0);
+            const [notifPermission, setNotifPermission] = useState(
+                (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'
+            );
+
+            const swRegRef = useRef(null);
+
+            // REGISTER SERVICE WORKER (enables Add-to-Home-Screen install + FCM background push)
+            useEffect(() => {
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.register('./firebase-messaging-sw.js')
+                        .then(reg => { swRegRef.current = reg; })
+                        .catch(() => {});
+                }
+            }, []);
+
+            // Pull an FCM token and save it on the user's record so the backend can push to this device.
+            const registerPushToken = async (user) => {
+                try {
+                    const supported = await isMessagingSupported();
+                    if (!supported || !swRegRef.current) return;
+                    const messaging = getMessaging(app);
+                    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swRegRef.current });
+                    if (token && user) {
+                        update(ref(db, `users/${user.id}`), { fcmToken: token });
+                    }
+                } catch (e) {
+                    console.log('FCM token registration failed', e);
+                }
+            };
+
+            const requestNotifications = () => {
+                if (typeof Notification === 'undefined') return alert('Notifications are not supported on this browser.');
+                Notification.requestPermission().then(perm => {
+                    setNotifPermission(perm);
+                    if (perm === 'granted') registerPushToken(currentUser);
+                });
+            };
+
+            // If permission was already granted in a previous session, silently (re)register the token on login.
+            useEffect(() => {
+                if (currentUser && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                    registerPushToken(currentUser);
+                }
+            }, [currentUser]);
+
+            const notifyNewWork = (title, body) => {
+                if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+                if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.ready.then(reg => reg.showNotification(title, {
+                        body, icon: './icon.svg', badge: './icon.svg', tag: 'garmentfix-task', renotify: true
+                    }));
+                } else {
+                    try { new Notification(title, { body, icon: './icon.svg' }); } catch (e) {}
+                }
+            };
 
             // PRESENCE MANAGER
             useEffect(() => {
@@ -184,6 +330,7 @@
                 onValue(ref(db, 'users'), (snap) => setUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
                 onValue(ref(db, 'machines'), (snap) => setMachines(snap.val() || {}));
                 onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
+                onValue(ref(db, 'serviceRecords'), (snap) => setServiceRecords(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
             }, []);
 
             // --- UPDATED: Fetch Department-Specific Tickets DIRECTLY from Machines ---
@@ -219,7 +366,7 @@
                 const unassignedCount = tickets.filter(t => isUnassignedTask(t.assignedTo) && t.status === 'Pending').length;
                 const currentCount = myTasksCount + unassignedCount;
 
-                // If task count increases, play chime
+                // If task count increases, play chime + push a notification
                 if (currentCount > lastTaskCount && lastTaskCount !== 0) {
                     try {
                         Tone.start();
@@ -230,6 +377,12 @@
                         synth.triggerAttackRelease("G5", "4n", now + 0.4);
                     } catch (e) {
                         console.log("Audio play blocked by browser policy");
+                    }
+
+                    if (myTasksCount > 0) {
+                        notifyNewWork('New Job Assigned', `You have a new ${currentUser.department} task waiting. Tap to open.`);
+                    } else if (unassignedCount > 0) {
+                        notifyNewWork('New Ticket in Queue', `A new ${currentUser.department} ticket is open for claiming.`);
                     }
                 }
                 setLastTaskCount(currentCount);
@@ -262,6 +415,13 @@
                     setLoginError("");
                     // Activate Tone.js on user interaction
                     Tone.start();
+                    // Ask for notification permission right away (must be triggered by user gesture)
+                    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+                        Notification.requestPermission().then(perm => {
+                            setNotifPermission(perm);
+                            if (perm === 'granted') registerPushToken({ ...user, status: 'Available' });
+                        });
+                    }
                 } else {
                     setLoginError("Invalid credentials.");
                 }
@@ -318,33 +478,44 @@
 
                 const responseMs = startedAt - assignedAt;
                 const repairMs = now - startedAt;
-                const downtimeMs = now - reportedAt;
+                // QCM-originated tickets (source:'QCM', skipDowntime:true) are quality-flagged
+                // issues, not actual breakdowns — the machine kept running while QC flagged it,
+                // so it must not count toward downtime KPIs. Keep repair/response time either way.
+                const downtimeMs = activeTask.skipDowntime ? null : (now - reportedAt);
 
                 push(ref(db, 'logs'), {
                     machineId: activeTask.id, // Storing ID for Analytics mapping
-                    action: 'Fixed',
-                    department: currentUser.department,
+                    action: activeTask.isPM ? 'PM Completed (Pending Review)' : 'Fixed (Pending Review)',
+                    department: activeTask.department || currentUser.department,
                     userId: currentUser.id,
                     userName: currentUser.name,
                     operatorSignOff: signOffData.operatorId,
                     details: signOffData.remarks,
                     timestamp: now.toISOString(),
                     repairTime: formatDuration(repairMs),
+                    source: activeTask.source || null,
+                    skipDowntime: !!activeTask.skipDowntime,
                     metrics: { responseMs, repairMs, downtimeMs }
                 });
 
-                // Clear the issue from the machine and set to running
-                update(ref(db, `machines/${activeTask.id}`), { 
-                    status: 'Running', 
-                    assignedTo: null, 
-                    issue: null,
-                    department: null,
-                    priority: null,
-                    aiDiagnostic: null
+                // 2-stage approval: hand to the department Supervisor for Hub Review (NOT closed yet).
+                // Keep issue/department so the supervisor has full context; closing happens after
+                // Hub Review -> Pending Admin Approval -> Final Approve.
+                update(ref(db, `machines/${activeTask.id}`), {
+                    status: 'Hub Review',
+                    completionRemarks: signOffData.remarks,
+                    completionOperator: signOffData.operatorId,
+                    completedBy: currentUser.id,
+                    completedByName: currentUser.name,
+                    metrics: { responseMs, repairMs, downtimeMs }
                 });
+
+                // Free the worker for the next job.
+                update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
 
                 setShowSignOff(false);
                 setSignOffData({ operatorId: "", remarks: "" });
+                alert("Submitted for Hub Review — your supervisor will approve it.");
             };
 
             const handleEscalate = () => {
@@ -416,6 +587,101 @@
                 }
             };
 
+            // --- PM SERVICE CARD HANDLERS ---
+            // Mechanic scans a machine QR, then picks Monthly Check / 6-Month Service / Move to Floor.
+            const handleServiceScan = (decodedText) => {
+                const entry = Object.entries(machines).find(([id, m]) => id === decodedText || m.name === decodedText);
+                if (!entry) { alert(`Machine "${decodedText}" not found in database.`); setShowServiceScan(false); return; }
+                const [id, m] = entry;
+                setServiceMachine({ id, ...m });
+                setShowServiceScan(false);
+                setServiceType('choose'); // show the action chooser
+                // Mark the mechanic busy so the admin board shows where they are.
+                update(ref(db, `users/${currentUser.id}`), { status: 'Busy', currentTask: `Servicing ${m.name || id}` });
+            };
+
+            const chooseServiceType = (type) => {
+                if (type === 'floor') { handleMoveToFloor(); return; }
+                const items = (type === 'monthly' ? MONTHLY_ITEMS : SIXMONTH_ITEMS);
+                const init = {};
+                items.forEach(it => init[it] = 'ok'); // default everything to OK; mechanic flips the exceptions
+                setServiceItems(init);
+                setServiceRemarks("");
+                setServiceType(type);
+            };
+
+            const setServiceItem = (item, val) => setServiceItems(prev => ({ ...prev, [item]: val }));
+            const markAllItems = (val) => {
+                const items = (serviceType === 'monthly' ? MONTHLY_ITEMS : SIXMONTH_ITEMS);
+                const next = {}; items.forEach(it => next[it] = val); setServiceItems(next);
+            };
+
+            const cancelService = () => {
+                // Release the mechanic back to Available.
+                if (currentUser) update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
+                setServiceType(null); setServiceMachine(null); setServiceItems({}); setServiceRemarks("");
+            };
+
+            const submitService = () => {
+                if (!serviceMachine) return;
+                const now = new Date();
+                const isMonthly = serviceType === 'monthly';
+                const items = isMonthly ? MONTHLY_ITEMS : SIXMONTH_ITEMS;
+                const issuesFound = items.filter(it => serviceItems[it] === 'issue');
+
+                // Write the service card record (the digital version of the physical sheet).
+                push(ref(db, 'serviceRecords'), {
+                    machineId: serviceMachine.id,
+                    machineName: serviceMachine.name || serviceMachine.id,
+                    serviceType: isMonthly ? 'monthly' : 'sixmonth',
+                    period: periodKey(now),
+                    month: now.getMonth() + 1,
+                    year: now.getFullYear(),
+                    date: now.toISOString(),
+                    performedById: currentUser.id,
+                    performedByName: currentUser.name,
+                    items: serviceItems,
+                    issuesFound,
+                    remarks: serviceRemarks || ""
+                });
+
+                // Stamp the machine so dashboards can compute due/overdue.
+                const machineUpdate = isMonthly
+                    ? { lastMonthlyService: periodKey(now), lastMonthlyServiceAt: now.toISOString() }
+                    : { lastSixMonthServiceAt: now.toISOString(), nextSixMonthDue: periodKey(addMonths(now, 6)), lastMonthlyService: periodKey(now), lastMonthlyServiceAt: now.toISOString() };
+                update(ref(db, `machines/${serviceMachine.id}`), machineUpdate);
+
+                // Light log entry for the machine health timeline (no metrics — not a breakdown).
+                push(ref(db, 'logs'), {
+                    machineId: serviceMachine.id,
+                    action: isMonthly ? 'Monthly Service' : '6-Month Service',
+                    department: 'Mechanical',
+                    userId: currentUser.id,
+                    userName: currentUser.name,
+                    details: issuesFound.length ? `Issues: ${issuesFound.join(', ')}` : 'All checks passed',
+                    timestamp: now.toISOString()
+                });
+
+                update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
+                setServiceType(null); setServiceMachine(null); setServiceItems({}); setServiceRemarks("");
+                alert(`${isMonthly ? 'Monthly' : '6-Month'} service saved for ${serviceMachine.name || serviceMachine.id}${issuesFound.length ? ` — ${issuesFound.length} issue(s) flagged` : ''}.`);
+            };
+
+            // Move a machine from the yard onto the floor (single scan, places it Running).
+            const handleMoveToFloor = () => {
+                if (!serviceMachine) return;
+                update(ref(db, `machines/${serviceMachine.id}`), { location: 'floor', onFloor: true, status: 'Running' });
+                push(ref(db, 'logs'), {
+                    machineId: serviceMachine.id, action: 'Moved to Floor', department: 'Mechanical',
+                    userId: currentUser.id, userName: currentUser.name,
+                    details: `${serviceMachine.name || serviceMachine.id} placed on production floor`,
+                    timestamp: new Date().toISOString()
+                });
+                update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
+                setServiceType(null); setServiceMachine(null);
+                alert(`${serviceMachine.name || serviceMachine.id} moved to floor and set Running.`);
+            };
+
             // --- RENDER ---
             if (!currentUser) {
                 return (
@@ -450,11 +716,93 @@
                     {showScanner && <QRScanner onScan={handleScanStart} onClose={() => setShowScanner(false)} title="Scan Machine to Start Repair" />}
                     
                     {replaceFlow.active && (
-                        <QRScanner 
-                            onScan={handleReplaceScan} 
-                            onClose={() => setReplaceFlow({ active: false, step: 1 })} 
-                            title={replaceFlow.step === 1 ? "1. Scan BROKEN Machine" : "2. Scan SPARE Machine"} 
+                        <QRScanner
+                            onScan={handleReplaceScan}
+                            onClose={() => setReplaceFlow({ active: false, step: 1 })}
+                            title={replaceFlow.step === 1 ? "1. Scan BROKEN Machine" : "2. Scan SPARE Machine"}
                         />
+                    )}
+
+                    {/* PM SERVICE: scan a machine to begin a service card */}
+                    {showServiceScan && (
+                        <QRScanner onScan={handleServiceScan} onClose={() => setShowServiceScan(false)} title="Scan Machine for Service / PM" />
+                    )}
+
+                    {/* PM SERVICE: choose what to do with the scanned machine */}
+                    {serviceType === 'choose' && serviceMachine && (
+                        <div className="fixed inset-0 bg-black/70 z-[80] flex items-center justify-center p-4 backdrop-blur-sm">
+                            <Card className="w-full max-w-md p-0 overflow-hidden animate-in zoom-in-95 duration-200">
+                                <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+                                    <h3 className="font-bold flex items-center gap-2"><Wrench className="w-5 h-5 text-blue-400"/> {serviceMachine.name || serviceMachine.id}</h3>
+                                    <button onClick={cancelService}><X className="w-5 h-5"/></button>
+                                </div>
+                                <div className="p-5 space-y-3">
+                                    <p className="text-sm text-slate-500">Serial: <span className="font-mono">{serviceMachine.serial || serviceMachine.id}</span></p>
+                                    <div className="flex gap-2 text-xs">
+                                        <span className={`px-2 py-1 rounded font-bold ${monthlyDue(serviceMachine) ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>{monthlyDue(serviceMachine) ? 'Monthly DUE' : 'Monthly done'}</span>
+                                        <span className={`px-2 py-1 rounded font-bold ${sixMonthDue(serviceMachine) ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{sixMonthDue(serviceMachine) ? '6-Month DUE' : '6-Month ok'}</span>
+                                    </div>
+                                    <Button fullWidth onClick={() => chooseServiceType('monthly')}><ClipboardList className="w-5 h-5"/> Monthly Check ({MONTHLY_ITEMS.length} pts)</Button>
+                                    <Button fullWidth variant="warning" onClick={() => chooseServiceType('sixmonth')}><Wrench className="w-5 h-5"/> 6-Month Service ({SIXMONTH_ITEMS.length} pts)</Button>
+                                    <Button fullWidth variant="secondary" onClick={() => chooseServiceType('floor')}><ArrowRight className="w-5 h-5"/> Move to Floor (Yard → Floor)</Button>
+                                </div>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* PM SERVICE: the checklist sheet (digital version of the physical card) */}
+                    {(serviceType === 'monthly' || serviceType === 'sixmonth') && serviceMachine && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-[90] flex flex-col">
+                            <div className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md shrink-0">
+                                <div>
+                                    <h3 className="font-bold flex items-center gap-2">
+                                        {serviceType === 'monthly' ? <ClipboardList className="w-5 h-5 text-blue-400"/> : <Wrench className="w-5 h-5 text-orange-400"/>}
+                                        {serviceType === 'monthly' ? 'Monthly Service Card' : '6-Month Service Card'}
+                                    </h3>
+                                    <div className="text-xs text-slate-400 mt-0.5">{serviceMachine.name || serviceMachine.id} · {periodKey(new Date())} · by {currentUser.name}</div>
+                                </div>
+                                <button onClick={cancelService} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700"><X className="w-5 h-5"/></button>
+                            </div>
+                            <div className="flex gap-2 px-4 py-2 bg-slate-800 text-xs shrink-0">
+                                <span className="text-slate-400 self-center mr-1">Mark all:</span>
+                                <button onClick={() => markAllItems('ok')} className="px-3 py-1.5 rounded bg-emerald-600 text-white font-bold">✓ All OK</button>
+                                <button onClick={() => markAllItems('na')} className="px-3 py-1.5 rounded bg-slate-600 text-white font-bold">— All N/A</button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full space-y-2">
+                                {(serviceType === 'monthly' ? MONTHLY_ITEMS : SIXMONTH_ITEMS).map(item => (
+                                    <div key={item} className="bg-white rounded-lg p-3 flex items-center justify-between gap-3">
+                                        <span className="font-medium text-slate-800 text-sm">{item}</span>
+                                        <div className="flex gap-1 shrink-0">
+                                            {Object.entries(SERVICE_STATES).map(([val, label]) => {
+                                                const active = serviceItems[item] === val;
+                                                const color = val === 'ok' ? 'bg-emerald-600' : val === 'issue' ? 'bg-red-600' : 'bg-slate-500';
+                                                return (
+                                                    <button key={val} onClick={() => setServiceItem(item, val)}
+                                                        className={`px-2.5 py-1.5 rounded text-xs font-bold transition-all ${active ? `${color} text-white shadow` : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                                                        {label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                                <div className="bg-white rounded-lg p-3 mt-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Remarks / Reason (optional)</label>
+                                    <textarea className="w-full p-2 border rounded-lg h-20 text-sm" placeholder="Parts replaced, notes..." value={serviceRemarks} onChange={e => setServiceRemarks(e.target.value)}></textarea>
+                                </div>
+                            </div>
+                            <div className="p-4 bg-slate-900 shrink-0 max-w-2xl mx-auto w-full">
+                                {(() => {
+                                    const items = serviceType === 'monthly' ? MONTHLY_ITEMS : SIXMONTH_ITEMS;
+                                    const issues = items.filter(it => serviceItems[it] === 'issue').length;
+                                    return (
+                                        <Button fullWidth variant="success" onClick={submitService}>
+                                            <CheckCircle className="w-5 h-5"/> Save Service Card{issues ? ` (${issues} issue${issues>1?'s':''})` : ''}
+                                        </Button>
+                                    );
+                                })()}
+                            </div>
+                        </div>
                     )}
                     
                     <Modal isOpen={showSignOff} onClose={() => setShowSignOff(false)} title="Complete Job & Sign-off">
@@ -471,7 +819,7 @@
                                 <input className="w-full p-3 border rounded-lg bg-yellow-50 focus:ring-yellow-400" placeholder="e.g. OP-1234" value={signOffData.operatorId} onChange={e => setSignOffData({...signOffData, operatorId: e.target.value})} />
                                 <p className="text-[10px] text-slate-400 mt-1">Operator must enter ID to verify machine is running smoothly.</p>
                             </div>
-                            <Button fullWidth variant="success" onClick={handleSignOff}><CheckCircle className="w-5 h-5"/> Verify & Close Ticket</Button>
+                            <Button fullWidth variant="success" onClick={handleSignOff}><CheckCircle className="w-5 h-5"/> Submit for Hub Review</Button>
                         </div>
                     </Modal>
 
@@ -488,9 +836,9 @@
                             <p className="text-sm text-slate-600">Re-route <strong>{rerouteTicket?.machineId}</strong> to the correct department queue.</p>
                             <select className="w-full p-3 border rounded-lg" value={rerouteDept} onChange={e => setRerouteDept(e.target.value)}>
                                 <option value="Mechanical">Mechanical Dept</option>
-                                <option value="Quality">Quality / Measurement Dept</option>
                                 <option value="Technical">Technical / Method Dept</option>
                                 <option value="IE">Industrial Engineering (IE)</option>
+                                <option value="Quality">Quality Dept</option>
                                 <option value="Material">Raw Materials (RM) / Stores</option>
                             </select>
                             <Button fullWidth onClick={handleReroute}><ArrowRight className="w-5 h-5"/> Send to {rerouteDept}</Button>
@@ -507,8 +855,17 @@
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
-                            <button 
-                                onClick={toggleStatus} 
+                            {notifPermission !== 'granted' && notifPermission !== 'unsupported' && (
+                                <button
+                                    onClick={requestNotifications}
+                                    title="Enable alerts for new jobs"
+                                    className="p-2 bg-orange-500 rounded-full hover:bg-orange-600 text-white transition-colors animate-pulse"
+                                >
+                                    <Bell className="w-5 h-5"/>
+                                </button>
+                            )}
+                            <button
+                                onClick={toggleStatus}
                                 className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-sm transition-colors border ${currentUser.status === 'Available' ? 'bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600' : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'}`}
                             >
                                 {currentUser.status || 'Offline'}
@@ -519,7 +876,20 @@
 
                     {/* MAIN VIEW */}
                     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-8">
-                        
+
+                        {/* PM SERVICE ENTRY — scan any machine to run its Monthly / 6-Month card */}
+                        <button onClick={() => setShowServiceScan(true)}
+                            className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-md hover:from-indigo-700 hover:to-blue-700 transition-all">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-white/20 p-2.5 rounded-xl"><ScanLine className="w-6 h-6"/></div>
+                                <div className="text-left">
+                                    <div className="font-bold text-lg">Machine Service / PM</div>
+                                    <div className="text-xs text-blue-100">Scan a machine → Monthly check, 6-Month service, or Move to Floor</div>
+                                </div>
+                            </div>
+                            <ArrowRight className="w-5 h-5"/>
+                        </button>
+
                         {/* ACTIVE TASK (TIMER RUNNING) */}
                         {activeTask && (
                             <div className="animate-in slide-in-from-top-4 duration-300">
@@ -647,7 +1017,7 @@
                         <div className="pt-8 border-t border-slate-200">
                             <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 uppercase tracking-wide text-sm"><History className="w-4 h-4 text-slate-400"/> My Recent Fixes</h3>
                             <div className="space-y-3">
-                                {logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed').slice().reverse().slice(0, 5).map((log, i) => (
+                                {logs.filter(l => l.userId === currentUser.id && (l.action === 'Fixed (Pending Review)' || l.action === 'PM Completed (Pending Review)')).slice().reverse().slice(0, 5).map((log, i) => (
                                     <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 text-sm flex justify-between items-center opacity-80 hover:opacity-100 transition-opacity shadow-sm">
                                         <div>
                                             <span className="font-bold text-slate-700 mr-2">{log.machineId}</span>
@@ -667,7 +1037,8 @@
         };
 
         const root = createRoot(document.getElementById('root'));
-        root.render(<WorkerApp />);
+        root.render(<><WorkerApp /><ToastHost /></>);
     </script>
 </body>
 </html>
+
