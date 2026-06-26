@@ -78,6 +78,15 @@
         // Tri-state per item: ok (✓ done), issue (✗ problem/not present), na (— not applicable).
         const SERVICE_STATES = { ok: '✓ OK', issue: '✗ Issue', na: '— N/A' };
         const SIX_MONTH_DAYS = 182; // ~6 months
+        // Machine names repeat a lot on the floor (many identical units) — Model + Serial No.
+        // is what actually identifies one machine, so that's the label everywhere in the
+        // service flow instead of the (ambiguous) name.
+        const machineLabel = (m) => `${(m && (m.model || m.type)) || '—'} · SN ${(m && (m.serial || m.id)) || '—'}`;
+        // Fixed floor zones a machine normally lives in, plus a free-text "Unit/MIC" for
+        // moving a machine to an entirely different factory unit/building. Any move — zone or
+        // unit — goes through an admin approval gate (machineTransfers), it never moves the
+        // machine immediately.
+        const MACHINE_LOCATIONS = ['Yard', 'Floor', 'Engineering Room', 'Maintenance Room'];
         const periodKey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`; };
         const addMonths = (d, n) => { const x = new Date(d); x.setMonth(x.getMonth()+n); return x; };
         // Service status for a machine (used by worker + mirrored logic in the hub):
@@ -223,11 +232,18 @@
 
             // PM SERVICE CARD STATE
             const [serviceRecords, setServiceRecords] = useState([]);
+            const [serviceRequests, setServiceRequests] = useState([]);
             const [showServiceScan, setShowServiceScan] = useState(false); // scanner open for a service
             const [serviceMachine, setServiceMachine] = useState(null);    // machine resolved from scan
             const [serviceType, setServiceType] = useState(null);          // 'choose' | 'monthly' | 'sixmonth' | 'floor'
             const [serviceItems, setServiceItems] = useState({});          // { itemName: 'ok'|'issue'|'na' }
             const [serviceRemarks, setServiceRemarks] = useState("");
+
+            // MACHINE TRANSFER REQUEST STATE (move/replace — all admin-approval gated)
+            const [machineTransfers, setMachineTransfers] = useState([]);
+            const [transferDest, setTransferDest] = useState("");
+            const [transferUnit, setTransferUnit] = useState("");
+            const [transferNote, setTransferNote] = useState("");
 
             // Sound Alert Tracking
             const [lastTaskCount, setLastTaskCount] = useState(0);
@@ -331,6 +347,8 @@
                 onValue(ref(db, 'machines'), (snap) => setMachines(snap.val() || {}));
                 onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
                 onValue(ref(db, 'serviceRecords'), (snap) => setServiceRecords(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'machineTransfers'), (snap) => setMachineTransfers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'serviceRequests'), (snap) => setServiceRequests(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
             }, []);
 
             // --- UPDATED: Fetch Department-Specific Tickets DIRECTLY from Machines ---
@@ -597,17 +615,36 @@
                 setShowServiceScan(false);
                 setServiceType('choose'); // show the action chooser
                 // Mark the mechanic busy so the admin board shows where they are.
-                update(ref(db, `users/${currentUser.id}`), { status: 'Busy', currentTask: `Servicing ${m.name || id}` });
+                update(ref(db, `users/${currentUser.id}`), { status: 'Busy', currentTask: `Servicing ${machineLabel({ ...m, id })}` });
             };
 
             const chooseServiceType = (type) => {
-                if (type === 'floor') { handleMoveToFloor(); return; }
+                if (type === 'transfer') { setTransferDest(""); setTransferUnit(""); setTransferNote(""); setServiceType('transfer'); return; }
                 const items = (type === 'monthly' ? MONTHLY_ITEMS : SIXMONTH_ITEMS);
                 const init = {};
                 items.forEach(it => init[it] = 'ok'); // default everything to OK; mechanic flips the exceptions
                 setServiceItems(init);
                 setServiceRemarks("");
                 setServiceType(type);
+            };
+
+            const pendingTransferFor = (machineId) => machineTransfers.find(t => t.machineId === machineId && t.status === 'Pending');
+
+            // An approved, not-yet-used re-check request unlocks a service that's otherwise "done".
+            const approvedRequestFor = (machineId, type) => serviceRequests.find(r => r.machineId === machineId && r.serviceType === type && r.status === 'Approved');
+            const pendingRequestFor = (machineId, type) => serviceRequests.find(r => r.machineId === machineId && r.serviceType === type && r.status === 'Pending');
+            // Worker asks a supervisor to unlock an already-done service for a re-check.
+            const requestRecheck = async (type) => {
+                if (!serviceMachine) return;
+                if (pendingRequestFor(serviceMachine.id, type)) { alert('A re-check request is already pending approval.'); return; }
+                try {
+                    await push(ref(db, 'serviceRequests'), {
+                        machineId: serviceMachine.id, machineName: serviceMachine.name || serviceMachine.id,
+                        serviceType: type, requestedById: currentUser.id || '', requestedByName: currentUser.name || currentUser.username || 'Worker',
+                        status: 'Pending', createdAt: new Date().toISOString()
+                    });
+                    alert(`Re-check request sent for approval (${type === 'monthly' ? 'Monthly' : '6-Month'}).`);
+                } catch (e) { alert('Could not send request: ' + (e.code || e.message)); }
             };
 
             const setServiceItem = (item, val) => setServiceItems(prev => ({ ...prev, [item]: val }));
@@ -636,9 +673,11 @@
 
                 try {
                     // Write the service card record (the digital version of the physical sheet).
-                    await push(ref(db, 'serviceRecords'), {
+                    const recordRef = await push(ref(db, 'serviceRecords'), {
                         machineId: serviceMachine.id,
                         machineName: serviceMachine.name || serviceMachine.id,
+                        machineModel: serviceMachine.model || serviceMachine.type || '',
+                        machineSerial: serviceMachine.serial || serviceMachine.id || '',
                         serviceType: isMonthly ? 'monthly' : 'sixmonth',
                         period: periodKey(now),
                         month: now.getMonth() + 1,
@@ -650,6 +689,25 @@
                         issuesFound,
                         remarks: serviceRemarks || ""
                     });
+
+                    // Every "X" (issue) item raises its own ticket in the Maintenance Hub —
+                    // each can need a different fix and a different close-out comment, so they're
+                    // tracked and closed individually rather than as one lump record.
+                    for (const itemName of issuesFound) {
+                        await push(ref(db, 'serviceIssues'), {
+                            machineId: serviceMachine.id,
+                            machineName: serviceMachine.name || serviceMachine.id,
+                            machineModel: serviceMachine.model || serviceMachine.type || '',
+                            machineSerial: serviceMachine.serial || serviceMachine.id || '',
+                            serviceRecordId: recordRef.key,
+                            serviceType: isMonthly ? 'monthly' : 'sixmonth',
+                            period: periodKey(now),
+                            item: itemName,
+                            status: 'Open',
+                            raisedBy: currentUser.id || '', raisedByName: currentUser.name || currentUser.username || 'Worker',
+                            raisedAt: now.toISOString()
+                        });
+                    }
 
                     // Stamp the machine so dashboards can compute due/overdue.
                     const machineUpdate = isMonthly
@@ -668,28 +726,39 @@
                         timestamp: now.toISOString()
                     });
 
+                    // If this service used an approved re-check request, consume it so it can't be reused.
+                    const usedReq = approvedRequestFor(serviceMachine.id, isMonthly ? 'monthly' : 'sixmonth');
+                    if (usedReq) update(ref(db, `serviceRequests/${usedReq.id}`), { status: 'Completed', completedAt: now.toISOString() });
+
                     update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
                     setServiceType(null); setServiceMachine(null); setServiceItems({}); setServiceRemarks("");
-                    alert(`${isMonthly ? 'Monthly' : '6-Month'} service saved for ${serviceMachine.name || serviceMachine.id}${issuesFound.length ? ` — ${issuesFound.length} issue(s) flagged` : ''}.`);
+                    alert(`${isMonthly ? 'Monthly' : '6-Month'} service saved for ${machineLabel(serviceMachine)}${issuesFound.length ? ` — ${issuesFound.length} issue(s) flagged` : ''}.`);
                 } catch (e) {
                     // Surface the real reason instead of silently failing.
                     alert(`Could not save service card: ${e.code || e.message}. Nothing was saved — please try again.`);
                 }
             };
 
-            // Move a machine from the yard onto the floor (single scan, places it Running).
-            const handleMoveToFloor = () => {
+            // Request a move/transfer (zone or another Unit/MIC). Nothing on the machine
+            // changes here — it only goes Pending until an admin approves it in the Main Hub.
+            const submitTransferRequest = () => {
                 if (!serviceMachine) return;
-                update(ref(db, `machines/${serviceMachine.id}`), { location: 'floor', onFloor: true, status: 'Running' });
-                push(ref(db, 'logs'), {
-                    machineId: serviceMachine.id, action: 'Moved to Floor', department: 'Mechanical',
-                    userId: currentUser.id, userName: currentUser.name,
-                    details: `${serviceMachine.name || serviceMachine.id} placed on production floor`,
-                    timestamp: new Date().toISOString()
+                const dest = transferUnit.trim() || transferDest;
+                if (!dest) return alert("Pick a zone or type a destination Unit/MIC first.");
+                push(ref(db, 'machineTransfers'), {
+                    machineId: serviceMachine.id,
+                    machineName: serviceMachine.name || serviceMachine.id,
+                    machineModel: serviceMachine.model || serviceMachine.type || '',
+                    machineSerial: serviceMachine.serial || serviceMachine.id || '',
+                    fromLocation: serviceMachine.location || 'Yard',
+                    toLocation: dest,
+                    requestedBy: currentUser.id, requestedByName: currentUser.name,
+                    requestedAt: new Date().toISOString(),
+                    status: 'Pending', note: transferNote || ''
                 });
                 update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
-                setServiceType(null); setServiceMachine(null);
-                alert(`${serviceMachine.name || serviceMachine.id} moved to floor and set Running.`);
+                setServiceType(null); setServiceMachine(null); setTransferDest(""); setTransferUnit(""); setTransferNote("");
+                alert(`Transfer request submitted for ${machineLabel(serviceMachine)} → ${dest}. Waiting on admin approval.`);
             };
 
             // --- RENDER ---
@@ -743,18 +812,102 @@
                         <div className="fixed inset-0 bg-black/70 z-[80] flex items-center justify-center p-4 backdrop-blur-sm">
                             <Card className="w-full max-w-md p-0 overflow-hidden animate-in zoom-in-95 duration-200">
                                 <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-                                    <h3 className="font-bold flex items-center gap-2"><Wrench className="w-5 h-5 text-blue-400"/> {serviceMachine.name || serviceMachine.id}</h3>
+                                    <h3 className="font-bold flex items-center gap-2"><Wrench className="w-5 h-5 text-blue-400"/> {machineLabel(serviceMachine)}</h3>
                                     <button onClick={cancelService}><X className="w-5 h-5"/></button>
                                 </div>
                                 <div className="p-5 space-y-3">
-                                    <p className="text-sm text-slate-500">Serial: <span className="font-mono">{serviceMachine.serial || serviceMachine.id}</span></p>
-                                    <div className="flex gap-2 text-xs">
-                                        <span className={`px-2 py-1 rounded font-bold ${monthlyDue(serviceMachine) ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>{monthlyDue(serviceMachine) ? 'Monthly DUE' : 'Monthly done'}</span>
-                                        <span className={`px-2 py-1 rounded font-bold ${sixMonthDue(serviceMachine) ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{sixMonthDue(serviceMachine) ? '6-Month DUE' : '6-Month ok'}</span>
+                                    <div className="grid grid-cols-2 gap-2 text-sm bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                        <div><span className="text-slate-400 text-xs uppercase font-bold block">Model</span><span className="font-mono font-bold text-slate-700">{serviceMachine.model || serviceMachine.type || '—'}</span></div>
+                                        <div><span className="text-slate-400 text-xs uppercase font-bold block">Serial No.</span><span className="font-mono font-bold text-slate-700">{serviceMachine.serial || serviceMachine.id}</span></div>
                                     </div>
-                                    <Button fullWidth onClick={() => chooseServiceType('monthly')}><ClipboardList className="w-5 h-5"/> Monthly Check ({MONTHLY_ITEMS.length} pts)</Button>
-                                    <Button fullWidth variant="warning" onClick={() => chooseServiceType('sixmonth')}><Wrench className="w-5 h-5"/> 6-Month Service ({SIXMONTH_ITEMS.length} pts)</Button>
-                                    <Button fullWidth variant="secondary" onClick={() => chooseServiceType('floor')}><ArrowRight className="w-5 h-5"/> Move to Floor (Yard → Floor)</Button>
+                                    {(() => {
+                                        const mDue = monthlyDue(serviceMachine), sDue = sixMonthDue(serviceMachine);
+                                        const mAppr = !!approvedRequestFor(serviceMachine.id, 'monthly'), sAppr = !!approvedRequestFor(serviceMachine.id, 'sixmonth');
+                                        const mPend = !!pendingRequestFor(serviceMachine.id, 'monthly'), sPend = !!pendingRequestFor(serviceMachine.id, 'sixmonth');
+                                        // A service shows as an action when it's actually due OR a supervisor approved a re-check.
+                                        const showMonthly = mDue || mAppr;
+                                        const showSix = sDue || sAppr;
+                                        return (
+                                            <>
+                                                <div className="flex gap-2 text-xs">
+                                                    <span className={`px-2 py-1 rounded font-bold ${mDue ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>{mDue ? 'Monthly DUE' : 'Monthly done ✓'}</span>
+                                                    <span className={`px-2 py-1 rounded font-bold ${sDue ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{sDue ? '6-Month DUE' : '6-Month ok ✓'}</span>
+                                                </div>
+
+                                                {/* MONTHLY */}
+                                                {showMonthly ? (
+                                                    <Button fullWidth onClick={() => chooseServiceType('monthly')}><ClipboardList className="w-5 h-5"/> Monthly Check ({MONTHLY_ITEMS.length} pts){mAppr && !mDue ? ' · re-check ✓' : ''}</Button>
+                                                ) : (
+                                                    <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                                                        <span className="text-sm text-slate-500 flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-500"/> Monthly already done</span>
+                                                        {mPend ? <span className="text-xs font-bold text-amber-600">Requested ⏳</span>
+                                                            : <button onClick={() => requestRecheck('monthly')} className="text-xs font-bold text-blue-600 hover:underline">Request re-check</button>}
+                                                    </div>
+                                                )}
+
+                                                {/* 6-MONTH */}
+                                                {showSix ? (
+                                                    <Button fullWidth variant="warning" onClick={() => chooseServiceType('sixmonth')}><Wrench className="w-5 h-5"/> 6-Month Service ({SIXMONTH_ITEMS.length} pts){sAppr && !sDue ? ' · re-check ✓' : ''}</Button>
+                                                ) : (
+                                                    <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                                                        <span className="text-sm text-slate-500 flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-500"/> 6-Month service current</span>
+                                                        {sPend ? <span className="text-xs font-bold text-amber-600">Requested ⏳</span>
+                                                            : <button onClick={() => requestRecheck('sixmonth')} className="text-xs font-bold text-blue-600 hover:underline">Request re-check</button>}
+                                                    </div>
+                                                )}
+
+                                                {(() => {
+                                                    const pend = pendingTransferFor(serviceMachine.id);
+                                                    return pend
+                                                        ? <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                                                            <span className="text-sm text-amber-700 flex items-center gap-2"><ArrowRight className="w-4 h-4"/> Transfer to "{pend.toLocation}" requested</span>
+                                                            <span className="text-xs font-bold text-amber-600">Awaiting admin ⏳</span>
+                                                          </div>
+                                                        : <Button fullWidth variant="secondary" onClick={() => chooseServiceType('transfer')}><ArrowRight className="w-5 h-5"/> Request Transfer / Move (now: {serviceMachine.location || 'Yard'})</Button>;
+                                                })()}
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* PM SERVICE: request a move/transfer — picks a zone or a custom Unit/MIC,
+                        submits a Pending request. The machine itself does not move until an
+                        admin approves it in the Main Hub. */}
+                    {serviceType === 'transfer' && serviceMachine && (
+                        <div className="fixed inset-0 bg-black/70 z-[80] flex items-center justify-center p-4 backdrop-blur-sm">
+                            <Card className="w-full max-w-md p-0 overflow-hidden animate-in zoom-in-95 duration-200">
+                                <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+                                    <h3 className="font-bold flex items-center gap-2"><ArrowRight className="w-5 h-5 text-blue-400"/> Request Transfer</h3>
+                                    <button onClick={() => setServiceType('choose')}><X className="w-5 h-5"/></button>
+                                </div>
+                                <div className="p-5 space-y-4">
+                                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm">
+                                        <span className="text-slate-400 text-xs uppercase font-bold block">{machineLabel(serviceMachine)}</span>
+                                        <span className="text-slate-600">Currently at: <span className="font-bold">{serviceMachine.location || 'Yard'}</span></span>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Move to zone</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {MACHINE_LOCATIONS.map(loc => (
+                                                <button key={loc} onClick={() => { setTransferDest(loc); setTransferUnit(""); }}
+                                                    className={`px-3 py-2.5 rounded-xl text-sm font-bold border transition-all ${transferDest === loc ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                                                    {loc}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">— OR another Unit / MIC —</label>
+                                        <input className="w-full p-3 border rounded-lg" placeholder="e.g. Unit V, MIC-2..." value={transferUnit} onChange={e => { setTransferUnit(e.target.value); if (e.target.value) setTransferDest(""); }} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reason (optional)</label>
+                                        <textarea className="w-full p-2 border rounded-lg h-16 text-sm" placeholder="e.g. new machine arrival, replacing faulty unit..." value={transferNote} onChange={e => setTransferNote(e.target.value)}></textarea>
+                                    </div>
+                                    <Button fullWidth onClick={submitTransferRequest}><ArrowRight className="w-5 h-5"/> Submit for Admin Approval</Button>
                                 </div>
                             </Card>
                         </div>
@@ -769,7 +922,7 @@
                                         {serviceType === 'monthly' ? <ClipboardList className="w-5 h-5 text-blue-400"/> : <Wrench className="w-5 h-5 text-orange-400"/>}
                                         {serviceType === 'monthly' ? 'Monthly Service Card' : '6-Month Service Card'}
                                     </h3>
-                                    <div className="text-xs text-slate-400 mt-0.5">{serviceMachine.name || serviceMachine.id} · {periodKey(new Date())} · by {currentUser.name}</div>
+                                    <div className="text-xs text-slate-400 mt-0.5">{machineLabel(serviceMachine)} · {periodKey(new Date())} · by {currentUser.name}</div>
                                 </div>
                                 <button onClick={cancelService} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700"><X className="w-5 h-5"/></button>
                             </div>
@@ -894,7 +1047,7 @@
                                 <div className="bg-white/20 p-2.5 rounded-xl"><ScanLine className="w-6 h-6"/></div>
                                 <div className="text-left">
                                     <div className="font-bold text-lg">Machine Service / PM</div>
-                                    <div className="text-xs text-blue-100">Scan a machine → Monthly check, 6-Month service, or Move to Floor</div>
+                                    <div className="text-xs text-blue-100">Scan a machine → Monthly check, 6-Month service, or request a Transfer</div>
                                 </div>
                             </div>
                             <ArrowRight className="w-5 h-5"/>
