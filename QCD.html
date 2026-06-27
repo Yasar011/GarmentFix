@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -48,6 +47,14 @@
   const fmDb = getDB2(fmApp);
   anonSign2(getAuth2(fmApp)).catch(()=>{});
   window._fmDb = fmDb;
+  // Live read-only mirror of AMMS machine statuses, so the QCM admin can show real-time
+  // ticket progress (assigned worker, Pending/In Progress/Hub Review/...) without the
+  // manual "Sync from Factory App" button — that button only copies machine metadata,
+  // this listener tracks live status for tickets QCM itself raised.
+  onValue(ref(fmDb,'machines'), s => {
+    window.D && (window.D.fmMachines = s.exists()?s.val():{});
+    if(window.D && ['amms-tickets','dashboard'].includes(window.D.page)) window.render && window.render();
+  });
 
   // DB-based login
   window.dbLogin = async function(username, password) {
@@ -75,12 +82,14 @@
     onValue(ref(db,'machines'), s => { window.D.machines = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='machines') window.render(); });
     onValue(ref(db,'machineEvents'), s => { window.D.machineEvents = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['machines','supervisor'].includes(window.D.page)) window.render(); if(window.scheduleAI)window.scheduleAI(); });
     onValue(ref(db,'aiTickets'), s => { window.D.aiTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','ai-analysis'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'qcmAmmsTickets'), s => { window.D.qcmAmmsTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['amms-tickets','dashboard','roving_home'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'rovingInspections'), s => { window.D.rovingInspections = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['roving','reports'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'correctiveActions'), s => { window.D.correctiveActions = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='cap') window.render(); });
     onValue(ref(db,'editRequests'), s => { window.D.editRequests = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'sheetAccess'), s => { window.D.sheetAccess = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/rotation'), s => { window.D.rotation = s.exists() ? s.val() : null; if(['settings','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/factory'), s => { window.D.factory = s.exists() ? s.val() : null; if(['settings','reports'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'elRework'), s => { window.D.elRework = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='endline') window.render(); });
   };
 
   window.fbAdd = async (p,d) => { const r=push(ref(db,p));await set(r,{...d,createdAt:new Date().toISOString()});return r.key; };
@@ -190,7 +199,7 @@ const I={grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 function ic(n,s=18){return`<span style="width:${s}px;height:${s}px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${I[n]||I.file}</span>`;}
 
 // STATE
-window.D={page:'loading',user:null,loginLoading:false,collapsed:false,showModal:null,modalData:null,sq:'',notifs:0,inspections:[],modules:[],styles:[],users:[],alerts:[],operations:[],defects:[],rosters:[],machineRosters:[],machines:[],machineEvents:[],aiTickets:[],elDate:null,elModule:'__all',elShift:'__all',elSize:'__all',elColor:'__all',elInspector:'__all',elStyle:'__all',rovingInspections:[],rovingDate:null,rovingModule:'__all',ssDate:'',ssMod:'__all',rosterDate:'',rosterMod:'__all',rosterStatus:'__all',styleReportKey:'',correctiveActions:[],capDate:null,capModule:'__all',capStatus:'__all',moduleReportKey:''};
+window.D={page:'loading',user:null,loginLoading:false,collapsed:false,showModal:null,modalData:null,sq:'',notifs:0,inspections:[],modules:[],styles:[],users:[],alerts:[],operations:[],defects:[],rosters:[],machineRosters:[],machines:[],machineEvents:[],aiTickets:[],qcmAmmsTickets:[],fmMachines:{},elDate:null,elModule:'__all',elShift:'__all',elSize:'__all',elColor:'__all',elInspector:'__all',elStyle:'__all',rovingInspections:[],rovingDate:null,rovingModule:'__all',ssDate:'',ssMod:'__all',rosterDate:'',rosterMod:'__all',rosterStatus:'__all',styleReportKey:'',correctiveActions:[],capDate:null,capModule:'__all',capStatus:'__all',moduleReportKey:''};
 
 const BUYERS=['H&M','Zara','Gap','Next','M&S','Primark','ASOS','Nike','Adidas','Uniqlo'];
 const DEFECTS=['Skip Stitch','Open Seam','Broken Stitch','Puckering','Raw Edge','Oil Stain','Shade Variation','Uneven Stitch','Needle Mark','Incorrect SPI','Loose Thread','Missing Button','Seam Pucker','Run-Off','Pleat','Uncut Thread'];
@@ -314,14 +323,14 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'module-report',ic:'layout',l:'Module Report'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'module-report',ic:'layout',l:'Module Report'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
   return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
-  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
+  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis','amms-tickets':'AMMS Tickets',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
   return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
 }
 
@@ -334,6 +343,7 @@ function renderPg(){
   if(p==='machines')return pgMachines();
   if(p==='supervisor')return pgSuper();
   if(p==='ai-analysis')return pgAI();
+  if(p==='amms-tickets')return pgAmmsTickets();
   if(p==='roster')return pgRoster();
   if(p==='endline')return pgEndLine();
   if(p==='roving')return pgRoving();
@@ -1099,6 +1109,12 @@ function buildEndLine(){
   rows.forEach(i=>{const h=elHourOf(i),c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0;if(!perHour[h])perHour[h]={insp:0,def:0};perHour[h].insp+=c;perHour[h].def+=d;totInsp+=c;totDef+=d;});
   hours.forEach(h=>{const p=perHour[h]||(perHour[h]={insp:0,def:0});p.good=p.insp-p.def;p.pct=p.insp?(p.def/p.insp)*100:0;});
   const overallDhu=totInsp?(totDef/totInsp)*100:0;
+  // Pieces reworked at End Shift (matched by the same module+date+team as the rows in
+  // scope) — subtracted from raw defects to get the FINAL net result after rework.
+  const rowKeys=new Set(rows.map(i=>`${i.module}|${i.date||(i.createdAt||'').split('T')[0]}|${i.shift||''}`));
+  const reworked=(D.elRework||[]).filter(r=>rowKeys.has(`${r.module}|${r.date}|${r.shift}`)).reduce((a,r)=>a+(parseInt(r.reworkedQty)||0),0);
+  const netDef=Math.max(0,totDef-reworked);
+  const netDhu=totInsp?(netDef/totInsp)*100:0;
   // meta
   const modName=(D.elModule&&D.elModule!=='__all')?D.elModule:(rows[0]?.module||'');
   const mod=D.modules.find(m=>m.name===modName);
@@ -1112,7 +1128,7 @@ function buildEndLine(){
   const colorFilter=(D.elColor&&D.elColor!=='__all')?D.elColor:'';
   const inspectorFilter=(D.elInspector&&D.elInspector!=='__all')?D.elInspector:'';
   const dateRange=styleMode?([...new Set(rows.map(i=>i.date||(i.createdAt||'').split('T')[0]).filter(Boolean))].sort().join(' → ')||'All dates'):'';
-  return {date,hours,groups,cat,perHour,totInsp,totDef,overallDhu,styleName,styleId,colour,size,colorFilter,inspectorFilter,team:modName||'All',shift,qcNames,count:rows.length,styleMode,dateRange};
+  return {date,hours,groups,cat,perHour,totInsp,totDef,overallDhu,reworked,netDef,netDhu,styleName,styleId,colour,size,colorFilter,inspectorFilter,team:modName||'All',shift,qcNames,count:rows.length,styleMode,dateRange};
 }
 
 window.rptEndLine=function(fmt){
@@ -1147,15 +1163,25 @@ function elPDF(R){
   let y=doc.lastAutoTable.finalY+4;
   const head2=[['Defect Category / Calc',...hc,'TTL']];
   const body2=EL_CAT_ORDER.map(c=>[c,...R.hours.map(h=>R.cat[c][h]||''),R.cat[c].total||'']);
+  // TTL column = the FINAL number when pieces were reworked (raw stays visible per-hour above).
+  const fGoodTot=R.reworked>0?(R.totInsp-R.netDef):(R.totInsp-R.totDef);
+  const fDefTot=R.reworked>0?R.netDef:R.totDef;
+  const fDhuTot=R.reworked>0?R.netDhu:R.overallDhu;
   body2.push([{content:'Inspected',styles:{fontStyle:'bold'}},...R.hours.map(h=>R.perHour[h].insp||0),R.totInsp]);
-  body2.push([{content:'Good Garments',styles:{fontStyle:'bold'}},...R.hours.map(h=>R.perHour[h].good||0),R.totInsp-R.totDef]);
-  body2.push([{content:'Defect Qty',styles:{fontStyle:'bold'}},...R.hours.map(h=>R.perHour[h].def||0),R.totDef]);
-  body2.push([{content:'Defects %',styles:{fontStyle:'bold'}},...R.hours.map(h=>R.perHour[h].pct.toFixed(1)+'%'),R.overallDhu.toFixed(1)+'%']);
+  body2.push([{content:'Good Garments',styles:{fontStyle:'bold'}},...R.hours.map(h=>R.perHour[h].good||0),fGoodTot]);
+  body2.push([{content:'Defect Qty',styles:{fontStyle:'bold'}},...R.hours.map(h=>R.perHour[h].def||0),fDefTot]);
+  body2.push([{content:'Defects %',styles:{fontStyle:'bold'}},...R.hours.map(h=>R.perHour[h].pct.toFixed(1)+'%'),fDhuTot.toFixed(1)+'%']);
   doc.autoTable({head:head2,body:body2,startY:y,theme:'grid',styles:{fontSize:7,cellPadding:1.4,halign:'center'},columnStyles:{0:{halign:'left',cellWidth:34}},headStyles:{fillColor:[68,80,100],textColor:255,fontSize:7},margin:{left:14,right:14}});
   y=doc.lastAutoTable.finalY+5;
   doc.setFontSize(9);doc.setTextColor(20,20,20);
-  doc.text(`Total Inspected: ${R.totInsp}     Good: ${R.totInsp-R.totDef}     Defects: ${R.totDef}     DHU: ${R.overallDhu.toFixed(2)}%     AQL Result: ${R.overallDhu<=2.5?'PASS':'REVIEW'}`,14,y);
-  y+=7;
+  doc.text(`Total Inspected: ${R.totInsp}     Good: ${fGoodTot}     Defects: ${fDefTot}     DHU: ${fDhuTot.toFixed(2)}%     AQL Result: ${fDhuTot<=2.5?'PASS':'REVIEW'}`,14,y);
+  y+=5;
+  if(R.reworked>0){
+    doc.setFontSize(8);doc.setTextColor(100,100,100);
+    doc.text(`(${R.reworked} piece(s) reworked at End Shift — already applied above. Raw before rework: ${R.totDef} defects / ${R.overallDhu.toFixed(2)}% DHU)`,14,y);
+    y+=5;
+  }
+  y+=2;
   if(y>178){doc.addPage('a4','landscape');y=14;}
   doc.setFontSize(10);doc.setTextColor(0,100,80);doc.text('Defect Codes',14,y);y+=1;
   const flat=EL_DEFECTS.map(d=>d.code+' '+d.name);const per=5;const leg=[];
@@ -1184,12 +1210,19 @@ function elExcel(R){
   aoa.push(['Defect Category',...hc,'TTL']);
   EL_CAT_ORDER.forEach(c=>aoa.push([c,...R.hours.map(h=>R.cat[c][h]||0),R.cat[c].total||0]));
   aoa.push([]);
+  // TTL column = the FINAL number when pieces were reworked (raw stays visible per-hour above).
+  const fGoodTot=R.reworked>0?(R.totInsp-R.netDef):(R.totInsp-R.totDef);
+  const fDefTot=R.reworked>0?R.netDef:R.totDef;
+  const fDhuTot=R.reworked>0?R.netDhu:R.overallDhu;
   aoa.push(['Inspected',...R.hours.map(h=>R.perHour[h].insp||0),R.totInsp]);
-  aoa.push(['Good Garments',...R.hours.map(h=>R.perHour[h].good||0),R.totInsp-R.totDef]);
-  aoa.push(['Defect Qty',...R.hours.map(h=>R.perHour[h].def||0),R.totDef]);
-  aoa.push(['Defects %',...R.hours.map(h=>R.perHour[h].pct.toFixed(1)+'%'),R.overallDhu.toFixed(1)+'%']);
+  aoa.push(['Good Garments',...R.hours.map(h=>R.perHour[h].good||0),fGoodTot]);
+  aoa.push(['Defect Qty',...R.hours.map(h=>R.perHour[h].def||0),fDefTot]);
+  aoa.push(['Defects %',...R.hours.map(h=>R.perHour[h].pct.toFixed(1)+'%'),fDhuTot.toFixed(1)+'%']);
   aoa.push([]);
-  aoa.push(['Total Inspected',R.totInsp,'Good',R.totInsp-R.totDef,'Defects',R.totDef,'DHU %',R.overallDhu.toFixed(2),'AQL',R.overallDhu<=2.5?'PASS':'REVIEW']);
+  aoa.push(['Total Inspected',R.totInsp,'Good',fGoodTot,'Defects',fDefTot,'DHU %',fDhuTot.toFixed(2),'AQL',fDhuTot<=2.5?'PASS':'REVIEW']);
+  if(R.reworked>0){
+    aoa.push([`(${R.reworked} piece(s) reworked at End Shift — already applied above. Raw before rework: ${R.totDef} defects / ${R.overallDhu.toFixed(2)}% DHU)`]);
+  }
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols']=[{wch:11},{wch:22}].concat(hc.map(()=>({wch:10}))).concat([{wch:9}]);
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'End Line Report');
@@ -1379,20 +1412,35 @@ function pgEndLine(){
     </tr>`;
   }).join('');
 
-  // Summary rows
+  // Summary rows — the TTL (rightmost) cell is the FINAL number: if pieces were reworked,
+  // Defect Qty's total is net (raw − reworked) and Good Qty's total absorbs those reworked
+  // pieces back in. The hour-by-hour cells stay raw (rework isn't tied to one specific hour —
+  // it's logged once at End Shift), only the grand total reflects the after-rework result.
+  const finalGoodTot=R.reworked>0?(R.totInsp-R.netDef):(R.totInsp-R.totDef);
+  const finalDefTot=R.reworked>0?R.netDef:R.totDef;
+  const finalDhuTot=R.reworked>0?R.netDhu:R.overallDhu;
   const summaryRows=[
     {label:'INSPECTED',    vals:HOURS.map(h=>(R.perHour[h]?.insp||'')),   tot:R.totInsp,   color:''},
-    {label:'GOOD QTY',     vals:HOURS.map(h=>(R.perHour[h]?.good||'')),   tot:R.totInsp-R.totDef, color:'var(--green)'},
-    {label:'DEFECT QTY',   vals:HOURS.map(h=>(R.perHour[h]?.def||'')),    tot:R.totDef,    color:'var(--red)'},
-    {label:'DEFECTS %',    vals:HOURS.map(h=>R.perHour[h]?.insp?(R.perHour[h].pct.toFixed(1)+'%'):''), tot:R.overallDhu.toFixed(1)+'%', color:parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'},
+    {label:'GOOD QTY',     vals:HOURS.map(h=>(R.perHour[h]?.good||'')),   tot:finalGoodTot, color:'var(--green)'},
+    {label:'DEFECT QTY',   vals:HOURS.map(h=>(R.perHour[h]?.def||'')),    tot:finalDefTot,    color:'var(--red)'},
+    {label:'DEFECTS %',    vals:HOURS.map(h=>R.perHour[h]?.insp?(R.perHour[h].pct.toFixed(1)+'%'):''), tot:finalDhuTot.toFixed(1)+'%', color:finalDhuTot>5?'var(--red)':finalDhuTot>3?'var(--yellow)':'var(--green)'},
   ].map(r=>`<tr style="background:rgba(0,212,168,.04)">
     <td colspan="2" style="${tdLB};color:${r.color||'var(--text)'}">${r.label}</td>
     ${HOURS.map((h,i)=>`<td style="${tdStyle(hasData.has(h),false)};color:${r.color||'inherit'}">${r.vals[i]||''}</td>`).join('')}
     <td style="${tdStyle(true,true)};font-weight:700;color:${r.color||'inherit'}">${r.tot}</td>
   </tr>`).join('');
 
+  // Footnote — explains why the TTL above differs from the raw hour-by-hour sum.
+  const reworkRow=R.reworked>0?`<tr style="background:rgba(0,212,168,.1)">
+    <td colspan="2" style="${tdLB};color:var(--accent)">REWORKED</td>
+    <td colspan="${HOURS.length}" style="${tdStyle(true,false)};text-align:left;padding-left:10px;font-weight:600;font-size:10px">
+      ${R.reworked} piece(s) fixed at End Shift — already subtracted from Defect Qty TTL and added back into Good Qty TTL above. Raw (pre-rework) was ${R.totDef} defects / ${R.overallDhu.toFixed(1)}% DHU. AQL: ${R.netDhu<=2.5?'PASS':'REVIEW'}
+    </td>
+    <td style="${tdStyle(true,false)}"></td>
+  </tr>`:'';
+
   // COR. ADJUSTMENTS + signature rows
-  const footRows=`<tr style="background:rgba(0,0,0,.3)">
+  const footRows=`${reworkRow}<tr style="background:rgba(0,0,0,.3)">
     <td colspan="2" style="${tdLB}">COR. ADJUSTMENTS</td>
     ${HOURS.map(()=>`<td style="${tdStyle(false,false)}"></td>`).join('')}<td style="${tdStyle(false,false)}"></td>
   </tr>
@@ -2644,6 +2692,54 @@ window.syncMachines = async function(){
   }
 };
 
+// ======================== QCM → AMMS CROSS-SYSTEM TICKET BRIDGE ========================
+// Writes directly into the apparel-maintenance ("AMMS") Firebase project's incoming_tickets
+// queue — the SAME queue the AMMS Main Hub uses for manually-reported tickets — so the
+// existing n8n AI router picks it up, assigns a worker in the right dept hub, with no
+// changes needed on the AMMS side. department is pre-set here (n8n's AI Master Triage is
+// instructed to keep a pre-set department unchanged). skipDowntime:true tells AMMS not to
+// count this against machine downtime KPIs — the machine kept running while QC flagged it,
+// this isn't an actual breakdown.
+window.pushAMMSTicket = async function(opts){
+  const {refId,machineId,machineName,department,issueDescription,priority,reportedBy,raisedBy} = opts;
+  if(!machineId||!window._fmDb) return false;
+  try{
+    const machSnap = await window._get(window._ref(window._fmDb,'machines/'+machineId));
+    const mach = machSnap.exists()?machSnap.val():null;
+    const OPEN_STATUSES=['Pending','In Progress','Hub Review','Pending Admin Approval','Waiting_For_Worker'];
+    if(mach && OPEN_STATUSES.includes(mach.status)) return false; // already has an open ticket — don't duplicate
+    const ticketId = '#TKT-QCM-'+refId.replace(/[^a-zA-Z0-9]/g,'').slice(-10);
+    await window._set(window._ref(window._fmDb,'incoming_tickets/'+ticketId.replace('#','')), {
+      machineId, issueDescription, priority: priority||'Normal',
+      reportedBy: reportedBy||'QCM AI', timestamp: new Date().toISOString(), ticketId,
+      department, source: 'QCM', skipDowntime: true
+    });
+    // Local tracking record so QCM admin + the reporting Roving QC can follow this
+    // ticket's progress through AMMS without leaving QCM. raisedBy is set only for
+    // tickets tied to a specific Roving QC submission (Oil Mark / Sewing pattern) —
+    // only that person is allowed to do the closing verification scan.
+    const qcmKey = refId.replace(/[^a-zA-Z0-9_]/g,'');
+    await window._set(window._ref(window._db,'qcmAmmsTickets/'+qcmKey), {
+      refId, ticketId, machineId, machineName: machineName||machineId, department,
+      issueDescription, priority: priority||'Normal', reportedBy: reportedBy||'QCM AI',
+      raisedBy: raisedBy||null, qcVerified:false, qcVerifiedBy:null, qcVerifiedAt:null,
+      createdAt: new Date().toISOString()
+    }).catch(()=>{});
+    return true;
+  }catch(e){ console.warn('AMMS bridge error',e); return false; }
+};
+// Defect category -> AMMS department that owns investigating/fixing it. Covers all 7
+// roving defect categories (the full ~50-code taxonomy), not just the equipment-obvious ones.
+const QCM_CATEGORY_DEPT = {
+  'OIL MARK':     'Mechanical',  // lubrication leak
+  'CUT HOLE':     'Mechanical',  // cutting/feed mechanism damaging fabric
+  'SEWING':       'Technical',   // tension/SPI/needle/setup
+  'MMT':          'IE',          // measurement out-of-tolerance — line/process setup
+  'UNCUT THREAD': 'IE',          // operator technique/trimming
+  'STAIN':        'Quality',     // pen/chalk/dye/glue — material handling, not equipment
+  'FABRIC':       'Quality'      // shading/slubs/yarn — supplier/material issue
+};
+
 // ======================== AI TICKET ENGINE ========================
 let _aiTimer=null;
 window.scheduleAI=function(){clearTimeout(_aiTimer);_aiTimer=setTimeout(()=>{try{window.runAIAnalysis&&window.runAIAnalysis();}catch(e){console.warn('AI analysis error',e);}},1500);};
@@ -2654,6 +2750,11 @@ window.runAIAnalysis = async function(){
   const tickets = D.aiTickets||[];
   const existingIds = new Set(tickets.map(t=>t.refId));
   const today = new Date().toISOString().split('T')[0];
+  // Roving QC only — they're the ones walking the floor inspecting machines directly,
+  // so they're the reliable source for equipment-condition signals (Oil Mark, Sewing/tension
+  // patterns). Inline/End Line checks are garment sampling, not floor inspection — excluded.
+  const allDefects = (D.rovingInspections||[])
+    .filter(i=>(i.date===today||(i.createdAt||'').startsWith(today)));
   const omMap={};
   ins.filter(i=>i.machineId&&i.operatorId).forEach(i=>{
     const key=`${i.operatorId}_${i.machineId}`;
@@ -2668,6 +2769,8 @@ window.runAIAnalysis = async function(){
       if(!existingIds.has(refId)){
         const mach = (D.machines||[]).find(m=>m.fbKey===machId);
         await window.fbAdd('aiTickets',{refId,type:'OperatorRisk',level:'high',status:'Open',operatorId:opId,machineId:machId,machineName:mach?.name||machId,title:`High DHU: Operator ${opId} on ${mach?.name||machId}`,description:`Operator ${opId} has exceeded 5% DHU for 3+ consecutive inspections on machine ${mach?.name||machId}. Consider retraining.`,autoGenerated:true});
+        await window.pushAMMSTicket({refId,machineId:machId,department:'IE',priority:'Low',reportedBy:'QCM AI — Operator Risk',
+          issueDescription:`[QCM] Operator ${opId} exceeded 5% DHU for 3+ consecutive checks on ${mach?.name||machId}. Review technique/retraining (line-balance, ergonomics).`});
       }
     }
   }
@@ -2685,6 +2788,16 @@ window.runAIAnalysis = async function(){
       if(!existingIds.has(refId)){
         const mach=(D.machines||[]).find(m=>m.fbKey===machId);
         await window.fbAdd('aiTickets',{refId,type:'MachineRisk',level:'high',status:'Open',machineId:machId,machineName:mach?.name||machId,title:`Machine Issue: ${mach?.name||machId} — All Operators Affected`,description:`Multiple operators on machine ${mach?.name||machId} are all showing DHU>5%. The machine itself likely needs servicing.`,autoGenerated:true});
+        // Route by whichever defect category dominates today's checks on this machine —
+        // an oil-mark-dominant pattern means lubrication/mechanical, otherwise it's a
+        // tension/setup (Technical) issue.
+        const machDefects = allDefects.filter(d=>d.machineId===machId && (parseInt(d.defectQty||d.dc)||0)>0);
+        const catCounts={};
+        machDefects.forEach(d=>{const cat=elCategory('',d.defectType||'');catCounts[cat]=(catCounts[cat]||0)+1;});
+        const topCat=Object.entries(catCounts).sort((a,b)=>b[1]-a[1])[0]?.[0];
+        const dept = QCM_CATEGORY_DEPT[topCat] || 'Technical';
+        await window.pushAMMSTicket({refId,machineId:machId,department:dept,priority:'Normal',reportedBy:'QCM AI — Machine Risk',
+          issueDescription:`[QCM] All operators on ${mach?.name||machId} show DHU>5% today — machine likely needs servicing.${topCat?` Dominant defect: ${topCat}.`:''}`});
       }
     }
   }
@@ -2697,7 +2810,46 @@ window.runAIAnalysis = async function(){
       if(!existingIds.has(refId)){
         const mach=(D.machines||[]).find(m=>m.fbKey===machId);
         await window.fbAdd('aiTickets',{refId,type:'FrequentSwap',level:'medium',status:'Open',machineId:machId,machineName:mach?.name||machId,title:`Unstable Machine: ${mach?.name||machId} swapped ${cnt}x today`,description:`Machine ${mach?.name||machId} has been swapped ${cnt} times today. Investigate machine reliability.`,autoGenerated:true});
+        await window.pushAMMSTicket({refId,machineId:machId,department:'Technical',priority:'Normal',reportedBy:'QCM AI — Frequent Swap',
+          issueDescription:`[QCM] ${mach?.name||machId} has been swapped ${cnt}x today — investigate machine reliability/setup.`});
       }
+    }
+  }
+  // Defect-category risk: ANY of the ~50 roving defect codes (grouped into the 7 categories
+  // in QCM_CATEGORY_DEPT — every category is covered, not just the equipment-obvious ones).
+  // Raises a ticket the moment EITHER is true for a machine+category today:
+  //   (a) 2+ of the same category logged in a SINGLE visit, or
+  //   (b) the same category recurs across 2+ SEPARATE visits (even 1 each)
+  // — whichever fires first. Grouped per visitNum so both conditions can be checked.
+  const catByMachine={};
+  allDefects.filter(d=>d.machineId&&(parseInt(d.defectQty||d.dc)||0)>0).forEach(d=>{
+    const cat=elCategory('',d.defectType||'');
+    if(!QCM_CATEGORY_DEPT[cat]) return;
+    if(!catByMachine[d.machineId]) catByMachine[d.machineId]={};
+    if(!catByMachine[d.machineId][cat]) catByMachine[d.machineId][cat]={byVisit:{},lastSubmittedBy:null,lastAt:''};
+    const bucket=catByMachine[d.machineId][cat];
+    const visit=d.visitNum!=null?d.visitNum:0;
+    bucket.byVisit[visit]=(bucket.byVisit[visit]||0)+(parseInt(d.defectQty||d.dc)||0);
+    const at=d.createdAt||d.date||'';
+    if(at>=bucket.lastAt){bucket.lastAt=at;bucket.lastSubmittedBy=d.submittedBy||bucket.lastSubmittedBy;}
+  });
+  for(const [machId,cats] of Object.entries(catByMachine)){
+    for(const [cat,bucket] of Object.entries(cats)){
+      const visitCounts=Object.values(bucket.byVisit);
+      const maxInOneVisit=Math.max(0,...visitCounts);
+      const distinctVisits=Object.keys(bucket.byVisit).length;
+      if(maxInOneVisit<2 && distinctVisits<2) continue; // neither trigger condition met
+      const refId=`defcat_${cat.replace(/\s+/g,'')}_${machId}_${today}`;
+      if(existingIds.has(refId)) continue;
+      const mach=(D.machines||[]).find(m=>m.fbKey===machId);
+      const dept=QCM_CATEGORY_DEPT[cat];
+      const reason = maxInOneVisit>=2 ? `${maxInOneVisit}x in one visit` : `recurring across ${distinctVisits} visits today`;
+      const isHighSeverity = cat==='OIL MARK' || cat==='CUT HOLE';
+      await window.fbAdd('aiTickets',{refId,type:'DefectCategoryRisk',level:isHighSeverity?'high':'medium',status:'Open',machineId:machId,machineName:mach?.name||machId,title:`${cat}: ${reason} — ${mach?.name||machId}`,description:`"${cat}" defects (${reason}) on ${mach?.name||machId} — routed to ${dept}. Raised by ${bucket.lastSubmittedBy||'Roving QC'}.`,autoGenerated:true});
+      // raisedBy = the Roving QC whose submission most recently pushed this machine/category
+      // over the threshold — only they can do the closing verification scan in the worker app.
+      await window.pushAMMSTicket({refId,machineId:machId,machineName:mach?.name||machId,department:dept,priority:isHighSeverity?'High':'Normal',reportedBy:'QCM AI — Defect Pattern',raisedBy:bucket.lastSubmittedBy||null,
+        issueDescription:`[QCM] "${cat}" defects (${reason}) on ${mach?.name||machId}.`});
     }
   }
 };
@@ -2708,6 +2860,54 @@ window.ackTicket = async function(k){
 window.resolveTicket = async function(k){
   await window.fbUpd('aiTickets',k,{status:'Resolved'});toast('Resolved');
 };
+
+// ======================== AMMS TICKETS (QCM → AMMS bridge tracking) ========================
+// Every ticket QCM has pushed into the AMMS (apparel-maintenance) incoming_tickets queue,
+// joined with the LIVE machine status mirrored from AMMS via fmDb, so admin can see at a
+// glance: who/what raised it, which dept it was routed to, who AMMS assigned, current
+// progress, and whether the originating Roving QC has verified the fix.
+function pgAmmsTickets(){
+  const items=(D.qcmAmmsTickets||[]).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  const fm=D.fmMachines||{};
+  const STATUS_COLOR={'Pending':'badge-yellow','In Progress':'badge-blue','Hub Review':'badge-purple','Pending Admin Approval':'badge-purple','Waiting_For_Worker':'badge-red','Running':'badge-green'};
+  const rows=items.map(t=>{
+    const live=fm[t.machineId]||{};
+    const sameTicket=live.lastTicketId===t.ticketId;
+    const liveStatus=sameTicket?(live.status||'Unknown'):(t.qcVerified?'Closed':'Closed (new ticket since)');
+    const badgeClass=STATUS_COLOR[liveStatus]||'badge-gray';
+    const assignedTo=sameTicket?(live.assignedTo||'—'):'—';
+    const readyToVerify=sameTicket&&['Hub Review','Pending Admin Approval','Running'].includes(live.status)&&!t.qcVerified;
+    return `<tr>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text3)">${ft(t.createdAt)}</td>
+      <td style="padding:10px 12px;font-size:12px;font-weight:600">${t.machineName||t.machineId}</td>
+      <td style="padding:10px 12px;font-size:12px"><span class="badge badge-blue">${t.department}</span></td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text2);max-width:280px">${t.issueDescription}</td>
+      <td style="padding:10px 12px;font-size:12px">${t.raisedBy||'<span style="color:var(--text3)">AI (pattern)</span>'}</td>
+      <td style="padding:10px 12px;font-size:12px"><span class="badge ${badgeClass}">${liveStatus}</span></td>
+      <td style="padding:10px 12px;font-size:12px">${assignedTo}</td>
+      <td style="padding:10px 12px;font-size:12px">${t.qcVerified?`<span class="badge badge-green">✓ Verified by ${t.qcVerifiedBy||''}</span>`:readyToVerify?`<span class="badge badge-yellow">Awaiting QC verify${t.raisedBy?` (${t.raisedBy})`:''}</span>`:'<span class="badge badge-gray">In progress</span>'}</td>
+    </tr>`;
+  }).join('');
+  return `
+  <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Every ticket QCM has sent to AMMS (apparel-maintenance) for repair, with live status synced from the AMMS dept hubs. Verification (last column) happens in the worker app — only the Roving QC who raised it can confirm the fix.</p>
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:rgba(255,255,255,.03);text-align:left">
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Sent</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Machine</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Dept</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Issue</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Raised By</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">AMMS Status</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Assigned Worker</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">QC Verification</th>
+      </tr></thead>
+      <tbody>${rows||`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3)">No QCM → AMMS tickets yet.</td></tr>`}</tbody>
+    </table>
+    </div>
+  </div>`;
+}
 
 function pgAI(){
   const ins=D.inspections||[];
