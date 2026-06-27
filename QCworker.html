@@ -86,6 +86,9 @@
     onValue(ref(db,'machineRosters'),s=>{WS.machineRosters=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
     onValue(ref(db,'settings/rotation'),s=>{WS.rotation=s.exists()?s.val():null;if(WS.step&&!['login','loading'].includes(WS.step))renderW();});
     onValue(ref(db,'settings/factory'),s=>{WS.factory=s.exists()?s.val():null;});
+    // Pieces reworked at End Shift, keyed per module+date+team — subtracted from raw defects
+    // to show the FINAL net result after rework is done.
+    onValue(ref(db,'elRework'),s=>{WS.elRework=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];if(WS.step==='endline_home')renderW();});
     onValue(ref(db,'inspections'),s=>{
       if(s.exists()){
         const today=new Date().toISOString().split('T')[0];
@@ -368,6 +371,7 @@ function restoreSession(){
     // Land on the role's home screen — it shows the preserved tally / roster / round
     // so the operator continues, without restoring a half-filled single-machine form.
     WS.step=isSupervisor()?'sup_home':!WS.scannedModule?'scan':isLineHead()?'lh_scan':isEndline()?'endline_home':isRoving()?'roving_home':'check_home';
+    if(isEndline())window.startHourlyReminder();
     return true;
   }catch(e){return false;}
 }
@@ -405,6 +409,7 @@ function renderStep(){
   if(s==='endline_home')      return renderEndlineHome();
   if(s==='endline_add_defect')return renderEndlineAddDefect();
   if(s==='endline_hour_end')  return renderEndlineHourEnd();
+  if(s==='endline_shift_end') return renderEndlineShiftEnd();
   // Roving QC
   if(s==='roving_home')      return renderRovingHome();
   if(s==='roving_scan_pick') return renderRovingScanPick();
@@ -535,6 +540,7 @@ function bindLogin(){
       window.loadWorkerData();
       toast('Welcome, '+user.name);
       WS.step=isSupervisor()?'sup_home':(isLineHead()||isWorker()||isRoving()||isEndline())?'scan':'dashboard';
+      if(isEndline())window.startHourlyReminder();
       renderW();
     }catch(e){
       WS.loading=false;renderW();
@@ -1043,8 +1049,16 @@ function renderCheckHome(){
   const m=WS.scannedModule;
   const today=new Date().toISOString().split('T')[0];
   const myRounds=WS.myInspections.filter(i=>i.checkRound&&i.date===today);
-  const completedRounds=[...new Set(myRounds.map(i=>parseInt(i.checkRound)).filter(Boolean))];
-  const nextRound=(completedRounds.length>0?Math.max(...completedRounds):0)+1;
+  // A round is only "done" once every machine on the line was actually inspected for it —
+  // not just because a record with that round number exists. Otherwise inspecting 2 of 10
+  // machines then restarting (tab discard, app closed) silently skips the other 8.
+  const machineCount=machines.length;
+  const opsByRound={};
+  myRounds.forEach(i=>{const rnum=parseInt(i.checkRound);if(!rnum)return;(opsByRound[rnum]=opsByRound[rnum]||new Set()).add(i.machineId||i.operatorId);});
+  const startedRounds=Object.keys(opsByRound).map(Number);
+  const completedRounds=startedRounds.filter(r=>machineCount>0&&opsByRound[r].size>=machineCount);
+  const inProgressRounds=startedRounds.filter(r=>!completedRounds.includes(r)).sort((a,b)=>a-b);
+  const nextRound=inProgressRounds.length>0?inProgressRounds[0]:((completedRounds.length>0?Math.max(...completedRounds):0)+1);
   WS.checkRound=nextRound;
   const noMachines=machines.length===0;
 
@@ -1073,7 +1087,7 @@ function renderCheckHome(){
     +'<div style="margin-bottom:16px">'
     +'<div style="font-size:13px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Today\'s Checks</div>'
     +'<div class="check-pill">'
-    +[1,2,3,4,5].map(n=>'<div class="check-btn '+(completedRounds.includes(n)?'done':n===nextRound?'active':'')+'" onclick="'+(n===nextRound?'startCheckRound('+n+')':'')+'">'+'Check '+n+(completedRounds.includes(n)?' ✓':'')+'</div>').join('')
+    +[1,2,3,4,5].map(n=>{const isDone=completedRounds.includes(n),isPartial=!isDone&&startedRounds.includes(n);const label='Check '+n+(isDone?' ✓':isPartial?' ('+opsByRound[n].size+'/'+machineCount+')':'');return '<div class="check-btn '+(isDone?'done':n===nextRound?'active':'')+'" onclick="'+(n===nextRound?'startCheckRound('+n+')':'')+'">'+label+'</div>';}).join('')
     +'</div></div>'
     +(!noMachines
       ?'<div class="card" style="margin-bottom:16px">'
@@ -1104,20 +1118,25 @@ function renderCheckHome(){
 window.startCheckRound=async function(roundNum){
   const m=WS.scannedModule;
   if(!m){toast('No module selected','error');return;}
+  // Resume: if this round was already partly done (e.g. after a restart), pre-mark the
+  // machines already checked so the QC only continues with the ones still pending.
+  const today=new Date().toISOString().split('T')[0];
+  const priorResults=(WS.myInspections||[]).filter(i=>parseInt(i.checkRound)===roundNum&&i.date===today)
+    .map(i=>({machineId:i.machineId,operatorId:i.operatorId,operation:i.operation,machineName:i.machineName,checkedQty:i.checkedQty,defectQty:i.defectQty}));
   // Fresh fetch from Firebase so roster is always up to date
   try{
     let machines=await fetchRosterWorkers(m);
     if(machines.length===0){toast('No machines in roster — set up roster first','error');return;}
     WS.checkRound=roundNum;
     WS.checkRoundData=machines.map(w=>({...w}));
-    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+    WS.checkMachineIdx=0;WS.checkRoundResults=priorResults;WS._currentCheckMachine=null;
     WS.step='check_scan_pick';renderW();
   }catch(e){
     // fallback if Firebase fails
     const machines=getModuleMachines();
     if(machines.length===0){toast('No machines in roster','error');return;}
     WS.checkRound=roundNum;WS.checkRoundData=[...machines];
-    WS.checkMachineIdx=0;WS.checkRoundResults=[];WS._currentCheckMachine=null;
+    WS.checkMachineIdx=0;WS.checkRoundResults=priorResults;WS._currentCheckMachine=null;
     WS.step='check_scan_pick';renderW();
   }
 };
@@ -1252,6 +1271,61 @@ function renderCheckForm(){
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'check_scan_pick\';renderW()">← Back to Machines</button>';
 }
 
+// ==================== HOURLY SUBMISSION REMINDER (sound alarm) ====================
+// Factory shift window: 06:00–22:00. If an hour boundary passes without the QC submitting
+// that hour's checked-qty/defects, beep on a loop until they do — silence the moment they submit.
+const EL_SHIFT_START_HOUR=6, EL_SHIFT_END_HOUR=22;
+let _elReminderTimer=null,_elBeepCtx=null;
+function elBeepOnce(delay){
+  setTimeout(()=>{
+    try{
+      _elBeepCtx=_elBeepCtx||new (window.AudioContext||window.webkitAudioContext)();
+      const ctx=_elBeepCtx;
+      const o=ctx.createOscillator(),g=ctx.createGain();
+      o.type='sine';o.frequency.value=880;
+      g.gain.setValueAtTime(0.0001,ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.5);
+      o.connect(g);g.connect(ctx.destination);
+      o.start();o.stop(ctx.currentTime+0.55);
+    }catch(e){}
+  },delay||0);
+}
+function elBeep(){elBeepOnce(0);elBeepOnce(650);} // double-beep so it's unmistakable
+// Earliest fully-elapsed hour today (within shift window) with no End Line submission yet.
+function elMissedHour(){
+  if(!isEndline())return null;
+  const now=new Date();const curHour=now.getHours();
+  if(curHour<=EL_SHIFT_START_HOUR)return null;
+  const today=now.toISOString().split('T')[0];
+  const submitted=new Set((WS.myInspections||[]).filter(i=>i.type==='endline'&&i.date===today).map(i=>(i.time||'').slice(0,2)));
+  const lastHour=Math.min(curHour,EL_SHIFT_END_HOUR)-1; // last fully-elapsed hour
+  for(let h=EL_SHIFT_START_HOUR;h<=lastHour;h++){
+    const hs=String(h).padStart(2,'0');
+    if(!submitted.has(hs))return hs;
+  }
+  return null;
+}
+// Started once on login (End Line role only). Re-checks + re-beeps every 15s while an
+// hour is overdue; stops nagging the instant that hour's data is submitted.
+window.startHourlyReminder=function(){
+  if(_elReminderTimer)return;
+  const tick=()=>{
+    if(!isEndline()||!WS.user){clearInterval(_elReminderTimer);_elReminderTimer=null;return;}
+    const missed=elMissedHour();
+    if(missed!==WS._missedHourAlert){WS._missedHourAlert=missed;if(WS.step==='endline_home')renderW();}
+    if(missed)elBeep();
+  };
+  tick();
+  _elReminderTimer=setInterval(tick,15000);
+};
+// Jumps straight to entering that hour's data — same-shift catch-up, no approval needed
+// (unlike the cross-day "Add a Missed Hour" flow, which is for forgotten PAST shifts).
+window.resolveMissedHour=function(h){
+  WS._backdateHour=h;WS.elHourDefects=[];WS.elCheckedQty=0;
+  renderW();
+};
+
 // ====================================================================================
 // ENDLINE QC FLOW (LIVE TALLY):
 //   Home (live tally) → Add Defect (operator+code+qty) → End Hour (enter pieces checked+submit)
@@ -1325,6 +1399,11 @@ function renderEndlineHome(){
     +'</div>';
 
   return sheetAccessBanner('endline')
+    +(WS._missedHourAlert&&!WS._backdateHour?'<div class="card" style="background:rgba(224,85,85,.14);border-color:var(--red);margin-bottom:12px">'
+      +'<div style="font-weight:700;color:var(--red)">🔔 Hour '+WS._missedHourAlert+':00 not submitted!</div>'
+      +'<div style="font-size:12px;color:var(--text2);margin-top:2px">Pieces checked for that hour are missing — the alarm keeps beeping until you submit it.</div>'
+      +'<button onclick="resolveMissedHour(\''+WS._missedHourAlert+'\')" style="margin-top:10px;width:100%;padding:12px;background:var(--red);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-size:14px">Submit Hour '+WS._missedHourAlert+':00 Now</button>'
+      +'</div>':'')
     +(WS._backdateHour?'<div class="card" style="background:rgba(212,168,0,.1);border-color:rgba(212,168,0,.5);margin-bottom:12px"><div style="font-weight:700;color:var(--yellow)">⏪ Backdating Hour '+WS._backdateHour+':00'+(WS._backdateDate?' — '+WS._backdateDate:'')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Supervisor-approved. This entry will be tagged to '+WS._backdateHour+':00'+(WS._backdateDate?' on '+WS._backdateDate:'')+', not now.</div></div>':'')
     +'<div class="card card-accent">'
     +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — End Line</div>'
@@ -1347,6 +1426,23 @@ function renderEndlineHome(){
     +tallyList
     +'</div>'
     +histSection
+    +(()=>{
+      // Final result card — raw defects minus pieces reworked today, for this module+team.
+      const todayChk=todayRecs.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+      const todayDef=todayRecs.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+      const reworkRec=(WS.elRework||[]).find(r=>r.module===(m?.name||'')&&r.date===today&&r.shift===(WS.elShift||activeShift()));
+      if(!reworkRec||todayChk===0)return'';
+      const rework=parseInt(reworkRec.reworkedQty)||0;
+      const netDef=Math.max(0,todayDef-rework);
+      const netDhu=todayChk?((netDef/todayChk)*100).toFixed(1):'0.0';
+      return '<div class="card" style="background:rgba(0,212,168,.06);border-color:rgba(0,212,168,.4);margin-bottom:12px">'
+        +'<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Today\'s Final Result (after rework)</div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>Checked / Raw Defects</span><b>'+todayChk+' / <span style="color:var(--red)">'+todayDef+'</span></b></div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>Reworked (fixed)</span><b style="color:var(--accent)">'+rework+'</b></div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span>Net Defects</span><b style="color:var(--red)">'+netDef+'</b></div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:14px"><span>Final DHU%</span><b style="color:'+(parseFloat(netDhu)>5?'var(--red)':parseFloat(netDhu)>3?'var(--yellow)':'var(--green)')+'">'+netDhu+'%</b></div>'
+        +'</div>';
+    })()
     +(noMachines
       ?'<div style="background:rgba(212,168,0,.08);border:1px solid rgba(212,168,0,.3);border-radius:12px;padding:14px;margin-bottom:12px">'
        +'<div style="font-weight:600;margin-bottom:4px;color:var(--yellow)">⚠ No Operators in Roster</div>'
@@ -1357,6 +1453,7 @@ function renderEndlineHome(){
     +'<button class="btn-big btn-primary" onclick="elGoAddDefect()"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'➕ Add Defect</button>'
     +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
+    +'<button class="btn-big" onclick="WS._elReworkInput=0;WS.step=\'endline_shift_end\';renderW()" style="background:var(--accent);color:#000">🏁 End Shift — Rework Pieces</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
     +'<button class="btn-big btn-ghost" onclick="openAddMissed(\'endline\')">⏪ Add a Missed Hour</button>'
@@ -1489,6 +1586,62 @@ function renderEndlineHourEnd(){
     <button onclick="WS.step='endline_home';renderW()" style="width:100%;padding:14px;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:12px;font-size:14px;cursor:pointer">← Back to Tally</button>
   `;
 }
+
+// ---- End Shift: ask how many pieces were reworked, subtract from raw defects, show final ----
+function renderEndlineShiftEnd(){
+  const m=WS.scannedModule;
+  // Must match confirmEndShift's date (workDate(), which can be a backdated date) — otherwise
+  // the totals shown here don't match what actually gets saved into elRework.
+  const today=workDate();
+  const shift=WS.elShift||activeShift();
+  const todayRecs=(WS.myInspections||[]).filter(i=>i.type==='endline'&&i.date===today&&i.module===(m?.name||''));
+  const totChk=todayRecs.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const totDef=todayRecs.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const rework=WS._elReworkInput||0;
+  const netDef=Math.max(0,totDef-rework);
+  const dhuRaw=totChk?((totDef/totChk)*100).toFixed(1):'0.0';
+  const dhuNet=totChk?((netDef/totChk)*100).toFixed(1):'0.0';
+  const stepBtn='width:52px;height:52px;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;border:none;';
+  return '<div class="card card-accent" style="margin-bottom:14px">'
+    +'<div style="font-size:18px;font-weight:700">🏁 End Shift — '+(m?.name||'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:2px">Team '+shift+' · Enter how many of today\'s defective pieces were reworked (fixed) before the shift wraps up.</div></div>'
+    +'<div class="card" style="margin-bottom:14px">'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span>Total Checked Today</span><b>'+totChk+'</b></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px"><span>Total Defects Today</span><b style="color:var(--red)">'+totDef+'</b></div>'
+    +'</div>'
+    +'<div class="card" style="margin-bottom:14px">'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">Pieces Reworked (fixed)</div>'
+    +'<div style="display:flex;align-items:center;justify-content:center;gap:14px">'
+    +'<button onclick="elReworkStep(-10)" style="'+stepBtn+'width:46px;height:46px;background:var(--bg3);color:var(--text2);font-size:14px">−10</button>'
+    +'<button onclick="elReworkStep(-1)" style="'+stepBtn+'background:var(--bg3);color:var(--text)">−</button>'
+    +'<span style="font-size:48px;font-weight:700;font-family:var(--mono);min-width:80px;text-align:center">'+rework+'</span>'
+    +'<button onclick="elReworkStep(1)" style="'+stepBtn+'background:var(--accent);color:#000">+</button>'
+    +'<button onclick="elReworkStep(10)" style="'+stepBtn+'width:46px;height:46px;background:var(--accent);color:#000;font-size:14px">+10</button>'
+    +'</div></div>'
+    +'<div class="card" style="margin-bottom:14px;background:rgba(0,212,168,.06);border-color:rgba(0,212,168,.4)">'
+    +'<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Final Result (after rework)</div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>Net Defects</span><b style="color:var(--red)">'+netDef+'</b></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:14px"><span>Final DHU%</span><b style="color:'+(parseFloat(dhuNet)>5?'var(--red)':parseFloat(dhuNet)>3?'var(--yellow)':'var(--green)')+'">'+dhuNet+'%</b></div>'
+    +'<div style="font-size:10px;color:var(--text3);margin-top:6px">Raw DHU before rework: '+dhuRaw+'%</div>'
+    +'</div>'
+    +'<button class="btn-big btn-primary" onclick="confirmEndShift()">✓ Confirm — End Shift</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'endline_home\';renderW()">← Cancel</button>';
+}
+window.elReworkStep=function(delta){WS._elReworkInput=Math.max(0,(WS._elReworkInput||0)+delta);renderW();};
+window.confirmEndShift=async function(){
+  const m=WS.scannedModule;if(!m){toast('No module selected','error');return;}
+  const date=workDate(),shift=WS.elShift||activeShift();
+  const rework=WS._elReworkInput||0;
+  try{
+    await window._set(window._ref(window._db,'elRework/'+(m.fbKey||m.moduleId)+'_'+date+'_'+shift),{
+      module:m.name||'',date,shift,reworkedQty:rework,
+      submittedBy:WS.user?.username||'',submittedByName:WS.user?.name||'',submittedAt:new Date().toISOString()
+    });
+    toast('✅ Shift ended — '+rework+' piece(s) reworked, recorded');
+    WS._elReworkInput=0;
+    WS.step='endline_home';renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
 
 // ---- Endline helpers ----
 window.elGoAddDefect=function(){WS.elAddOp=null;WS.elAddDefOp=null;WS.elAddDefCode=null;WS.elAddDefQty=1;WS.elAddDefCat='S';WS.step='endline_add_defect';renderW();};
@@ -2057,10 +2210,11 @@ function renderRovingEnd(){
   const tSP=results.reduce((a,r)=>a+(parseInt(r.sp)||0),0);
   const tDC=results.reduce((a,r)=>a+(parseInt(r.dc)||0),0);
   const pct=tSP?((tDC/tSP)*100).toFixed(1):'0.0';
-  // Check for CPA records from this visit still missing AB
-  const today=new Date().toISOString().split('T')[0];
+  // Check for CPA records from this visit still missing AB. Must use workDate() (not the
+  // literal "today") so this gate still applies when finishing a backdated visit — otherwise
+  // backdated CPA records are filtered out here and the AB-required check is silently skipped.
   const pendingAB=(WS.myRovingInspections||[]).filter(r=>
-    String(r.visitNum)===String(WS.rovingRound)&&r.date===today&&r.capRequired&&!(r.ab||r.cpa)
+    String(r.visitNum)===String(WS.rovingRound)&&r.date===workDate()&&r.capRequired&&!(r.ab||r.cpa)
   );
   const canProceed=pendingAB.length===0;
   return '<div class="card" style="background:rgba(224,85,85,.05);border-color:rgba(224,85,85,.3);text-align:center;padding:24px;margin-bottom:16px">'
