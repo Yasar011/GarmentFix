@@ -162,13 +162,13 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0a0c10;--bg2:#111318;--bg3:#1a1d24;--bg4:#22262f;
-  --border:#2a2e38;--text:#e8eaf0;--text2:#9097a8;--text3:#5c6478;
-  --accent:#00d4a8;--accent2:#0099d4;--red:#e05555;--yellow:#d4a800;
-  --green:#00d4a8;--blue:#4488ff;--purple:#9966ff;--radius:12px;
+  --bg:#eef1f7;--bg2:#ffffff;--bg3:#f4f6fb;--bg4:#e7ebf3;
+  --border:#e4e8f1;--text:#0f1a2e;--text2:#5b6678;--text3:#97a1b4;
+  --accent:#0ea98f;--accent2:#2f72e6;--red:#e5484d;--yellow:#c98a00;
+  --green:#0a9d82;--blue:#3b7ff5;--purple:#7c5cff;--radius:12px;
   --font:'IBM Plex Sans',sans-serif
 }
-body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+body{font-family:var(--font);background:linear-gradient(180deg,#eef1f7 0%,#e8ecf5 100%);background-attachment:fixed;color:var(--text);min-height:100vh;overflow-x:hidden;-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font-family:var(--font);font-size:16px}
 button{cursor:pointer;border:none;outline:none}
 .page{min-height:100vh;display:flex;flex-direction:column}
@@ -239,7 +239,7 @@ button{cursor:pointer;border:none;outline:none}
 .check-btn{padding:10px 20px;border-radius:30px;font-size:14px;font-weight:600;border:2px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer}
 .check-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(0,212,168,.08)}
 .check-btn.done{border-color:var(--text3);color:var(--text3);background:transparent}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:14px 24px;border-radius:12px;font-size:14px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5);max-width:90vw;text-align:center;pointer-events:none}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:14px 24px;border-radius:12px;font-size:14px;z-index:200;box-shadow:0 8px 24px rgba(15,23,42,.2);max-width:90vw;text-align:center;pointer-events:none}
 .toast-success{background:rgba(0,212,168,.95);color:#000}
 .toast-error{background:rgba(224,85,85,.95);color:#fff}
 .err-msg{color:var(--red);font-size:13px;margin-bottom:12px;padding:12px;background:rgba(224,85,85,.08);border-radius:8px;border:1px solid rgba(224,85,85,.2);display:none}
@@ -247,7 +247,7 @@ button{cursor:pointer;border:none;outline:none}
 .sp-btn{padding:10px 4px;background:var(--bg3);border:2px solid var(--border);border-radius:8px;color:var(--text2);font-size:17px;font-weight:600;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent}
 .sp-btn:active{transform:scale(.92)}
 .sp-sel{background:rgba(0,212,168,.15);border-color:var(--accent);color:var(--accent)}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:flex;align-items:flex-end;justify-content:center}
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100;display:flex;align-items:flex-end;justify-content:center}
 .modal-sheet{background:var(--bg2);border:1px solid var(--border);border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:500px;max-height:88vh;overflow-y:auto}
 .progress-bar{height:4px;background:var(--border);border-radius:4px;margin-bottom:16px}
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:4px;transition:width .4s}
@@ -1688,6 +1688,7 @@ window.elSubmitHour=async function(){
     const base={type:'endline',date:workDate(),
       time:timeStr,shift:WS.elShift||'A',size:WS.elSize||'',color:WS.elColor||'',
       module:m?.name||'',style:WS.elStyle||m?.styleName||'',
+      styleId:m?.styleId||'',styleName:m?.styleName||'',
       submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name,comments:notes,
       ...(backdating?{backdated:true}:{})};
     if(defs.length===0){
@@ -1997,6 +1998,7 @@ window.skipRovingOperator=async function(machineId){
       date:workDate(),
       time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
       shift:recordShift(),module:m?.name||'',style:w.style||WS.rovingStyle||'',
+      styleId:WS.scannedModule?.styleId||'',styleName:WS.scannedModule?.styleName||'',
       machineId:w.machineId,machineName:w.machineName,operatorId:w.operatorId,operation:w.operation,
       trim:'',absent:false,spi:0,sp:0,dc:0,dc7:0,defectType:'',capRequired:false,ab:'',cpa:'',
       skipped:true,skipReason:'not critical — Visit 4',
@@ -2395,6 +2397,7 @@ function bindRovingSubmit(){
         time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
         shift:recordShift(),   // record the inspector's actual shift (like End Line) — or the overridden target shift when backdating
         module:data.module,style:data.style,
+        styleId:WS.scannedModule?.styleId||'',styleName:WS.scannedModule?.styleName||'',
         machineId:data.machineId,machineName:data.machineName,
         operatorId:data.operatorId,operation:data.operation,
         trim:data.trim,absent:data.absent==='1',
@@ -3318,6 +3321,7 @@ function bindSubmit(){
         date:new Date().toISOString().split('T')[0],
         time:(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date()),
         shift:activeShift(),   // tag by the team working now (rotation-aware), like Roving/End Line
+        styleId:WS.scannedModule?.styleId||'',styleName:WS.scannedModule?.styleName||'',
         ...data,submittedBy:WS.user?.username||WS.user?.name,inspector:WS.user?.name
       });
       const c=parseInt(data.checkedQty)||0,d=parseInt(data.defectQty)||0;
