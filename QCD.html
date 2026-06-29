@@ -77,16 +77,17 @@
     onValue(ref(db,'alerts'), s => { window.D.alerts = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; window.D.notifs = window.D.alerts.filter(a=>!a.read).length; if(['alerts','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'operations'), s => { window.D.operations = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='operations') window.render(); });
     onValue(ref(db,'defects'), s => { window.D.defects = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='defects') window.render(); });
-    onValue(ref(db,'rosters'), s => { window.D.rosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='supervisor') window.render(); });
-    onValue(ref(db,'machineRosters'), s => { window.D.machineRosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','roster'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'rosters'), s => { window.D.rosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','approvals'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'machineRosters'), s => { window.D.machineRosters = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','roster','approvals','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'machines'), s => { window.D.machines = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='machines') window.render(); });
     onValue(ref(db,'machineEvents'), s => { window.D.machineEvents = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['machines','supervisor'].includes(window.D.page)) window.render(); if(window.scheduleAI)window.scheduleAI(); });
-    onValue(ref(db,'aiTickets'), s => { window.D.aiTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','ai-analysis'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'aiTickets'), s => { window.D.aiTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','ai-analysis','approvals','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'qcmAmmsTickets'), s => { window.D.qcmAmmsTickets = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['amms-tickets','dashboard','roving_home'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'rovingInspections'), s => { window.D.rovingInspections = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['roving','reports'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'correctiveActions'), s => { window.D.correctiveActions = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='cap') window.render(); });
-    onValue(ref(db,'editRequests'), s => { window.D.editRequests = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard'].includes(window.D.page)) window.render(); });
-    onValue(ref(db,'sheetAccess'), s => { window.D.sheetAccess = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'editRequests'), s => { window.D.editRequests = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard','approvals'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'sheetAccess'), s => { window.D.sheetAccess = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard','approvals'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'styleChanges'), s => { window.D.styleChanges = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['style-report','module-report','reports','endline','modules'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/rotation'), s => { window.D.rotation = s.exists() ? s.val() : null; if(['settings','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/factory'), s => { window.D.factory = s.exists() ? s.val() : null; if(['settings','reports'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'elRework'), s => { window.D.elRework = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='endline') window.render(); });
@@ -109,8 +110,8 @@
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0a0c10;--bg2:#111318;--bg3:#1a1d24;--bg4:#22262f;--border:#2a2e38;--border2:#363c48;--text:#e8eaf0;--text2:#9097a8;--text3:#5c6478;--accent:#00d4a8;--accent2:#0099d4;--red:#e05555;--yellow:#d4a800;--green:#00d4a8;--blue:#4488ff;--purple:#9966ff;--radius:8px;--radius2:12px;--font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace}
-body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;font-size:14px;line-height:1.5}
+:root{--bg:#eef1f7;--bg2:#ffffff;--bg3:#f4f6fb;--bg4:#e7ebf3;--border:#e4e8f1;--border2:#d2d9e6;--text:#0f1a2e;--text2:#5b6678;--text3:#97a1b4;--accent:#0ea98f;--accent2:#2f72e6;--red:#e5484d;--yellow:#c98a00;--green:#0a9d82;--blue:#3b7ff5;--purple:#7c5cff;--radius:8px;--radius2:14px;--shadow:0 1px 3px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.04);--shadow-lg:0 12px 32px rgba(15,23,42,.10);--font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace}
+body{font-family:var(--font);background:linear-gradient(180deg,#eef1f7 0%,#e8ecf5 100%);background-attachment:fixed;color:var(--text);min-height:100vh;overflow-x:hidden;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font-family:var(--font);cursor:pointer;border:none;outline:none}
 input,select,textarea{font-family:var(--font)}
 .app{display:flex;height:100vh;overflow:hidden}
@@ -120,24 +121,24 @@ input,select,textarea{font-family:var(--font)}
 .logo-icon{width:34px;height:34px;background:#ececec;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:13px;flex-shrink:0;overflow:hidden}
 .nav{flex:1;padding:8px 0;overflow-y:auto}
 .nav-sec{padding:10px 16px 4px;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
-.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;transition:all .15s;border-left:3px solid transparent;color:var(--text2);font-size:13px;white-space:nowrap}
-.nav-item:hover{background:var(--bg3);color:var(--text)}.nav-item.active{background:rgba(0,212,168,.08);border-left-color:var(--accent);color:var(--accent)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;margin:1px 8px;border-radius:10px;cursor:pointer;transition:all .15s;color:var(--text2);font-size:13px;white-space:nowrap}
+.nav-item:hover{background:var(--bg3);color:var(--text)}.nav-item.active{background:linear-gradient(135deg,#7c5cff,#9d7bff);color:#fff;box-shadow:0 6px 16px rgba(124,92,255,.3)}
 .nav-icon{width:18px;height:18px;flex-shrink:0;opacity:.6}.nav-item.active .nav-icon{opacity:1}
 .nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;padding:1px 7px;border-radius:10px}
 .sidebar-footer{padding:12px;border-top:1px solid var(--border)}
 .user-pill{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);cursor:pointer}
-.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#000;flex-shrink:0}
+.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;flex-shrink:0}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .topbar{padding:0 24px;height:56px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg2);flex-shrink:0}
 .page-title{font-size:16px;font-weight:600}
 .content{flex:1;overflow-y:auto;padding:24px}
 .btn{padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:600}.btn-primary:hover{opacity:.9}
+.btn-primary{background:linear-gradient(135deg,#7c5cff,#9d7bff);color:#fff;font-weight:600}.btn-primary:hover{opacity:.92}
 .btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border)}.btn-ghost:hover{background:var(--bg3)}
 .btn-danger{background:rgba(224,85,85,.15);color:var(--red);border:1px solid rgba(224,85,85,.3)}
 .btn-sm{padding:5px 10px;font-size:12px}
 .btn-icon{padding:6px;background:transparent;color:var(--text2);border-radius:6px;cursor:pointer;border:none}.btn-icon:hover{background:var(--bg3);color:var(--text)}
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:20px}.card-sm{padding:16px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:20px;box-shadow:var(--shadow)}.card-sm{padding:16px}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
 .card-title{font-size:14px;font-weight:500;color:var(--text2)}
 .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
@@ -151,18 +152,18 @@ input,select,textarea{font-family:var(--font)}
 .module-card:hover{border-color:var(--border2);transform:translateY(-2px)}
 .table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}
 th{text-align:left;font-size:11px;color:var(--text3);padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;text-transform:uppercase;letter-spacing:.06em;background:var(--bg3)}
-td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.02)}
+td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(14,169,143,.045)}
 .form-group{margin-bottom:16px}.form-label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
 .form-input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:var(--radius);font-size:13px;transition:border-color .2s}
 .form-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,168,.1)}.form-input::placeholder{color:var(--text3)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .alert-card{padding:14px 18px;border-radius:var(--radius);border-left:3px solid;margin-bottom:10px;display:flex;align-items:flex-start;gap:12px}
 .alert-critical{background:rgba(224,85,85,.08);border-color:var(--red)}.alert-high{background:rgba(212,168,0,.08);border-color:var(--yellow)}.alert-medium{background:rgba(68,136,255,.08);border-color:var(--blue)}.alert-low{background:rgba(0,212,168,.08);border-color:var(--green)}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.4);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
 .modal{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:28px;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto}
 .modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}.modal-title{font-size:18px;font-weight:600}
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
-.login-card{width:420px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.login-card{width:420px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px;box-shadow:0 20px 50px rgba(15,23,42,.14)}
 .chart-wrap{position:relative;width:100%;height:220px}
 .progress{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden}.progress-fill{height:100%;border-radius:3px;transition:width .4s}
 .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
@@ -172,15 +173,15 @@ td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}tr:las
 .notif-dot{width:8px;height:8px;background:var(--red);border-radius:50%;position:absolute;top:2px;right:2px}
 .status-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.dot-green{background:var(--green)}.dot-yellow{background:var(--yellow)}.dot-red{background:var(--red)}
 .search-input{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:var(--radius);font-size:13px;width:220px}.search-input:focus{outline:none;border-color:var(--accent)}
-.toast{position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:var(--radius);font-size:13px;z-index:200;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
-.toast-success{background:rgba(0,212,168,.95);color:#000}.toast-error{background:rgba(224,85,85,.95);color:#fff}
+.toast{position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:var(--radius);font-size:13px;z-index:200;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(15,23,42,.18)}
+.toast-success{background:var(--accent);color:#fff}.toast-error{background:var(--red);color:#fff}
 .ai-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(153,102,255,.12);border:1px solid rgba(153,102,255,.25);border-radius:20px;font-size:11px;color:var(--purple)}
 .ai-finding{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px}
 .ai-bar{background:var(--bg4);height:6px;border-radius:3px;overflow:hidden;margin:6px 0}.ai-bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--purple),var(--accent2))}
 .qr-container{background:#fff;padding:16px;border-radius:12px;display:inline-block;margin:12px 0}
 .report-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:18px 14px;cursor:pointer;transition:all .18s;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:6px;min-height:120px}
-.report-card:hover{border-color:var(--accent);background:var(--bg3);transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.35)}
-.report-card>div:first-child{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.04);transition:transform .18s}
+.report-card:hover{border-color:var(--accent);background:var(--bg3);transform:translateY(-3px);box-shadow:0 10px 24px rgba(15,23,42,.10)}
+.report-card>div:first-child{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(14,169,143,.10);transition:transform .18s}
 .report-card:hover>div:first-child{transform:scale(1.08)}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -323,20 +324,21 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'module-report',ic:'layout',l:'Module Report'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'Reports'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'style-report',ic:'chart',l:'Style Report'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'approvals',ic:'check',l:'Approvals',apBadge:1},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Reports',items:[{id:'module-report',ic:'layout',l:'Module Report'},{id:'style-report',ic:'tag',l:'Style Report'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'All Reports'}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
-  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
+  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}${i.apBadge&&pendApprovalCount()>0?`<span class="nav-badge hide-c" style="background:var(--yellow);color:#fff">${pendApprovalCount()}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
-  const t={dashboard:'Dashboard',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis','amms-tickets':'AMMS Tickets',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
+  const t={dashboard:'Dashboard',approvals:'Approvals & Requests',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis','amms-tickets':'AMMS Tickets',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
   return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
 }
 
 function renderPg(){
   const p=D.page;
   if(p==='dashboard')return pgDash();
+  if(p==='approvals')return pgApprovals();
   if(p==='modules')return pgMods();
   if(p==='alerts')return pgAlerts();
   if(p==='inspections')return pgInsp();
@@ -375,13 +377,63 @@ function sumChk(a){return a.reduce((s,i)=>s+(parseInt(i.checkedQty)||0),0);}
 function sumDef(a){return a.reduce((s,i)=>s+(parseInt(i.defectQty)||0),0);}
 function dhuOf(a){const c=sumChk(a),d=sumDef(a);return c?((d/c)*100).toFixed(1):'0.0';}
 
+window.setDashRange=function(r){D.dashRange=r;render();};
+window.setStyleGrain=function(g){D.styleRptGrain=g;render();};
 function pgDash(){
-  const el=elInsp(),rov=rovInsp(),recent=allInspections(),td=new Date().toISOString().split('T')[0];
+  const range=D.dashRange||'today';
+  const td=new Date().toISOString().split('T')[0];
+  const weekAgo=new Date(Date.now()-6*86400000).toISOString().split('T')[0];
+  const dOf=i=>(i.date||(i.createdAt||'').split('T')[0])||'';
+  const inRange=i=>{const d=dOf(i);if(range==='today')return d===td;if(range==='week')return d>=weekAgo;return true;};
+  const rangeLabel=range==='today'?'Today':range==='week'?'This Week':'All Time';
+  const el=elInsp().filter(inRange),rov=rovInsp().filter(inRange),recent=allInspections().filter(inRange);
   const elChk=sumChk(el),elDef=sumDef(el),elGood=elChk-elDef;
-  const elToday=el.filter(i=>(i.createdAt||i.date||'').startsWith(td));
-  const comps=D.styles.filter(s=>s.status==='Completed');
-  const reqs = D.users.filter(u => u.changeRequest);
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div class="grid-4">${kpi(elChk,'Line Output','End Line checked','var(--accent)')}${kpi(elGood,'Good Garments','Checked − defects','var(--green)')}${kpi(elDef,'Defects','End Line','var(--red)')}${kpi(dhuOf(el)+'%','DHU','End Line · target 2.5%','var(--yellow)')}</div><div class="grid-4">${kpi(sumChk(rov),'Roving Sampled','pieces · separate','var(--blue)')}${kpi(sumDef(rov),'Roving Defects','in-process','var(--red)')}${kpi(dhuOf(rov)+'%','Roving DHU','','var(--purple)')}${kpi(elToday.length,'End Line Today','records','var(--accent2)')}</div><div class="grid-4">${kpi(D.modules.length,'Modules','','var(--accent2)')}${kpi(D.styles.filter(s=>s.status==='Running').length,'Running Styles','','var(--purple)')}${kpi(comps.length,'Completed','Styles','var(--green)')}${kpi(reqs.length,'Pending Requests','','var(--yellow)')}</div>${reqs.length>0?`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Module Change Requests</span></div><div style="display:flex;flex-direction:column;gap:8px">${reqs.map(u=>{let am={name:'Unknown'};try{am=JSON.parse(u.activeModule||'{}')}catch(e){}return`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${u.name||u.username}</div><div style="font-size:11px;color:var(--text2)">Wants to change from: ${am.name||am.moduleId||'Unknown'}</div></div><button class="btn btn-primary btn-sm" onclick="approveChange('${u.fbKey}')">Approve Unlock</button></div>`}).join('')}</div></div>`:''}<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Timeline</span></div><div class="chart-wrap"><canvas id="ch1"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch2"></canvas></div></div></div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Recent Inspections</span><button class="btn btn-ghost btn-sm" onclick="nav('inspections')">All</button></div>${recent.length===0?'<div style="text-align:center;padding:32px;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Module</th><th>Defects</th><th>Time</th></tr></thead><tbody>${recent.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type||''}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">Alerts</span></div>${D.alerts.slice(-4).reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',14)}<div style="flex:1"><div style="font-size:13px;font-weight:500">${a.title||''}</div><div style="font-size:11px;color:var(--text3)">${ta(a.createdAt)}</div></div></div>`).join('')||'<div style="color:var(--text3);padding:12px;text-align:center">No alerts</div>'}</div></div></div>`;
+  const dhu=parseFloat(dhuOf(el)),dhuC=dhu>5?'var(--red)':dhu>3?'var(--yellow)':'var(--green)';
+  const pend=pendApprovalCount();
+  const rovChk=sumChk(rov),rovDef=sumDef(rov);
+  const tog=(v,l)=>`<button class="btn btn-sm ${range===v?'btn-primary':'btn-ghost'}" onclick="setDashRange('${v}')" style="border:none">${l}</button>`;
+  const toolbar=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px"><div><div style="font-size:20px;font-weight:800">Factory Quality Dashboard</div><div style="font-size:12px;color:var(--text2)">A simple view of how production quality is doing — showing <b>${rangeLabel.toLowerCase()}</b>.</div></div><div style="display:flex;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${tog('today','Today')}${tog('week','This Week')}${tog('all','All Time')}</div></div>`;
+  const approvalsStrip=pend>0?`<div class="card" style="border-color:var(--yellow);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="font-size:13px">🔔 <b style="color:var(--yellow)">${pend}</b> request${pend!==1?'s':''} from the floor ${pend!==1?'are':'is'} waiting for your approval.</div><button class="btn btn-primary btn-sm" onclick="nav('approvals')">Review now →</button></div>`:'';
+  const noData=recent.length===0;
+  const rangeWord=range==='today'?'today':range==='week'?'this week':'so far';
+
+  // ---- Plain-English health summary so anyone can read the dashboard at a glance ----
+  const st=noData?['var(--text3)','⏳','No data yet',`No inspections have been recorded ${rangeWord}.`]
+    :dhu<=2.5?['var(--green)','✅','Good — On Target','Quality is meeting the target. Keep it up.']
+    :dhu<=5?['var(--yellow)','⚠️','Watch Closely','The defect rate is a little high. Worth keeping an eye on.']
+    :['var(--red)','🔴','Needs Action','The defect rate is well above target. The lines below in red need attention.'];
+  const [sc,sIcon,sWord,sMsg]=st;
+  const gaugePct=Math.min(100,(dhu/5)*100); // 5% = full bar; 2.5% target sits at 50%
+  const hero=`<div class="card" style="border-left:5px solid ${sc};display:flex;flex-wrap:wrap;gap:24px;align-items:center">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:150px;text-align:center">
+      <div style="font-size:46px;line-height:1">${sIcon}</div>
+      <div style="font-size:18px;font-weight:800;color:${sc};margin-top:4px">${sWord}</div>
+      <div style="font-size:11px;color:var(--text2)">Overall quality · ${rangeLabel}</div>
+    </div>
+    <div style="flex:1;min-width:280px">
+      <div style="font-size:15px;line-height:1.7;color:var(--text)">${noData?sMsg:`Out of <b>${elChk}</b> garments checked ${rangeWord}, <b style="color:var(--green)">${elGood}</b> were good and <b style="color:var(--red)">${elDef}</b> had a defect. The defect rate is <b style="color:${sc}">${dhu.toFixed(1)}%</b> — ${dhu<=2.5?'<b style="color:var(--green)">below</b>':'<b style="color:var(--red)">above</b>'} the <b>2.5%</b> goal. ${sMsg}`}</div>
+      ${noData?'':`<div style="margin-top:14px"><div style="position:relative;height:12px;background:var(--bg4);border-radius:8px;overflow:hidden"><div style="height:100%;width:${gaugePct}%;background:${sc};border-radius:8px;transition:width .5s"></div></div><div style="position:relative;height:16px;margin-top:2px;font-size:10px;color:var(--text3)"><span style="position:absolute;left:0">0% best</span><span style="position:absolute;left:50%;transform:translateX(-50%);color:var(--text);font-weight:600">↑ 2.5% goal</span><span style="position:absolute;right:0">5%+ high</span></div></div>`}
+    </div>
+  </div>`;
+
+  // ---- KPI cards with plain-language labels + a one-line explanation each ----
+  const primary=`<div class="grid-4">${kpi(elChk,'Pieces Checked','inspected at end of line','var(--accent)')}${kpi(elGood,'Passed ✓','no defects found','var(--green)')}${kpi(elDef,'Had Defects','needed rework','var(--red)')}${kpi(dhu.toFixed(1)+'%','Defect Rate',dhu<=2.5?'✓ within 2.5% goal':'above 2.5% goal · lower is better',sc)}</div>`;
+  const secHead=`<div style="font-size:12px;color:var(--text2);margin:-6px 0 -8px;padding-left:2px">Extra checks done <b>during</b> production (called “roving” spot-checks), plus how many lines are running:</div>`;
+  const secondary=`<div class="grid-4">${kpi(rovChk,'Spot-Checked','pieces during production','var(--blue)')}${kpi(rovDef,'Issues Caught','found early','var(--red)')}${kpi(dhuOf(rov)+'%','Spot-Check Rate','defect rate in spot-checks','var(--purple)')}${kpi(D.modules.length,'Production Lines','active right now','var(--accent2)')}</div>`;
+
+  // ---- chart card with plain title + a "what am I looking at" subtitle ----
+  const chCard=(title,desc,id,emptyMsg,h)=>`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">${title}</div><div style="font-size:11px;color:var(--text2)">${desc}</div></div><div class="chart-wrap"${h?` style="height:${h}px"`:''}>${noData?`<div style="text-align:center;padding:60px 0;color:var(--text3)">${emptyMsg||'No data for '+rangeLabel.toLowerCase()}</div>`:`<canvas id="${id}"></canvas>`}</div></div>`;
+
+  const charts=`<div class="grid-2">${chCard(range==='today'?'Pieces Checked by Hour':'Pieces Checked by Day','How busy the lines were — taller bars mean more garments inspected','ch1')}${chCard('Defect Rate Over Time','Each point is the defect rate. Keep the green line below the red target line (2.5%)','chDhu')}</div>
+  <div class="grid-2">${chCard('Most Common Problems','Which types of defect happen most often — focus fixes on the biggest slices','ch2','No defects 🎉')}${chCard('Defect Rate by Line','Which production line has the most defects — <b style="color:var(--red)">red</b> needs attention, <b style="color:var(--green)">green</b> is healthy','chMod')}</div>
+  <div class="grid-2">${chCard('Where Checks Happened','Final end-of-line checks vs spot-checks during production','chType')}<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Latest Checks</div><div style="font-size:11px;color:var(--text2)">The most recent inspections sent in from the floor</div></div>${noData?'<div style="text-align:center;padding:32px;color:var(--text3)">No data for '+rangeLabel.toLowerCase()+'</div>':`<div class="table-wrap"><table><thead><tr><th>Check Type</th><th>Line</th><th>Defects</th><th>When</th></tr></thead><tbody>${recent.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type==='endline'?'End line':i.type==='inline'?'Spot-check':(i.type||'')}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div></div>`;
+
+  // ---- alerts + a plain-language glossary for first-time viewers ----
+  const alerts=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Things to Look At</div><div style="font-size:11px;color:var(--text2)">Automatic warnings raised when something looks off</div></div>${D.alerts.slice(-4).reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',14)}<div style="flex:1"><div style="font-size:13px;font-weight:500">${a.title||''}</div><div style="font-size:11px;color:var(--text3)">${ta(a.createdAt)}</div></div></div>`).join('')||'<div style="color:var(--text3);padding:16px;text-align:center">Nothing needs attention 👍</div>'}</div>`;
+  const term=(t,d)=>`<div style="padding:10px 0;border-bottom:1px solid var(--border)"><div style="font-weight:700;font-size:13px;color:var(--text)">${t}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">${d}</div></div>`;
+  const glossary=`<div class="card"><div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">📖 New here? What these words mean</div><div class="grid-2" style="gap:0 28px">${term('Pieces Checked (End Line)','Finished garments inspected at the end of the production line — the final quality gate before packing.')}${term('Spot-Check (Roving)','Random checks done while garments are still being made, to catch problems early.')}${term('Defect Rate (DHU)','Out of every 100 pieces checked, how many had a defect. Lower is better. The goal is under 2.5%.')}${term('Line / Module','One production line — a team and its machines making a style of garment.')}${term('Passed / Good','Pieces inspected with zero defects found.')}${term('Had Defects','Pieces that needed rework before they could pass.')}</div></div>`;
+
+  return`<div style="display:flex;flex-direction:column;gap:20px">${toolbar}${approvalsStrip}${hero}${primary}${secHead}${secondary}${charts}${alerts}${glossary}</div>`;
 }
 
 // ======================== MODULES ========================
@@ -438,9 +490,12 @@ function pgStyleReport(){
     <div class="card" style="padding:48px;text-align:center;color:var(--text3)">Select a style above to view its full report.</div>
   </div>`;
 
-  // All inspections for this style (match by name or ID)
-  const ins=D.inspections.filter(i=>i.style&&(i.style===sel.name||i.style===sel.styleId||i.style.includes(sel.name)||i.style.includes(sel.styleId)));
-  const rovIns=(D.rovingInspections||[]).filter(i=>i.style&&(i.style===sel.name||i.style===sel.styleId));
+  // All inspections for this style. Prefer the Style ID stamped at check time
+  // (the refcode) so a style change mid-day attributes each piece correctly;
+  // fall back to the legacy style-name match for older records with no styleId.
+  const matchStyle=i=>(i.styleId&&sel.styleId&&i.styleId===sel.styleId)||(i.style&&(i.style===sel.name||i.style===sel.styleId||i.style.includes(sel.name)||i.style.includes(sel.styleId)));
+  const ins=D.inspections.filter(matchStyle);
+  const rovIns=(D.rovingInspections||[]).filter(matchStyle);
 
   // Totals
   const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
@@ -489,33 +544,43 @@ function pgStyleReport(){
     </div>
   </div>`;
 
-  // --- Daily breakdown ---
+  // --- Style change history for this style (who switched it in/out, and when) ---
+  const myChanges=(D.styleChanges||[]).filter(c=>c.fromStyleId===sel.styleId||c.toStyleId===sel.styleId||c.fromStyleName===sel.name||c.toStyleName===sel.name).sort((a,b)=>(b.at||'').localeCompare(a.at||''));
+  const changeCard=myChanges.length?`<div class="card" style="padding:0;overflow:hidden;border-color:var(--yellow)">
+    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border);color:var(--yellow)">⚡ Style Change History (${myChanges.length}) — who switched the line, and when</div>
+    <div class="table-wrap"><table><thead><tr><th>When</th><th>Line</th><th>Change</th><th>By</th></tr></thead><tbody>${myChanges.map(c=>{const into=c.toStyleId===sel.styleId||c.toStyleName===sel.name;return`<tr><td style="font-size:12px">${ft(c.at)}</td><td style="font-weight:500">${c.module||c.moduleId||'—'}</td><td style="font-size:12px"><span style="color:var(--text3)">${c.fromStyleId||c.fromStyleName||'—'}</span> → <b style="color:${into?'var(--green)':'var(--red)'}">${c.toStyleId||c.toStyleName||'—'}</b> <span class="badge badge-${into?'green':'red'}" style="font-size:9px">${into?'switched IN':'switched OUT'}</span></td><td style="font-size:12px">${c.byName||c.by||'—'}</td></tr>`;}).join('')}</tbody></table></div>
+  </div>`:'';
+
+  // --- Daily / Weekly / Monthly breakdown (toggle) ---
+  const grain=D.styleRptGrain||'daily';
+  const periodOf=d=>{if(!d)return '';if(grain==='monthly')return d.slice(0,7);if(grain==='weekly'){const dt=new Date(d+'T00:00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.toISOString().split('T')[0];}return d;};
+  const periodLabel=k=>{if(grain==='monthly'){const p=k.split('-');return new Date(+p[0],+p[1]-1,1).toLocaleString('en',{month:'short',year:'numeric'});}if(grain==='weekly')return 'Week of '+fd(k);return fd(k);};
   const byDate={};
   ins.forEach(i=>{
-    const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;
-    const sh=i.shift||'A';
+    const d0=i.date||(i.createdAt||'').split('T')[0];if(!d0)return;
+    const d=periodOf(d0);const sh=i.shift||'A';
     if(!byDate[d])byDate[d]={chk:0,def:0,A:{chk:0,def:0},B:{chk:0,def:0}};
     const c=parseInt(i.checkedQty)||0,df=parseInt(i.defectQty)||0;
     byDate[d].chk+=c;byDate[d].def+=df;
     if(!byDate[d][sh])byDate[d][sh]={chk:0,def:0};
     byDate[d][sh].chk+=c;byDate[d][sh].def+=df;
   });
-  const dailyRows=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,g])=>{
+  const dailyRows=Object.entries(byDate).sort((a,b)=>b[0].localeCompare(a[0])).map(([date,g])=>{
     const dhu2=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';
     const color=parseFloat(dhu2)>5?'var(--red)':parseFloat(dhu2)>3?'var(--yellow)':'var(--green)';
     return`<tr>
-      <td style="font-size:12px">${date}</td>
+      <td style="font-size:12px">${periodLabel(date)}</td>
       <td style="font-family:var(--mono)">${g.chk}</td>
       <td style="font-family:var(--mono);color:${g.def>0?'var(--red)':'inherit'}">${g.def}</td>
       <td style="font-family:var(--mono);color:${color};font-weight:600">${dhu2}%</td>
       ${['A','B'].map(sh=>{const s=g[sh]||{chk:0,def:0};return`<td style="font-size:11px;text-align:center;color:var(--text3)">${s.chk?s.chk+'/<span style="color:var(--red)">'+s.def+'</span>':'—'}</td>`;}).join('')}
     </tr>`;
   }).join('');
-
+  const grainTog=['daily','weekly','monthly'].map(g=>`<button class="btn btn-sm ${grain===g?'btn-primary':'btn-ghost'}" style="border:none" onclick="setStyleGrain('${g}')">${g[0].toUpperCase()+g.slice(1)}</button>`).join('');
   const dailyTable=`<div class="card" style="padding:0;overflow:hidden">
-    <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Daily Breakdown</div>
+    <div style="padding:11px 16px;font-weight:600;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>${grain==='monthly'?'Monthly':grain==='weekly'?'Weekly':'Daily'} Breakdown</span><div style="display:flex;gap:3px;background:var(--bg3);border-radius:8px;padding:3px">${grainTog}</div></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Date</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Team A</th><th>Team B</th></tr></thead>
+      <thead><tr><th>${grain==='monthly'?'Month':grain==='weekly'?'Week':'Date'}</th><th>Checked</th><th>Defects</th><th>DHU%</th><th>Team A</th><th>Team B</th></tr></thead>
       <tbody>${dailyRows||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}</tbody>
     </table></div>
   </div>`;
@@ -625,7 +690,7 @@ function pgStyleReport(){
   </div>`;
 
   return`<div style="display:flex;flex-direction:column;gap:16px">
-    ${selector}${infoCard}${kpis}
+    ${selector}${infoCard}${kpis}${changeCard}
     <div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">Lines Running This Style (${lineKeys.length})</div>
     ${lineCards}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${defCard}${modTable}</div>
@@ -965,7 +1030,25 @@ function pgReports(){
   <div class="form-group" style="margin:0"><label class="form-label">Colour</label><select class="form-input" onchange="D.elColor=this.value;render()"><option value="__all" ${(!D.elColor||D.elColor==='__all')?'selected':''}>All colours</option>${elColors.map(c=>`<option value="${c}" ${D.elColor===c?'selected':''}>${c}</option>`).join('')}</select></div>
   <div class="form-group" style="margin:0"><label class="form-label">QC Inspector</label><select class="form-input" onchange="D.elInspector=this.value;render()"><option value="__all" ${(!D.elInspector||D.elInspector==='__all')?'selected':''}>All inspectors</option>${elInspectors.map(n=>`<option value="${n}" ${D.elInspector===n?'selected':''}>${n}</option>`).join('')}</select></div>
   </div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary" onclick="rptEndLine('pdf')">${ic('pdf',14)} Download PDF</button><button class="btn btn-ghost" onclick="rptEndLine('excel')">${ic('excel',14)} Download Excel</button><button class="btn btn-ghost btn-sm" onclick="seedEndlineDefects()">${ic('plus',12)} Load Defect Codes</button><button class="btn btn-ghost btn-sm" style="border-color:rgba(212,168,0,.4);color:var(--yellow)" onclick="fixDefectVisibility()" title="Fixes codes that don't show up in the Roving defect dropdown">${ic('refresh',12)} Fix: Show Codes in Roving</button></div><div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">Select a Style above to download ALL historical end-line data for that style across all dates. Or use Date filter for today's paper report.</div></div>`;
-  return`<div style="display:flex;flex-direction:column;gap:20px">${elCard}<div class="card"><div class="card-header"><span class="card-title">Reports</span><span class="fb">🔥 ${ins.length} records</span></div><div class="grid-3"><div class="report-card" onclick="rptAllInsp('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">All Inspections</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptAllInsp('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">All Inspections</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptDefects('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Defect Summary</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptDefects('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Defect Summary</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptModules('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Module Performance</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptModules('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Module Performance</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptOperator('pdf')"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Operator Analysis</div><div style="font-size:11px;color:var(--text3)">PDF Report</div></div><div class="report-card" onclick="rptOperator('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Operator Analysis</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="rptCompleted('pdf')"><div style="margin-bottom:8px;color:var(--blue)">${ic('pdf',28)}</div><div style="font-weight:600">Completed Styles</div><div style="font-size:11px;color:var(--text3)">${completed.length} completed</div></div><div class="report-card" onclick="rptCompleted('excel')"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Completed Styles</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="nav('roving')" style="border-color:var(--red)"><div style="margin-bottom:8px;color:var(--red)">🏃</div><div style="font-weight:600">Roving Inspection</div><div style="font-size:11px;color:var(--text3)">View &amp; Download</div></div><div class="report-card" onclick="nav('style-report')" style="border-color:var(--accent)"><div style="margin-bottom:8px;color:var(--accent)">${ic('tag',28)}</div><div style="font-weight:600">Style Report</div><div style="font-size:11px;color:var(--text3)">Daily &amp; Shift view</div></div><div class="report-card" onclick="rptStyleReport('pdf')" style="border-color:var(--red)"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Style Report</div><div style="font-size:11px;color:var(--text3)">PDF Download</div></div><div class="report-card" onclick="rptStyleReport('excel')" style="border-color:var(--green)"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Style Report</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div><div class="report-card" onclick="nav('shift-summary')" style="border-color:var(--accent)"><div style="margin-bottom:8px;color:var(--accent)">${ic('chart',28)}</div><div style="font-weight:600">Shift End Summary</div><div style="font-size:11px;color:var(--text3)">Auto from inspections</div></div><div class="report-card" onclick="rptShiftSummary('pdf')" style="border-color:var(--red)"><div style="margin-bottom:8px;color:var(--red)">${ic('pdf',28)}</div><div style="font-weight:600">Shift End Summary</div><div style="font-size:11px;color:var(--text3)">PDF Download</div></div><div class="report-card" onclick="rptShiftSummary('excel')" style="border-color:var(--green)"><div style="margin-bottom:8px;color:var(--green)">${ic('excel',28)}</div><div style="font-weight:600">Shift End Summary</div><div style="font-size:11px;color:var(--text3)">Excel Download</div></div></div></div>${completed.length>0?`<div class="card"><div class="card-header"><span class="card-title">Completed Styles Summary</span></div><div class="table-wrap"><table><thead><tr><th>Style</th><th>Buyer</th><th>Completed</th><th>Inspections</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${completed.map(s=>{const sIns=ins.filter(i=>i.style&&(i.style.includes(s.name)||i.style.includes(s.styleId)));const tc=sIns.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);const td=sIns.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);const d=tc?((td/tc)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${s.name} (${s.styleId})</td><td>${s.buyer||''}</td><td style="font-size:12px">${fd(s.completedDate)}</td><td style="font-family:var(--mono)">${sIns.length}</td><td style="font-family:var(--mono);color:var(--red)">${td}</td><td style="font-family:var(--mono);color:${d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)'}">${d}%</td></tr>`;}).join('')}</tbody></table></div></div>`:''}</div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px">${elCard}<div class="card"><div style="margin-bottom:4px"><div style="font-size:16px;font-weight:700">Download a Report</div><div style="font-size:12px;color:var(--text2)">Each report gives you a <b>PDF</b> to print/share or an <b>Excel</b> to edit. Style &amp; Module reports are keyed on <b>Style ID</b> and show any mid-day style change (who &amp; when).</div></div><div class="grid-3" style="margin-top:14px">${(()=>{
+    const tile=(color,icon,title,desc,actions)=>`<div class="card" style="padding:16px;box-shadow:none"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="width:40px;height:40px;border-radius:10px;background:${color}22;color:${color};display:flex;align-items:center;justify-content:center;flex-shrink:0">${icon}</div><div><div style="font-weight:700;font-size:13px">${title}</div><div style="font-size:11px;color:var(--text2)">${desc}</div></div></div><div style="display:flex;gap:8px">${actions}</div></div>`;
+    const pe=fn=>`<button class="btn btn-ghost btn-sm" style="flex:1;justify-content:center" onclick="${fn}('pdf')">${ic('pdf',13)} PDF</button><button class="btn btn-ghost btn-sm" style="flex:1;justify-content:center" onclick="${fn}('excel')">${ic('excel',13)} Excel</button>`;
+    const open=p=>`<button class="btn btn-primary btn-sm" style="flex:1;justify-content:center" onclick="nav('${p}')">Open →</button>`;
+    return [
+      tile('var(--accent2)',ic('tag',20),'Style Report','Per Style ID · full history',open('style-report')),
+      tile('var(--accent)',ic('layout',20),'Module Report','One line, day by day',open('module-report')),
+      tile('var(--purple)',ic('list',20),'All Inspections','Every check, line by line',pe('rptAllInsp')),
+      tile('var(--red)',ic('alert',20),'Defect Summary','Defects grouped by type',pe('rptDefects')),
+      tile('var(--accent)',ic('chart',20),'Module Performance','Defect rate per line',pe('rptModules')),
+      tile('var(--blue)',ic('users',20),'Operator Analysis','Who may need support',pe('rptOperator')),
+      tile('var(--accent2)',ic('tag',20),'Style Report (file)','Download PDF / Excel',pe('rptStyleReport')),
+      tile('var(--yellow)',ic('chart',20),'Shift End Summary','End-of-shift totals',pe('rptShiftSummary')),
+      tile('var(--green)',ic('check',20),'Completed Styles',completed.length+' finished',pe('rptCompleted')),
+      tile('var(--blue)',ic('chart',20),'Shift Summary','Live view',open('shift-summary')),
+      tile('var(--red)','🏃','Roving / In-process','Spot-checks during production',open('roving')),
+      tile('var(--yellow)',ic('alert',20),'Defect Category','Sewing, stain, MMT…',open('defect-category'))
+    ].join('');
+  })()}</div><div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px"><span style="font-size:11px;color:var(--text3);align-self:center">Setup tools:</span><button class="btn btn-ghost btn-sm" onclick="seedEndlineDefects()">${ic('plus',12)} Load Defect Codes</button><button class="btn btn-ghost btn-sm" style="border-color:rgba(201,138,0,.4);color:var(--yellow)" onclick="fixDefectVisibility()">${ic('refresh',12)} Fix: Show Codes in Roving</button></div></div>${completed.length>0?`<div class="card"><div class="card-header"><span class="card-title">Completed Styles Summary</span></div><div class="table-wrap"><table><thead><tr><th>Style</th><th>Buyer</th><th>Completed</th><th>Inspections</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${completed.map(s=>{const sIns=ins.filter(i=>i.style&&(i.style.includes(s.name)||i.style.includes(s.styleId)));const tc=sIns.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);const td=sIns.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);const d=tc?((td/tc)*100).toFixed(1):0;return`<tr><td style="font-weight:500">${s.name} (${s.styleId})</td><td>${s.buyer||''}</td><td style="font-size:12px">${fd(s.completedDate)}</td><td style="font-family:var(--mono)">${sIns.length}</td><td style="font-family:var(--mono);color:var(--red)">${td}</td><td style="font-family:var(--mono);color:${d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)'}">${d}%</td></tr>`;}).join('')}</tbody></table></div></div>`:''}</div>`;
 }
 
 // ============ PDF REPORTS ============
@@ -2456,6 +2539,76 @@ function pgInsp(){
   return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='endline'?'purple':i.type==='roving'?'green':'blue'}">${i.type==='roving'?'Roving':i.type==='endline'?'End Line':i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td title="Sheet: ${sheetIdFor(i.type==='roving'?'roving':'endline',i.module,i.shift,i.date||(i.createdAt||'').split('T')[0])}">${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('${i.type==='roving'?'rovingInspections':'inspections'}','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
 }
 
+// Count of everything awaiting an admin decision — drives the sidebar badge.
+function pendApprovalCount(){
+  const pr=(D.machineRosters||[]).filter(r=>r.status==='Pending Approval').length;
+  const pe=(D.editRequests||[]).filter(r=>r.status==='pending').length;
+  const ps=(D.sheetAccess||[]).filter(r=>r.status==='pending').length;
+  const pt=(D.aiTickets||[]).filter(t=>t.status==='Open').length;
+  const pc=(D.users||[]).filter(u=>u.changeRequest).length;
+  return pr+pe+ps+pt+pc;
+}
+
+// ======================== APPROVALS & REQUESTS ========================
+// Single home for everything that needs an admin decision plus the full audit
+// logs (Edit Request Log, Sheet Access Log). Pulled out of the dashboard and
+// supervisor pages so those stay clean KPI views.
+function pgApprovals(){
+  const todayStr=new Date().toISOString().split('T')[0];
+  const typeLabel=r=>((r.recordType||'').startsWith('endline')?'End Line':'Roving')+(r.recordType==='endline_add'||r.recordType==='roving_add'?' (missed entry)':'');
+  const edStChip=s=>{const m=({pending:['var(--yellow)','Pending'],approved:['var(--accent)','Approved'],rejected:['var(--red)','Rejected'],done:['var(--blue)','Done']})[s]||['var(--text3)',s||'—'];return `<span style="font-size:11px;font-weight:700;border:1px solid ${m[0]};color:${m[0]};border-radius:6px;padding:2px 7px">${m[1]}</span>`;};
+  const dateCell=r=>{const isBackdated=r.date&&r.date!==todayStr&&(r.recordType==='endline_add'||r.recordType==='roving_add');
+    return `<td style="font-size:11px;${isBackdated?'color:var(--red);font-weight:700':'color:var(--text3)'}">${r.date||'—'}${isBackdated?' <span title="Backdated — not today">⏪</span>':''}</td>`;};
+
+  // ---- pending roster approvals ----
+  const pendingRosters = (D.machineRosters||[]).filter(r => r.status === 'Pending Approval');
+  let pendingHtml = '';
+  if (pendingRosters.length > 0) {
+    pendingHtml = `<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Roster Approvals (${pendingRosters.length})</span></div><div class="table-wrap"><table><thead><tr><th>Module</th><th>Date</th><th>Shift</th><th>Machines</th><th>Submitted By</th><th>Action</th></tr></thead><tbody>${pendingRosters.map(r=>`<tr><td style="font-weight:600">${r.moduleName||r.moduleId||''}</td><td>${r.date||''}</td><td><span class="badge badge-purple">${r.shift?'Shift '+r.shift:'—'}</span></td><td>${Object.keys(r.workers||{}).length}</td><td>${r.createdBy||r.updatedBy||''}</td><td><button class="btn btn-primary btn-sm" onclick="approveShift('${r.fbKey}')">✓ Approve</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+
+  // ---- module change requests (worker wants to switch module) ----
+  const reqs = (D.users||[]).filter(u => u.changeRequest);
+  let changeHtml='';
+  if(reqs.length>0){
+    changeHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Module Change Requests (${reqs.length})</span></div><div style="display:flex;flex-direction:column;gap:8px">${reqs.map(u=>{let am={name:'Unknown'};try{am=JSON.parse(u.activeModule||'{}')}catch(e){}return`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${u.name||u.username}</div><div style="font-size:11px;color:var(--text2)">Wants to change from: ${am.name||am.moduleId||'Unknown'}</div></div><button class="btn btn-primary btn-sm" onclick="approveChange('${u.fbKey}')">Approve Unlock</button></div>`}).join('')}</div></div>`;
+  }
+
+  // ---- AI insights ----
+  const tickets = (D.aiTickets||[]).filter(t=>t.status==='Open');
+  let ticketHtml = '';
+  if(tickets.length>0){
+    ticketHtml = `<div class="card" style="border-color:var(--red)"><div class="card-header"><span class="card-title" style="color:var(--red)">🤖 AI Insights (${tickets.length})</span></div><div style="display:flex;flex-direction:column;gap:8px">${tickets.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${t.title}</div><div style="font-size:11px;color:var(--text2)">${t.description}</div></div><button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Acknowledge</button></div>`).join('')}</div></div>`;
+  }
+
+  // ---- worker edit requests: pending approvals + full audit log ----
+  const allEdits=(D.editRequests||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
+  const pendEdits=allEdits.filter(r=>r.status==='pending');
+  let editReqHtml='';
+  if(pendEdits.length>0){
+    editReqHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">✏️ Pending Edit Requests (${pendEdits.length})</span></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Date</th><th>Module</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${typeLabel(r)}</td>${dateCell(r)}<td>${r.module||''}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveEditReq('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectEditReq('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+  const auditHtml=`<div class="card"><div class="card-header"><span class="card-title">📋 Edit Request Log (${allEdits.length})</span></div>${allEdits.length===0?'<div style="padding:20px;text-align:center;color:var(--text3)">No edit requests yet.</div>':`<div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Date</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td style="font-size:12px">${typeLabel(r)}</td>${dateCell(r)}<td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:200px;font-size:12px">${r.reason||'—'}</td><td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
+
+  // ---- sheet access requests: one approval unlocks a whole module+shift+date+type sheet ----
+  const allSA=(D.sheetAccess||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
+  const pendSA=allSA.filter(r=>r.status==='pending');
+  const saRow=r=>`<tr><td style="font-size:12px"><div style="font-weight:600">${sheetLabel(r.recordType,r.module,r.shift,r.date)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">${r.sheetId||sheetIdFor(r.recordType,r.module,r.shift,r.date)}</div></td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td>`;
+  let sheetAccessHtml='';
+  if(pendSA.length>0){
+    sheetAccessHtml=`<div class="card" style="border-color:rgba(14,169,143,.4)"><div class="card-header"><span class="card-title" style="color:var(--accent)">🔓 Pending Sheet Access (${pendSA.length})</span></div><div style="font-size:11px;color:var(--text3);padding:0 16px 10px">Approving unlocks the WHOLE sheet — the QC can then edit or add any hour/visit on it for the rest of the day without asking again.</div><div class="table-wrap"><table><thead><tr><th>Sheet</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendSA.map(r=>saRow(r)+`<td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveSheetAccess('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectSheetAccess('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+  const saAuditHtml=allSA.length===0?'':`<div class="card"><div class="card-header"><span class="card-title">🔓 Sheet Access Log (${allSA.length})</span></div><div class="table-wrap"><table><thead><tr><th>Sheet</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allSA.map(r=>saRow(r)+`<td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div></div>`;
+
+  const total=pendApprovalCount();
+  const stat=(n,l,c)=>`<div class="card card-sm" style="border-left:3px solid ${c}"><div class="metric-val" style="color:${n>0?c:'var(--text3)'};font-size:22px">${n}</div><div class="metric-label">${l}</div></div>`;
+  const header=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px"><div><div style="font-size:16px;font-weight:700">${total>0?`${total} item${total!==1?'s':''} need your decision`:'All caught up — nothing pending ✓'}</div><div style="font-size:12px;color:var(--text2)">Edit requests, sheet access, rosters and AI insights live here so the dashboard stays clean.</div></div><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div><div class="grid-4">${stat(pendEdits.length,'Edit Requests','var(--yellow)')}${stat(pendSA.length,'Sheet Access','var(--accent)')}${stat(pendingRosters.length+reqs.length,'Roster / Module','var(--purple)')}${stat(tickets.length,'AI Insights','var(--red)')}</div>`;
+  const allClear=total===0?`<div class="card" style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:40px;margin-bottom:8px">✅</div><div style="font-weight:600;color:var(--text)">Nothing waiting for approval</div><div style="font-size:12px;margin-top:4px">New worker requests will appear here in real time.</div></div>`:'';
+
+  return`<div style="display:flex;flex-direction:column;gap:20px">${header}${pendingHtml}${changeHtml}${sheetAccessHtml}${editReqHtml}${ticketHtml}${allClear}${saAuditHtml}${auditHtml}</div>`;
+}
+
+// ======================== SUPERVISOR (analytics) ========================
 function pgSuper(){
   const el=elInsp(),rov=rovInsp();
   const elChk=sumChk(el),elDef=sumDef(el),elGood=elChk-elDef;
@@ -2464,43 +2617,10 @@ function pgSuper(){
   const bucket=m=>mm[m]||(mm[m]={elChk:0,elDef:0,rovChk:0,rovDef:0,n:0});
   el.forEach(i=>{if(i.module){const b=bucket(i.module);b.elChk+=parseInt(i.checkedQty)||0;b.elDef+=parseInt(i.defectQty)||0;b.n++;}});
   rov.forEach(i=>{if(i.module){const b=bucket(i.module);b.rovChk+=parseInt(i.checkedQty)||0;b.rovDef+=parseInt(i.defectQty)||0;}});
-  const pendingRosters = (D.machineRosters||[]).filter(r => r.status === 'Pending Approval');
-  let pendingHtml = '';
-  if (pendingRosters.length > 0) {
-    pendingHtml = `<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Roster Approvals (${pendingRosters.length})</span></div><div class="table-wrap"><table><thead><tr><th>Module</th><th>Date</th><th>Shift</th><th>Machines</th><th>Submitted By</th><th>Action</th></tr></thead><tbody>${pendingRosters.map(r=>`<tr><td style="font-weight:600">${r.moduleName||r.moduleId||''}</td><td>${r.date||''}</td><td><span class="badge badge-purple">${r.shift?'Shift '+r.shift:'—'}</span></td><td>${Object.keys(r.workers||{}).length}</td><td>${r.createdBy||r.updatedBy||''}</td><td><button class="btn btn-primary btn-sm" onclick="approveShift('${r.fbKey}')">✓ Approve</button></td></tr>`).join('')}</tbody></table></div></div>`;
-  }
-  const tickets = (D.aiTickets||[]).filter(t=>t.status==='Open');
-  let ticketHtml = '';
-  if(tickets.length>0){
-    ticketHtml = `<div class="card" style="border-color:var(--red)"><div class="card-header"><span class="card-title" style="color:var(--red)">🤖 AI Insights (${tickets.length})</span></div><div style="display:flex;flex-direction:column;gap:8px">${tickets.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${t.title}</div><div style="font-size:11px;color:var(--text2)">${t.description}</div></div><button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Acknowledge</button></div>`).join('')}</div></div>`;
-  }
-  // ---- Worker edit requests: pending approvals + full audit log ----
-  const allEdits=(D.editRequests||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
-  const pendEdits=allEdits.filter(r=>r.status==='pending');
-  const typeLabel=r=>((r.recordType||'').startsWith('endline')?'End Line':'Roving')+(r.recordType==='endline_add'||r.recordType==='roving_add'?' (missed entry)':'');
-  const edStChip=s=>{const m=({pending:['var(--yellow)','Pending'],approved:['var(--accent)','Approved'],rejected:['var(--red)','Rejected'],done:['var(--blue)','Done']})[s]||['var(--text3)',s||'—'];return `<span style="font-size:11px;font-weight:700;border:1px solid ${m[0]};color:${m[0]};border-radius:6px;padding:2px 7px">${m[1]}</span>`;};
-  // Backdated (a missed-entry request for a date other than today) deserves extra scrutiny —
-  // flag it instead of leaving it buried in the free-text label.
-  const todayStr=new Date().toISOString().split('T')[0];
-  const dateCell=r=>{const isBackdated=r.date&&r.date!==todayStr&&(r.recordType==='endline_add'||r.recordType==='roving_add');
-    return `<td style="font-size:11px;${isBackdated?'color:var(--red);font-weight:700':'color:var(--text3)'}">${r.date||'—'}${isBackdated?' <span title="Backdated — not today">⏪</span>':''}</td>`;};
-  let editReqHtml='';
-  if(pendEdits.length>0){
-    editReqHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">✏️ Pending Edit Requests (${pendEdits.length})</span></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Date</th><th>Module</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td>${typeLabel(r)}</td>${dateCell(r)}<td>${r.module||''}</td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveEditReq('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectEditReq('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
-  }
-  const auditHtml=`<div class="card"><div class="card-header"><span class="card-title">📋 Edit Request Log (${allEdits.length})</span></div>${allEdits.length===0?'<div style="padding:20px;text-align:center;color:var(--text3)">No edit requests yet.</div>':`<div class="table-wrap"><table><thead><tr><th>Record</th><th>Type</th><th>Date</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allEdits.map(r=>`<tr><td style="font-size:12px">${r.label||''}</td><td style="font-size:12px">${typeLabel(r)}</td>${dateCell(r)}<td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:200px;font-size:12px">${r.reason||'—'}</td><td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
+  const pend=pendApprovalCount();
+  const banner=pend>0?`<div class="card" style="border-color:var(--yellow);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="font-size:13px"><b style="color:var(--yellow)">${pend}</b> request${pend!==1?'s':''} waiting for approval.</div><button class="btn btn-primary btn-sm" onclick="nav('approvals')">Go to Approvals →</button></div>`:'';
 
-  // ---- Sheet Access requests: one approval unlocks a whole module+shift+date+type sheet ----
-  const allSA=(D.sheetAccess||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
-  const pendSA=allSA.filter(r=>r.status==='pending');
-  const saRow=r=>`<tr><td style="font-size:12px"><div style="font-weight:600">${sheetLabel(r.recordType,r.module,r.shift,r.date)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">${r.sheetId||sheetIdFor(r.recordType,r.module,r.shift,r.date)}</div></td><td>${r.requestedByName||r.requestedBy||''}</td><td style="max-width:220px;font-size:12px">${r.reason||'—'}</td>`;
-  let sheetAccessHtml='';
-  if(pendSA.length>0){
-    sheetAccessHtml=`<div class="card" style="border-color:rgba(0,212,168,.4)"><div class="card-header"><span class="card-title" style="color:var(--accent)">🔓 Pending Sheet Access (${pendSA.length})</span></div><div style="font-size:11px;color:var(--text3);padding:0 16px 10px">Approving unlocks the WHOLE sheet — the QC can then edit or add any hour/visit on it for the rest of the day without asking again.</div><div class="table-wrap"><table><thead><tr><th>Sheet</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead><tbody>${pendSA.map(r=>saRow(r)+`<td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="approveSheetAccess('${r.fbKey}')">✓ Approve</button> <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectSheetAccess('${r.fbKey}')">✗ Reject</button></td></tr>`).join('')}</tbody></table></div></div>`;
-  }
-  const saAuditHtml=allSA.length===0?'':`<div class="card"><div class="card-header"><span class="card-title">🔓 Sheet Access Log (${allSA.length})</span></div><div class="table-wrap"><table><thead><tr><th>Sheet</th><th>By</th><th>Reason</th><th>Status</th><th>Decided By</th><th>When</th></tr></thead><tbody>${allSA.map(r=>saRow(r)+`<td>${edStChip(r.status)}</td><td style="font-size:12px">${r.approvedByName||r.approvedBy||'—'}${r.decisionNote?`<div style="font-size:10px;color:var(--text3)">${r.decisionNote}</div>`:''}</td><td style="font-size:11px;color:var(--text3)">${ft(r.approvedAt||r.requestedAt)}</td></tr>`).join('')}</tbody></table></div></div>`;
-
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:flex-end"><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div>${pendingHtml}${sheetAccessHtml}${editReqHtml}${ticketHtml}${saAuditHtml}${auditHtml}<div class="grid-4">${kpi(elChk,'Line Output','End Line checked','var(--accent)')}${kpi(elGood,'Good Garments','Checked − defects','var(--green)')}${kpi(elDef,'Defects','End Line','var(--red)')}${kpi(dhuOf(el)+'%','DHU','End Line','var(--yellow)')}</div><div class="grid-4">${kpi(rovChk,'Roving Sampled','pieces · separate','var(--blue)')}${kpi(rovDef,'Roving Defects','in-process','var(--red)')}${kpi(dhuOf(rov)+'%','Roving DHU','','var(--purple)')}${kpi(el.length+rov.length,'Total Records','el + roving','var(--accent2)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div style="font-size:11px;color:var(--text3);padding:0 16px 8px">End Line = line output (good garments). Roving = separate in-process check.</div><div class="table-wrap"><table><thead><tr><th rowspan="2">Module</th><th colspan="4" style="text-align:center;border-bottom:1px solid var(--border)">End Line (output)</th><th colspan="3" style="text-align:center;border-left:2px solid var(--border2);border-bottom:1px solid var(--border)">Roving (separate)</th><th rowspan="2" style="border-left:2px solid var(--border2)">Status</th></tr><tr><th>Output</th><th>Good</th><th>Defects</th><th>DHU</th><th style="border-left:2px solid var(--border2)">Sampled</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.elChk?((d.elDef/d.elChk)*100).toFixed(1):0;const rv=d.rovChk?((d.rovDef/d.rovChk)*100).toFixed(1):0;const good=d.elChk-d.elDef;return`<tr><td style="font-weight:500">${m}</td><td style="font-family:var(--mono)">${d.elChk}</td><td style="font-family:var(--mono);color:var(--green)">${good}</td><td style="font-family:var(--mono);color:var(--red)">${d.elDef}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${d.elChk?v+'%':'—'}</td><td style="font-family:var(--mono);color:var(--text2);border-left:2px solid var(--border2)">${d.rovChk}</td><td style="font-family:var(--mono);color:var(--red)">${d.rovDef}</td><td style="color:${rv>5?'var(--red)':rv>3?'var(--yellow)':'var(--text2)'}">${d.rovChk?rv+'%':'—'}</td><td style="border-left:2px solid var(--border2)"><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px">${banner}<div class="grid-4">${kpi(elChk,'Line Output','End Line checked','var(--accent)')}${kpi(elGood,'Good Garments','Checked − defects','var(--green)')}${kpi(elDef,'Defects','End Line','var(--red)')}${kpi(dhuOf(el)+'%','DHU','End Line','var(--yellow)')}</div><div class="grid-4">${kpi(rovChk,'Roving Sampled','pieces · separate','var(--blue)')}${kpi(rovDef,'Roving Defects','in-process','var(--red)')}${kpi(dhuOf(rov)+'%','Roving DHU','','var(--purple)')}${kpi(el.length+rov.length,'Total Records','el + roving','var(--accent2)')}</div><div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Type Split</span></div><div class="chart-wrap"><canvas id="ch3"></canvas></div></div><div class="card"><div class="card-header"><span class="card-title">Top Defects</span></div><div class="chart-wrap"><canvas id="ch4"></canvas></div></div></div><div class="card"><div class="card-header"><span class="card-title">Module Performance</span><button class="btn btn-ghost btn-sm" onclick="rptModules('pdf')">${ic('pdf',12)} PDF</button></div>${Object.keys(mm).length===0?'<div style="padding:24px;text-align:center;color:var(--text3)">No data</div>':`<div style="font-size:11px;color:var(--text3);padding:0 16px 8px">End Line = line output (good garments). Roving = separate in-process check.</div><div class="table-wrap"><table><thead><tr><th rowspan="2">Module</th><th colspan="4" style="text-align:center;border-bottom:1px solid var(--border)">End Line (output)</th><th colspan="3" style="text-align:center;border-left:2px solid var(--border2);border-bottom:1px solid var(--border)">Roving (separate)</th><th rowspan="2" style="border-left:2px solid var(--border2)">Status</th></tr><tr><th>Output</th><th>Good</th><th>Defects</th><th>DHU</th><th style="border-left:2px solid var(--border2)">Sampled</th><th>Defects</th><th>DHU</th></tr></thead><tbody>${Object.entries(mm).map(([m,d])=>{const v=d.elChk?((d.elDef/d.elChk)*100).toFixed(1):0;const rv=d.rovChk?((d.rovDef/d.rovChk)*100).toFixed(1):0;const good=d.elChk-d.elDef;return`<tr><td style="font-weight:500">${m}</td><td style="font-family:var(--mono)">${d.elChk}</td><td style="font-family:var(--mono);color:var(--green)">${good}</td><td style="font-family:var(--mono);color:var(--red)">${d.elDef}</td><td style="color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${d.elChk?v+'%':'—'}</td><td style="font-family:var(--mono);color:var(--text2);border-left:2px solid var(--border2)">${d.rovChk}</td><td style="font-family:var(--mono);color:var(--red)">${d.rovDef}</td><td style="color:${rv>5?'var(--red)':rv>3?'var(--yellow)':'var(--text2)'}">${d.rovChk?rv+'%':'—'}</td><td style="border-left:2px solid var(--border2)"><span class="badge badge-${v>5?'red':v>3?'yellow':'green'}">${v>5?'Critical':v>3?'Warning':'Good'}</span></td></tr>`;}).join('')}</tbody></table></div>`}</div><div class="card"><div class="card-header"><span class="card-title">DHU Trend</span></div><div class="chart-wrap" style="height:260px"><canvas id="ch5"></canvas></div></div></div>`;
 }
 
 window.approveShift = async function(k){
@@ -3410,6 +3530,16 @@ window.sub=async function(type){
     else if(type==='editMod'){
       const old=D.modalData;
       await window.fbUpd('modules',old.fbKey,data);
+      // Style change is an auditable event: when the line switches style we log
+      // WHO changed it and WHEN, so reports can split the day's pieces by style
+      // and show "Style changed at HH:MM by [name]". Stored in `styleChanges`.
+      const oSid=old?.styleId||'',nSid=data.styleId||'',oSn=old?.styleName||'',nSn=data.styleName||'';
+      if((oSid||oSn)&&(oSid!==nSid||oSn!==nSn)){
+        const now=new Date().toISOString();
+        await window.fbAdd('styleChanges',{module:data.name||old?.name||'',moduleKey:old?.fbKey||'',moduleId:data.moduleId||old?.moduleId||'',fromStyleId:oSid,fromStyleName:oSn,toStyleId:nSid,toStyleName:nSn,at:now,by:D.user?.username||'',byName:D.user?.name||D.user?.username||''});
+        await window.fbUpd('modules',old.fbKey,{styleChangedAt:now,styleChangedBy:D.user?.name||D.user?.username||''});
+        toast('Style changed — logged by '+(D.user?.name||D.user?.username||'you'));
+      } else { toast('Updated'); }
       // assignedLine on users is a plain name string, not a key — if the module
       // is renamed, every Line Head pointing at the old name would silently
       // "lose" their assignment, so carry it forward to the new name.
@@ -3417,7 +3547,6 @@ window.sub=async function(type){
         const affected=D.users.filter(u=>u.assignedLine===old.name);
         for(const u of affected) await window.fbUpd('users',u.fbKey,{assignedLine:data.name});
       }
-      toast('Updated');
     }
     else if(type==='addStyle'){await window.fbAdd('styles',data);toast('Style added');}
     else if(type==='editStyle'){if(data.status==='Completed'&&D.modalData.status!=='Completed')data.completedDate=new Date().toISOString();await window.fbUpd('styles',D.modalData.fbKey,data);toast('Updated');}
@@ -3720,23 +3849,42 @@ function bindSeed(){
 
 // Charts
 function renderCharts(){
-  const ins=allInspections();const colors=['#e05555','#d4a800','#4488ff','#9966ff','#00d4a8','#ff9424'];
-  const chOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:11}}},x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:10}}}}};
-  // ch1 - timeline
+  const ins=allInspections();const colors=['#e5484d','#e2a200','#3b7ff5','#7c5cff','#0ea98f','#ff8a3d'];
+  const GRID='rgba(15,23,42,.07)',TICK='#5b6678';
+  const chOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:GRID},ticks:{color:TICK,font:{size:11}}},x:{grid:{color:GRID},ticks:{color:TICK,font:{size:10}}}}};
+  // Dashboard range filter (Today / This Week / All) — drives every dashboard chart.
+  const _range=D.dashRange||'today';
+  const _td=new Date().toISOString().split('T')[0];
+  const _wk=new Date(Date.now()-6*86400000).toISOString().split('T')[0];
+  const _dOf=i=>(i.date||(i.createdAt||'').split('T')[0])||'';
+  const _inR=i=>{const d=_dOf(i);if(_range==='today')return d===_td;if(_range==='week')return d>=_wk;return true;};
+  const _byDay=_range==='today';
+  const dins=ins.filter(_inR);
+  const delI=elInsp().filter(_inR);
+  // ch1 - output volume (checked pieces) by hour today / by day for week+
   const e1=document.getElementById('ch1');
-  if(e1&&ins.length){const dm={};ins.forEach(i=>{const d=(i.date||(i.createdAt||'').split('T')[0])||'?';dm[d]=(dm[d]||0)+1;});const s=Object.entries(dm).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);charts.c1=new Chart(e1,{type:'bar',data:{labels:s.map(([d])=>d.slice(5)),datasets:[{data:s.map(([_,c])=>c),backgroundColor:'rgba(0,212,168,.6)',borderRadius:4}]},options:chOpts});}
-  // ch2 - defects donut
+  if(e1){const dm={};delI.forEach(i=>{const key=_byDay?((i.time||'').slice(0,2)+'h'):_dOf(i);dm[key]=(dm[key]||0)+(parseInt(i.checkedQty)||0);});const s=Object.entries(dm).filter(([k])=>k&&k!=='h').sort((a,b)=>a[0].localeCompare(b[0])).slice(-16);charts.c1=new Chart(e1,{type:'bar',data:{labels:s.map(([d])=>_byDay?d:d.slice(5)),datasets:[{label:'Checked',data:s.map(([_,c])=>c),backgroundColor:'rgba(14,169,143,.78)',borderRadius:6}]},options:chOpts});}
+  // ch2 - top defects donut (range-filtered)
   const e2=document.getElementById('ch2');
-  if(e2&&ins.length){const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);charts.c2=new Chart(e2,{type:'doughnut',data:{labels:t.map(([n])=>n),datasets:[{data:t.map(([_,c])=>c),backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#9097a8',font:{size:10},boxWidth:12}}},cutout:'65%'}});}
+  if(e2){const dm={};dins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);if(t.length)charts.c2=new Chart(e2,{type:'doughnut',data:{labels:t.map(([n])=>n),datasets:[{data:t.map(([_,c])=>c),backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#5b6678',font:{size:10},boxWidth:12}}},cutout:'65%'}});}
+  // chDhu - DHU trend vs 2.5% target (range-filtered, End Line)
+  const eDhu=document.getElementById('chDhu');
+  if(eDhu){const dm={};delI.forEach(i=>{const key=_byDay?((i.time||'').slice(0,2)+'h'):_dOf(i);if(!dm[key])dm[key]={c:0,d:0};dm[key].c+=parseInt(i.checkedQty)||0;dm[key].d+=parseInt(i.defectQty)||0;});const s=Object.entries(dm).filter(([k])=>k&&k!=='h').sort((a,b)=>a[0].localeCompare(b[0])).slice(-16);charts.cDhu=new Chart(eDhu,{type:'line',data:{labels:s.map(([d])=>_byDay?d:d.slice(5)),datasets:[{label:'DHU %',data:s.map(([_,v])=>v.c?+((v.d/v.c)*100).toFixed(1):0),borderColor:'#0ea98f',backgroundColor:'rgba(14,169,143,.12)',tension:.4,fill:true,pointRadius:3,pointBackgroundColor:'#0ea98f'},{label:'Target 2.5%',data:s.map(()=>2.5),borderColor:'#e5484d',borderDash:[5,4],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#5b6678',boxWidth:12,font:{size:10}}}},scales:{y:{grid:{color:GRID},ticks:{color:TICK},suggestedMin:0},x:{grid:{color:GRID},ticks:{color:TICK,font:{size:9}}}}}});}
+  // chMod - DHU by module (horizontal bar, color-coded by severity)
+  const eMod=document.getElementById('chMod');
+  if(eMod){const mm={};dins.forEach(i=>{if(!i.module)return;if(!mm[i.module])mm[i.module]={c:0,d:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;});const arr=Object.entries(mm).map(([m,v])=>[m,v.c?+((v.d/v.c)*100).toFixed(1):0]).sort((a,b)=>b[1]-a[1]).slice(0,8);if(arr.length)charts.cMod=new Chart(eMod,{type:'bar',data:{labels:arr.map(([m])=>m.length>14?m.slice(0,14)+'…':m),datasets:[{data:arr.map(([_,v])=>v),backgroundColor:arr.map(([_,v])=>v>5?'#e5484d':v>3?'#e2a200':'#0ea98f'),borderRadius:5}]},options:{...chOpts,indexAxis:'y'}});}
+  // chType - End Line vs Roving split
+  const eType=document.getElementById('chType');
+  if(eType){const elN=dins.filter(i=>i.type==='endline').length,rvN=dins.filter(i=>i.type==='roving'||i.type==='inline').length;if(elN+rvN>0)charts.cType=new Chart(eType,{type:'doughnut',data:{labels:['End Line','Roving'],datasets:[{data:[elN,rvN],backgroundColor:['#7c5cff','#3b7ff5'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#5b6678'}}},cutout:'62%'}});}
   // ch3 - type split
   const e3=document.getElementById('ch3');
-  if(e3){charts.c3=new Chart(e3,{type:'doughnut',data:{labels:['Roving','End Line'],datasets:[{data:[ins.filter(i=>i.type==='roving'||i.type==='inline').length,ins.filter(i=>i.type==='endline').length],backgroundColor:['#4488ff','#9966ff'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#9097a8'}}},cutout:'65%'}});}
+  if(e3){charts.c3=new Chart(e3,{type:'doughnut',data:{labels:['Roving','End Line'],datasets:[{data:[ins.filter(i=>i.type==='roving'||i.type==='inline').length,ins.filter(i=>i.type==='endline').length],backgroundColor:['#3b7ff5','#7c5cff'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#5b6678'}}},cutout:'65%'}});}
   // ch4 - top defects bar
   const e4=document.getElementById('ch4');
   if(e4){const dm={};ins.forEach(i=>{if(i.defectType)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||1);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,6);charts.c4=new Chart(e4,{type:'bar',data:{labels:t.map(([n])=>n.length>12?n.slice(0,12)+'…':n),datasets:[{data:t.map(([_,c])=>c),backgroundColor:colors,borderRadius:4}]},options:{...chOpts,indexAxis:'y'}});}
   // ch5 - DHU trend
   const e5=document.getElementById('ch5');
-  if(e5){const elI=elInsp();const dm={};elI.forEach(i=>{const d=(i.date||(i.createdAt||'').split('T')[0])||'?';if(!dm[d])dm[d]={c:0,d:0};dm[d].c+=parseInt(i.checkedQty)||0;dm[d].d+=parseInt(i.defectQty)||0;});const s=Object.entries(dm).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);charts.c5=new Chart(e5,{type:'line',data:{labels:s.map(([d])=>d.slice(5)),datasets:[{label:'DHU %',data:s.map(([_,d])=>d.c?((d.d/d.c)*100).toFixed(1):0),borderColor:'#00d4a8',backgroundColor:'rgba(0,212,168,.1)',tension:.4,fill:true,pointRadius:4,pointBackgroundColor:'#00d4a8'},{label:'Target',data:s.map(()=>2.5),borderColor:'#e05555',borderDash:[4,4],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9097a8'}}},scales:{y:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8'},suggestedMin:0},x:{grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#9097a8',font:{size:10}}}}}});}
+  if(e5){const elI=elInsp();const dm={};elI.forEach(i=>{const d=(i.date||(i.createdAt||'').split('T')[0])||'?';if(!dm[d])dm[d]={c:0,d:0};dm[d].c+=parseInt(i.checkedQty)||0;dm[d].d+=parseInt(i.defectQty)||0;});const s=Object.entries(dm).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);charts.c5=new Chart(e5,{type:'line',data:{labels:s.map(([d])=>d.slice(5)),datasets:[{label:'DHU %',data:s.map(([_,d])=>d.c?((d.d/d.c)*100).toFixed(1):0),borderColor:'#0ea98f',backgroundColor:'rgba(14,169,143,.12)',tension:.4,fill:true,pointRadius:4,pointBackgroundColor:'#0ea98f'},{label:'Target',data:s.map(()=>2.5),borderColor:'#e5484d',borderDash:[4,4],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#5b6678'}}},scales:{y:{grid:{color:'rgba(15,23,42,.07)'},ticks:{color:'#5b6678'},suggestedMin:0},x:{grid:{color:'rgba(15,23,42,.07)'},ticks:{color:'#5b6678',font:{size:10}}}}}});}
 }
 
 function renderQR(){
