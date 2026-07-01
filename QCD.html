@@ -88,8 +88,10 @@
     onValue(ref(db,'editRequests'), s => { window.D.editRequests = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard','approvals'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'sheetAccess'), s => { window.D.sheetAccess = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['supervisor','dashboard','approvals'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'styleChanges'), s => { window.D.styleChanges = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(['style-report','module-report','reports','endline','modules'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'thirdPartyAudits'), s => { window.D.thirdPartyAudits = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='third-party') window.render(); });
     onValue(ref(db,'settings/rotation'), s => { window.D.rotation = s.exists() ? s.val() : null; if(['settings','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/factory'), s => { window.D.factory = s.exists() ? s.val() : null; if(['settings','reports'].includes(window.D.page)) window.render(); });
+    onValue(ref(db,'settings/thirdParty'), s => { window.D.thirdParty = s.exists() ? s.val() : null; window.render(); });
     onValue(ref(db,'elRework'), s => { window.D.elRework = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='endline') window.render(); });
   };
 
@@ -217,6 +219,10 @@ const EL_CODES={
 };
 const EL_DEFECTS=[];Object.entries(EL_CODES).forEach(([p,arr])=>arr.forEach((nm,i)=>EL_DEFECTS.push({code:p+(i+1),name:nm})));
 const EL_CAT_ORDER=['SEWING','UNCUT THREAD','MMT','OIL MARK','STAIN','FABRIC','CUT HOLE'];
+// 3rd Party Hourly Audit — same defect list & part-code key as the worker app, so admin
+// reports and the worker's entry screen always agree on names.
+const TP_DEFECTS=['NEP / SLUB','FABRIC DAMAGE/HOLES','FABRIC DEFECTS','SHAPE OFF','PUCKERING/GATHERING','BROKEN STITCH','OPEN SEAM','LOOSENESS','NEEDLE HOLES/MARKS','JOINT STITCH/MISMATCH','SKIP STITCH','PLEATS','UNCUT THREADS','MISSING','RAW EDGE','ZERO RAW EDGE','PAD PRINT SLANT/CENTER OUT','STRIP MISMATCH','SHADE VARIATION','HIGH LOW','DIRTY STAIN/PEN MARK','OIL STAIN','WIDTH UNEVEN','RUN OFF/UNCOMPLETE STITCH','DOWN STITCH','MEASUREMENT/STRETCH ISSUES','SPC VARIATION','STICKER','SIZE MISMATCH/SIZE JUMP','OTHERS'];
+const TP_PARTS=[['A','WAISTBAND'],['B','NECK'],['C','FRONT RISE'],['D','FRONT BODY'],['E','BACK BODY'],['F','LEG OPENING'],['G','BOTTOM HEM'],['H','SIDE SEAM'],['I','INSEAM'],['J','BACK RISE'],['K','SIDE SLIT'],['L','INSIDE BODY'],['M','INSIDE BUTTON HEM'],['N','SLEEVE'],['O','BOW'],['P','ARMHOLE'],['Q','GUSSET'],['R','POUCH'],['S','BARTACK'],['T','FLY'],['U','ELASTIC'],['V','LABEL'],['W','BUTTON'],['X','DOT STITCH'],['Y','POCKET']];
 function elNorm(s){return (s||'').toString().toLowerCase().replace(/[^a-z0-9]/g,'');}
 const EL_CODE_BY_NAME={};EL_DEFECTS.forEach(d=>{EL_CODE_BY_NAME[elNorm(d.name)]=d.code;});
 function elResolveCode(defectType){
@@ -252,7 +258,7 @@ window.showModal=function(t,d=null){D.showModal=t;D.modalData=d;render();};
 window.closeModal=function(){D.showModal=null;D.modalData=null;render();};
 
 // Roles that work within a specific shift + module/line, so they get those fields.
-const SHIFT_MODULE_ROLES=['Line Head','QC Roving Inspector','QC End Line Inspector'];
+const SHIFT_MODULE_ROLES=['Line Head','QC Roving Inspector','QC End Line Inspector','QC 3rd Party Auditor'];
 // Show/hide shift + module fields in the user modal based on role
 window.toggleLineField=function(prefix){
   const sel=document.getElementById(prefix+'-role-sel');
@@ -324,20 +330,23 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'approvals',ic:'check',l:'Approvals',apBadge:1},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Reports',items:[{id:'module-report',ic:'layout',l:'Module Report'},{id:'style-report',ic:'tag',l:'Style Report'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'All Reports'}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'supervisor',ic:'chart',l:'Supervisor'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'analytics',ic:'chart',l:'Defect Analytics'},{id:'operator-analysis',ic:'users',l:'Operator Analysis'},{id:'third-party',ic:'check',l:'3rd Party QC',tpOnly:true},{id:'approvals',ic:'check',l:'Approvals',apBadge:1},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Reports',items:[{id:'module-report',ic:'layout',l:'Module Report'},{id:'style-report',ic:'tag',l:'Style Report'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'All Reports'}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
-  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}${i.apBadge&&pendApprovalCount()>0?`<span class="nav-badge hide-c" style="background:var(--yellow);color:#fff">${pendApprovalCount()}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
+  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.filter(i=>!i.tpOnly||thirdPartyOn()).map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}${i.apBadge&&pendApprovalCount()>0?`<span class="nav-badge hide-c" style="background:var(--yellow);color:#fff">${pendApprovalCount()}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
-  const t={dashboard:'Dashboard',approvals:'Approvals & Requests',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis','amms-tickets':'AMMS Tickets',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
+  const t={dashboard:'Dashboard',analytics:'Defect Analytics','operator-analysis':'Operator Analysis','third-party':'3rd Party Quality Checking',approvals:'Approvals & Requests',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis','amms-tickets':'AMMS Tickets',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
   return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
 }
 
 function renderPg(){
   const p=D.page;
   if(p==='dashboard')return pgDash();
+  if(p==='analytics')return pgAnalytics();
+  if(p==='operator-analysis')return pgOperatorAnalysis();
+  if(p==='third-party')return pgThirdParty();
   if(p==='approvals')return pgApprovals();
   if(p==='modules')return pgMods();
   if(p==='alerts')return pgAlerts();
@@ -379,6 +388,41 @@ function dhuOf(a){const c=sumChk(a),d=sumDef(a);return c?((d/c)*100).toFixed(1):
 
 window.setDashRange=function(r){D.dashRange=r;render();};
 window.setStyleGrain=function(g){D.styleRptGrain=g;render();};
+window.setPbi=function(k,v){D.pbi=D.pbi||{};D.pbi[k]=v;render();};
+window.setPbiTopN=function(n){D.pbi=D.pbi||{};D.pbi.topN=n;render();};
+window.resetPbi=function(){D.pbi={from:'',to:'',line:'__all',buyer:'__all',style:'__all',operation:'__all',operator:'__all',cat:'__all',defect:'__all',topN:15};render();};
+
+// Shared by Dashboard + Defect Analytics: 3rd Party summary KPIs, plus a compare-card
+// against the internal (End Line) defect rate — the whole point of an independent audit
+// is checking whether it agrees with what your own QC reported. Returns '' when the
+// 3rd Party Checking feature is OFF, or when there's no 3rd-party data to compare yet.
+function tpCompareBlock(tpRows,refDhu,refLabel){
+  if(!thirdPartyOn())return '';
+  const tpChk=tpRows.reduce((a,r)=>a+(parseInt(r.checkedPcs)||0),0);
+  const tpDef=tpRows.reduce((a,r)=>a+(parseInt(r.totalDefectQty)||0),0);
+  const tpPass=tpRows.reduce((a,r)=>a+(parseInt(r.passPcs)||0),0);
+  const tpDefPct=tpChk?(tpDef/tpChk*100):0;
+  const tpPassPct=tpChk?(tpPass/tpChk*100):0;
+  const tpColor=tpChk===0?'var(--text3)':(tpDefPct>5?'var(--red)':tpDefPct>3?'var(--yellow)':'var(--green)');
+  const kpiC=(v,l,c)=>`<div class="card card-sm" style="text-align:center"><div class="metric-val" style="color:${c};font-size:24px">${v}</div><div class="metric-label">${l}</div></div>`;
+  const tpKpis=`<div class="grid-4">${kpiC(tpChk.toLocaleString(),'3rd Party Checked','var(--accent2)')}${kpiC(tpDef.toLocaleString(),'3rd Party Defects','var(--red)')}${kpiC(tpChk?tpDefPct.toFixed(1)+'%':'—','3rd Party Defect %',tpColor)}${kpiC(tpChk?tpPassPct.toFixed(1)+'%':'—','3rd Party Pass %','var(--green)')}</div>`;
+  let compareCard='';
+  if(tpChk>0){
+    const gap=tpDefPct-refDhu;
+    const agree=Math.abs(gap)<=1;
+    const gapColor=agree?'var(--green)':(gap>1?'var(--red)':'var(--yellow)');
+    compareCard=`<div class="card" style="border-left:5px solid ${gapColor}">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px">🔍 Internal vs 3rd Party — Do the numbers agree?</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;text-align:center">
+        <div><div style="font-size:11px;color:var(--text3)">${refLabel.toUpperCase()}</div><div style="font-size:24px;font-weight:800">${refDhu.toFixed(1)}%</div></div>
+        <div><div style="font-size:11px;color:var(--text3)">3RD PARTY (INDEPENDENT)</div><div style="font-size:24px;font-weight:800;color:${tpColor}">${tpDefPct.toFixed(1)}%</div></div>
+        <div><div style="font-size:11px;color:var(--text3)">GAP</div><div style="font-size:24px;font-weight:800;color:${gapColor}">${gap>0?'+':''}${gap.toFixed(1)} pts</div></div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:10px;text-align:center">${agree?'✅ Close match — internal QC and the 3rd party audit broadly agree.':gap>1?'⚠️ 3rd party found MORE defects than internal QC reported — worth investigating why internal checks are missing issues.':'ℹ️ 3rd party found fewer defects than internal QC — internal checks may be over-flagging, or the 3rd party sample is smaller.'}</div>
+    </div>`;
+  }
+  return `<div style="font-size:12px;color:var(--text2);margin:2px 0 -6px;padding-left:2px">🧪 <b>3rd Party Quality Checking</b> — independent audit stage after End Line:</div>${tpKpis}${compareCard}`;
+}
 function pgDash(){
   const range=D.dashRange||'today';
   const td=new Date().toISOString().split('T')[0];
@@ -392,7 +436,7 @@ function pgDash(){
   const pend=pendApprovalCount();
   const rovChk=sumChk(rov),rovDef=sumDef(rov);
   const tog=(v,l)=>`<button class="btn btn-sm ${range===v?'btn-primary':'btn-ghost'}" onclick="setDashRange('${v}')" style="border:none">${l}</button>`;
-  const toolbar=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px"><div><div style="font-size:20px;font-weight:800">Factory Quality Dashboard</div><div style="font-size:12px;color:var(--text2)">A simple view of how production quality is doing — showing <b>${rangeLabel.toLowerCase()}</b>.</div></div><div style="display:flex;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${tog('today','Today')}${tog('week','This Week')}${tog('all','All Time')}</div></div>`;
+  const toolbar=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px"><div><div style="font-size:20px;font-weight:800">Factory Quality Dashboard</div><div style="font-size:12px;color:var(--text2)">A simple view of how production quality is doing — showing <b>${rangeLabel.toLowerCase()}</b>.</div></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="nav('analytics')">${ic('chart',13)} Analyst view (filters)</button><div style="display:flex;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${tog('today','Today')}${tog('week','This Week')}${tog('all','All Time')}</div></div></div>`;
   const approvalsStrip=pend>0?`<div class="card" style="border-color:var(--yellow);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="font-size:13px">🔔 <b style="color:var(--yellow)">${pend}</b> request${pend!==1?'s':''} from the floor ${pend!==1?'are':'is'} waiting for your approval.</div><button class="btn btn-primary btn-sm" onclick="nav('approvals')">Review now →</button></div>`:'';
   const noData=recent.length===0;
   const rangeWord=range==='today'?'today':range==='week'?'this week':'so far';
@@ -416,25 +460,278 @@ function pgDash(){
     </div>
   </div>`;
 
-  // ---- KPI cards with plain-language labels + a one-line explanation each ----
-  const primary=`<div class="grid-4">${kpi(elChk,'Pieces Checked','inspected at end of line','var(--accent)')}${kpi(elGood,'Passed ✓','no defects found','var(--green)')}${kpi(elDef,'Had Defects','needed rework','var(--red)')}${kpi(dhu.toFixed(1)+'%','Defect Rate',dhu<=2.5?'✓ within 2.5% goal':'above 2.5% goal · lower is better',sc)}</div>`;
+  // ---- KPI cards with an embedded 14-day sparkline + period-over-period trend % ----
+  const spDays=[...Array(14)].map((_,i)=>new Date(Date.now()-(13-i)*86400000).toISOString().split('T')[0]);
+  const elAll=elInsp();
+  const daySer=metric=>spDays.map(d=>{const rows=elAll.filter(i=>(i.date||(i.createdAt||'').split('T')[0])===d);const c=sumChk(rows),df=sumDef(rows);return metric==='chk'?c:metric==='good'?c-df:metric==='def'?df:(c?+((df/c)*100).toFixed(2):0);});
+  const sChk=daySer('chk'),sGood=daySer('good'),sDef=daySer('def'),sDhu=daySer('dhu');
+  D._spark={sChk,sGood,sDef,sDhu};
+  const sumArr=a=>a.reduce((x,y)=>x+y,0),avgArr=a=>a.length?sumArr(a)/a.length:0;
+  const pctChg=(cur,prev)=>!prev?(cur?100:0):((cur-prev)/prev)*100;
+  const halfDelta=(a,avg)=>{const h=Math.floor(a.length/2);const f=avg?avgArr:sumArr;return pctChg(f(a.slice(h)),f(a.slice(0,h)));};
+  const dChk=halfDelta(sChk),dGood=halfDelta(sGood),dDef=halfDelta(sDef),dDhu=halfDelta(sDhu,true);
+  const trendChip=(delta,invert)=>{if(delta==null||!isFinite(delta))return '';const up=delta>0.5,down=delta<-0.5,flat=!up&&!down;const good=invert?down:up;const c=flat?'var(--text3)':good?'var(--green)':'var(--red)';const arr=flat?'•':up?'▲':'▼';return `<span style="font-size:11px;font-weight:700;color:${c};background:var(--bg3);padding:2px 8px;border-radius:20px;white-space:nowrap">${arr} ${Math.abs(delta).toFixed(0)}%</span>`;};
+  const kpiSpark=(v,l,sub,color,id,delta,invert)=>`<div class="card card-sm"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="metric-label" style="margin:0">${l}</div>${trendChip(delta,invert)}</div><div class="metric-val" style="color:${color};font-size:26px;margin-top:6px">${v}</div><div style="height:42px;margin:4px -6px -2px">${noData&&v==0?'':`<canvas id="${id}"></canvas>`}</div><div style="font-size:10px;color:var(--text3)">${sub}</div></div>`;
+  const primary=`<div class="grid-4">${kpiSpark(elChk,'Pieces Checked','14-day trend','var(--accent)','spkChk',dChk,false)}${kpiSpark(elGood,'Passed ✓','no defects found','var(--green)','spkGood',dGood,false)}${kpiSpark(elDef,'Had Defects','needed rework','var(--red)','spkDef',dDef,true)}${kpiSpark(dhu.toFixed(1)+'%','Defect Rate',dhu<=2.5?'✓ within 2.5% goal':'above 2.5% goal',sc,'spkDhu',dDhu,true)}</div>`;
   const secHead=`<div style="font-size:12px;color:var(--text2);margin:-6px 0 -8px;padding-left:2px">Extra checks done <b>during</b> production (called “roving” spot-checks), plus how many lines are running:</div>`;
   const secondary=`<div class="grid-4">${kpi(rovChk,'Spot-Checked','pieces during production','var(--blue)')}${kpi(rovDef,'Issues Caught','found early','var(--red)')}${kpi(dhuOf(rov)+'%','Spot-Check Rate','defect rate in spot-checks','var(--purple)')}${kpi(D.modules.length,'Production Lines','active right now','var(--accent2)')}</div>`;
+  // ---- insight KPIs: best/worst line, busiest line, top problem (End Line, ranged) ----
+  const _bl={};el.forEach(i=>{const m=i.module||'—';if(!_bl[m])_bl[m]={c:0,d:0};_bl[m].c+=parseInt(i.checkedQty)||0;_bl[m].d+=parseInt(i.defectQty)||0;});
+  const _ls=Object.entries(_bl).filter(([,g])=>g.c>0).map(([m,g])=>({m,chk:g.c,dhu:(g.d/g.c)*100}));
+  const busiest=_ls.slice().sort((a,b)=>b.chk-a.chk)[0];
+  const bestLine=_ls.slice().sort((a,b)=>a.dhu-b.dhu)[0];
+  const worstLine=_ls.slice().sort((a,b)=>b.dhu-a.dhu)[0];
+  const topProblem=(()=>{const dm={};el.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||0);});const t=Object.entries(dm).sort((a,b)=>b[1]-a[1])[0];return t?{n:t[0],c:t[1]}:null;})();
+  const insightKpi=(v,l,sub,c)=>`<div class="card card-sm"><div class="metric-label" style="margin:0">${l}</div><div style="font-size:17px;font-weight:700;color:${c};margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${v}</div><div style="font-size:10px;color:var(--text3)">${sub}</div></div>`;
+  const insights=noData?'':`<div class="grid-4">${insightKpi(busiest?busiest.m:'—','🏭 Busiest Line',busiest?busiest.chk.toLocaleString()+' pcs checked':'','var(--accent2)')}${insightKpi(bestLine?bestLine.m:'—','🏆 Best Quality Line',bestLine?bestLine.dhu.toFixed(1)+'% defect rate':'','var(--green)')}${insightKpi(worstLine?worstLine.m:'—','⚠️ Needs Attention',worstLine?worstLine.dhu.toFixed(1)+'% defect rate':'','var(--red)')}${insightKpi(topProblem?topProblem.n:'—','🔧 Top Problem',topProblem?topProblem.c+' defects found':'no defects','var(--yellow)')}</div>`;
+  // ---- 3rd Party Quality Checking summary + internal-vs-independent compare KPI ----
+  const tpBlock=tpCompareBlock((D.thirdPartyAudits||[]).filter(inRange),dhu,'End Line (Own QC)');
 
   // ---- chart card with plain title + a "what am I looking at" subtitle ----
   const chCard=(title,desc,id,emptyMsg,h)=>`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">${title}</div><div style="font-size:11px;color:var(--text2)">${desc}</div></div><div class="chart-wrap"${h?` style="height:${h}px"`:''}>${noData?`<div style="text-align:center;padding:60px 0;color:var(--text3)">${emptyMsg||'No data for '+rangeLabel.toLowerCase()}</div>`:`<canvas id="${id}"></canvas>`}</div></div>`;
 
+  // ---- "Output by Line" horizontal-bar panel (volume bar + defect-rate %) ----
+  const byLine={};el.forEach(i=>{const m=i.module||'—';if(!byLine[m])byLine[m]={chk:0,def:0};byLine[m].chk+=parseInt(i.checkedQty)||0;byLine[m].def+=parseInt(i.defectQty)||0;});
+  const lineArr=Object.entries(byLine).sort((a,b)=>b[1].chk-a[1].chk);
+  const maxChk=Math.max(1,...lineArr.map(([_,g])=>g.chk));
+  const lineBars=`<div class="card"><div style="margin-bottom:12px"><div style="font-size:14px;font-weight:700">Output by Line</div><div style="font-size:11px;color:var(--text2)">Pieces checked per line ${rangeWord} — bar = volume, % = defect rate</div></div>${lineArr.length===0?'<div style="text-align:center;padding:34px;color:var(--text3)">No data for '+rangeLabel.toLowerCase()+'</div>':lineArr.map(([m,g])=>{const d=g.chk?((g.def/g.chk)*100).toFixed(1):'0.0';const col=d>5?'var(--red)':d>3?'var(--yellow)':'var(--green)';return `<div style="margin-bottom:13px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span style="font-weight:600">${m}</span><span style="font-family:var(--mono);color:var(--text2)">${g.chk} pcs · <span style="color:${col};font-weight:700">${d}%</span></span></div><div style="height:8px;background:var(--bg3);border-radius:6px;overflow:hidden"><div style="height:100%;width:${(g.chk/maxChk*100).toFixed(0)}%;background:${col};border-radius:6px;transition:width .5s"></div></div></div>`;}).join('')}</div>`;
+  // ---- donut with a center total, like the reference ----
+  const donutCard=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Where Checks Happened</div><div style="font-size:11px;color:var(--text2)">Final end-of-line checks vs spot-checks during production</div></div><div class="chart-wrap" style="position:relative">${noData?'<div style="text-align:center;padding:60px 0;color:var(--text3)">No data</div>':`<canvas id="chType"></canvas><div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none"><div style="font-size:24px;font-weight:800;color:var(--text)">${el.length+rov.length}</div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">checks</div></div>`}</div></div>`;
+  const latest=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Latest Checks</div><div style="font-size:11px;color:var(--text2)">The most recent inspections sent in from the floor</div></div>${noData?'<div style="text-align:center;padding:32px;color:var(--text3)">No data for '+rangeLabel.toLowerCase()+'</div>':`<div class="table-wrap"><table><thead><tr><th>Check Type</th><th>Line</th><th>Defects</th><th>When</th></tr></thead><tbody>${recent.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type==='endline'?'End line':i.type==='inline'?'Spot-check':(i.type||'')}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
   const charts=`<div class="grid-2">${chCard(range==='today'?'Pieces Checked by Hour':'Pieces Checked by Day','How busy the lines were — taller bars mean more garments inspected','ch1')}${chCard('Defect Rate Over Time','Each point is the defect rate. Keep the green line below the red target line (2.5%)','chDhu')}</div>
   <div class="grid-2">${chCard('Most Common Problems','Which types of defect happen most often — focus fixes on the biggest slices','ch2','No defects 🎉')}${chCard('Defect Rate by Line','Which production line has the most defects — <b style="color:var(--red)">red</b> needs attention, <b style="color:var(--green)">green</b> is healthy','chMod')}</div>
-  <div class="grid-2">${chCard('Where Checks Happened','Final end-of-line checks vs spot-checks during production','chType')}<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Latest Checks</div><div style="font-size:11px;color:var(--text2)">The most recent inspections sent in from the floor</div></div>${noData?'<div style="text-align:center;padding:32px;color:var(--text3)">No data for '+rangeLabel.toLowerCase()+'</div>':`<div class="table-wrap"><table><thead><tr><th>Check Type</th><th>Line</th><th>Defects</th><th>When</th></tr></thead><tbody>${recent.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type==='endline'?'End line':i.type==='inline'?'Spot-check':(i.type||'')}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div></div>`;
+  <div class="grid-2">${donutCard}${lineBars}</div>`;
 
   // ---- alerts + a plain-language glossary for first-time viewers ----
   const alerts=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Things to Look At</div><div style="font-size:11px;color:var(--text2)">Automatic warnings raised when something looks off</div></div>${D.alerts.slice(-4).reverse().map(a=>`<div class="alert-card alert-${a.level||'medium'}">${ic('warning',14)}<div style="flex:1"><div style="font-size:13px;font-weight:500">${a.title||''}</div><div style="font-size:11px;color:var(--text3)">${ta(a.createdAt)}</div></div></div>`).join('')||'<div style="color:var(--text3);padding:16px;text-align:center">Nothing needs attention 👍</div>'}</div>`;
   const term=(t,d)=>`<div style="padding:10px 0;border-bottom:1px solid var(--border)"><div style="font-weight:700;font-size:13px;color:var(--text)">${t}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">${d}</div></div>`;
   const glossary=`<div class="card"><div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">📖 New here? What these words mean</div><div class="grid-2" style="gap:0 28px">${term('Pieces Checked (End Line)','Finished garments inspected at the end of the production line — the final quality gate before packing.')}${term('Spot-Check (Roving)','Random checks done while garments are still being made, to catch problems early.')}${term('Defect Rate (DHU)','Out of every 100 pieces checked, how many had a defect. Lower is better. The goal is under 2.5%.')}${term('Line / Module','One production line — a team and its machines making a style of garment.')}${term('Passed / Good','Pieces inspected with zero defects found.')}${term('Had Defects','Pieces that needed rework before they could pass.')}</div></div>`;
 
-  return`<div style="display:flex;flex-direction:column;gap:20px">${toolbar}${approvalsStrip}${hero}${primary}${secHead}${secondary}${charts}${alerts}${glossary}</div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px">${toolbar}${approvalsStrip}${hero}${primary}${insights}${secHead}${secondary}${tpBlock}${charts}<div class="grid-2">${latest}${alerts}</div>${glossary}</div>`;
 }
+
+// ======================== DEFECT ANALYTICS (Power BI–style) ========================
+// A slicer/filter-bar analytical view modelled on the factory's Power BI report:
+// top filter bar + Top-N toggle + Top Defects / Top Defective Operations bars +
+// defect-category table + weekly & daily defect-% trend lines.
+function pgAnalytics(){
+  const f=D.pbi||(D.pbi={from:'',to:'',line:'__all',buyer:'__all',style:'__all',operation:'__all',cat:'__all',defect:'__all',topN:15});
+  if(!f.topN)f.topN=15;
+  const styleBuyer={};(D.styles||[]).forEach(s=>{if(s.name)styleBuyer[s.name]=s.buyer||'';if(s.styleId)styleBuyer[s.styleId]=s.buyer||'';});
+  const enrich=i=>{const code=elResolveCode(i.defectType);return {...i,_cat:i.defectType?elCategory(code,i.defectType):'',_buyer:styleBuyer[i.style]||styleBuyer[i.styleId]||'',_date:(i.date||(i.createdAt||'').split('T')[0])||''};};
+  const all=allInspections().map(enrich);
+  const uniq=k=>[...new Set(all.map(x=>x[k]).filter(Boolean))].sort();
+  const lines=uniq('module'),styles=uniq('style'),ops=uniq('operation'),buyers=uniq('_buyer'),defects=uniq('defectType');
+  const F=all.filter(i=>{
+    if(f.from&&i._date<f.from)return false;
+    if(f.to&&i._date>f.to)return false;
+    if(f.line!=='__all'&&i.module!==f.line)return false;
+    if(f.buyer!=='__all'&&i._buyer!==f.buyer)return false;
+    if(f.style!=='__all'&&i.style!==f.style)return false;
+    if(f.operation!=='__all'&&i.operation!==f.operation)return false;
+    if(f.cat!=='__all'&&i._cat!==f.cat)return false;
+    if(f.defect!=='__all'&&i.defectType!==f.defect)return false;
+    return true;
+  });
+  const insp=F.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const defTot=F.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const defPct=insp?(defTot/insp)*100:0;
+  const byDef={};F.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)byDef[i.defectType]=(byDef[i.defectType]||0)+(parseInt(i.defectQty)||0);});
+  const topDef=Object.entries(byDef).sort((a,b)=>b[1]-a[1]).slice(0,f.topN);
+  const byOp={};F.forEach(i=>{if(i.operation&&parseInt(i.defectQty)>0)byOp[i.operation]=(byOp[i.operation]||0)+(parseInt(i.defectQty)||0);});
+  const topOp=Object.entries(byOp).sort((a,b)=>b[1]-a[1]).slice(0,f.topN);
+  const byCat={};EL_CAT_ORDER.forEach(c=>byCat[c]=0);F.forEach(i=>{const dq=parseInt(i.defectQty)||0;if(dq>0&&i._cat)byCat[i._cat]=(byCat[i._cat]||0)+dq;});
+  const byDay={};F.forEach(i=>{const d=i._date;if(!d)return;if(!byDay[d])byDay[d]={c:0,df:0};byDay[d].c+=parseInt(i.checkedQty)||0;byDay[d].df+=parseInt(i.defectQty)||0;});
+  const dayKeys=Object.keys(byDay).sort();
+  const daily=dayKeys.map(d=>({d,pct:byDay[d].c?(byDay[d].df/byDay[d].c)*100:0}));
+  const byWk={};dayKeys.forEach(d=>{const dt=new Date(d+'T00:00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);const wk=dt.toISOString().split('T')[0];if(!byWk[wk])byWk[wk]={c:0,df:0};byWk[wk].c+=byDay[d].c;byWk[wk].df+=byDay[d].df;});
+  const wkKeys=Object.keys(byWk).sort();
+  const weekly=wkKeys.map(w=>({d:w,pct:byWk[w].c?(byWk[w].df/byWk[w].c)*100:0}));
+  D._pbi={topDef,topOp,insp,daily,weekly};
+
+  const noData=F.length===0;
+  // --- filter bar ---
+  const slicer=(label,key,opts,cur)=>`<div style="min-width:0"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><select class="form-input" style="padding:7px 9px;font-size:12px" onchange="setPbi('${key}',this.value)"><option value="__all" ${cur==='__all'?'selected':''}>All</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+  const dateBox=(label,key,cur)=>`<div><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><input type="date" class="form-input" style="padding:7px 9px;font-size:12px" value="${cur||''}" onchange="setPbi('${key}',this.value)"></div>`;
+  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><button class="btn btn-ghost btn-sm" onclick="resetPbi()">${ic('refresh',12)} Reset all</button></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateBox('Date from','from',f.from)}${dateBox('Date to','to',f.to)}${slicer('Section / Line','line',lines,f.line)}${slicer('Buyer','buyer',buyers,f.buyer)}${slicer('Style','style',styles,f.style)}${slicer('Operation','operation',ops,f.operation)}${slicer('Defect Category','cat',EL_CAT_ORDER,f.cat)}${slicer('Defect Name','defect',defects,f.defect)}</div></div>`;
+  // --- top N toggle ---
+  const topTog=[3,5,10,15].map(n=>`<button class="btn btn-sm ${f.topN===n?'btn-primary':'btn-ghost'}" style="border:none" onclick="setPbiTopN(${n})">Top ${n}</button>`).join('');
+  // --- KPI strip ---
+  const kpiC=(v,l,c)=>`<div class="card card-sm" style="text-align:center"><div class="metric-val" style="color:${c};font-size:26px">${v}</div><div class="metric-label">${l}</div></div>`;
+  const kpis=`<div class="grid-4">${kpiC(insp.toLocaleString(),'Inspected Qty','var(--accent2)')}${kpiC(defTot.toLocaleString(),'Total Defects','var(--red)')}${kpiC(defPct.toFixed(2)+'%','Overall Defect %',defPct>2.5?'var(--red)':'var(--green)')}${kpiC(F.length.toLocaleString(),'Records','var(--purple)')}</div>`;
+  // --- 3rd Party compare, scoped to the same date/line/style filters selected above ---
+  const tpF=(D.thirdPartyAudits||[]).filter(r=>{
+    if(f.from&&r.date<f.from)return false;
+    if(f.to&&r.date>f.to)return false;
+    if(f.line!=='__all'&&r.module!==f.line)return false;
+    if(f.style!=='__all'&&r.style!==f.style)return false;
+    return true;
+  });
+  const tpBlock=tpCompareBlock(tpF,defPct,'Internal (this filtered view)');
+  // --- Combined "everything in one view" chart: End Line Output/Defects + 3rd Party
+  // Offer/Pass/Reject, all 5 lines on one graph, all driven by the SAME filters above.
+  const elF=F.filter(i=>i.type==='endline');
+  const elByDay={};elF.forEach(i=>{const d=i._date;if(!d)return;if(!elByDay[d])elByDay[d]={c:0,df:0};elByDay[d].c+=parseInt(i.checkedQty)||0;elByDay[d].df+=parseInt(i.defectQty)||0;});
+  const tpByDay={};tpF.forEach(r=>{const d=r.date;if(!d)return;if(!tpByDay[d])tpByDay[d]={offer:0,pass:0,rej:0};tpByDay[d].offer+=parseInt(r.offerPcs)||0;tpByDay[d].pass+=parseInt(r.passPcs)||0;tpByDay[d].rej+=parseInt(r.totalDefectQty)||0;});
+  const comboDays=[...new Set([...Object.keys(elByDay),...Object.keys(tpByDay)])].sort();
+  D._combo={days:comboDays,
+    elOut:comboDays.map(d=>elByDay[d]?.c||0),
+    elDef:comboDays.map(d=>elByDay[d]?.df||0),
+    tpOffer:comboDays.map(d=>tpByDay[d]?.offer||0),
+    tpPass:comboDays.map(d=>tpByDay[d]?.pass||0),
+    tpRej:comboDays.map(d=>tpByDay[d]?.rej||0)};
+  const comboCard=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:15px;font-weight:800">📈 End Line vs 3rd Party — Everything in One View</div><div style="font-size:11px;color:var(--text2)">End Line Output &amp; Defects, plus 3rd Party Offer / Pass / Reject — all 5 lines update together as you change the filters above</div></div><div class="chart-wrap" style="height:320px">${comboDays.length===0?'<div style="text-align:center;padding:110px 0;color:var(--text3)">No data for the current filters</div>':'<canvas id="chCombo"></canvas>'}</div></div>`;
+  // --- defect-category table ---
+  const catTot=Object.values(byCat).reduce((a,v)=>a+v,0);
+  const catRows=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<tr><td style="font-weight:500">${c}</td><td style="font-family:var(--mono);text-align:right">${n.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right;color:var(--text2)">${insp?((n/insp)*100).toFixed(2):'0.00'}%</td></tr>`).join('');
+  const catTable=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">Defects by Category</div><div class="table-wrap"><table><thead><tr><th>Defect</th><th style="text-align:right">No of Defects</th><th style="text-align:right">Defect %</th></tr></thead><tbody>${catRows||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}<tr style="background:var(--bg3);font-weight:700"><td>Total</td><td style="font-family:var(--mono);text-align:right">${defTot.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right">${defPct.toFixed(2)}%</td></tr></tbody></table></div></div>`;
+  // --- chart cards ---
+  const cc=(title,id,h)=>`<div class="card"><div style="font-size:14px;font-weight:700;margin-bottom:8px">${title}</div><div class="chart-wrap" style="height:${h||260}px">${noData?'<div style="text-align:center;padding:70px 0;color:var(--text3)">No data for the current filters</div>':`<canvas id="${id}"></canvas>`}</div></div>`;
+
+  return`<div style="display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div style="font-size:20px;font-weight:800">Defect Analytics</div><div style="font-size:12px;color:var(--text2)">Power BI–style view — slice by line, buyer, style, operation, defect. All charts update together.</div></div><div style="display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${topTog}</div></div>
+    ${filterBar}
+    ${comboCard}
+    ${kpis}
+    <div class="grid-2">${cc('Top Defects','chTopDef')}${cc('Top Defective Operations','chTopOp')}</div>
+    <div class="grid-2">${cc('Weekly Defect Trend','chWk',240)}${cc('Daily Defect Trend','chDy',240)}</div>
+    ${catTable}
+    ${tpBlock}
+  </div>`;
+}
+
+// ======================== OPERATOR ANALYSIS (Power BI–style) ========================
+// Same filter bar / slicers as Defect Analytics, but ranks OPERATORS: who has the most
+// defects and the highest defect rate, plus a full operator-wise table.
+function pgOperatorAnalysis(){
+  const f=D.pbi||(D.pbi={from:'',to:'',line:'__all',buyer:'__all',style:'__all',operation:'__all',operator:'__all',cat:'__all',defect:'__all',topN:15});
+  if(!f.topN)f.topN=15;
+  const styleBuyer={};(D.styles||[]).forEach(s=>{if(s.name)styleBuyer[s.name]=s.buyer||'';if(s.styleId)styleBuyer[s.styleId]=s.buyer||'';});
+  const enrich=i=>{const code=elResolveCode(i.defectType);return {...i,_cat:i.defectType?elCategory(code,i.defectType):'',_buyer:styleBuyer[i.style]||styleBuyer[i.styleId]||'',_date:(i.date||(i.createdAt||'').split('T')[0])||''};};
+  const all=allInspections().map(enrich);
+  const uniq=k=>[...new Set(all.map(x=>x[k]).filter(Boolean))].sort();
+  const lines=uniq('module'),styles=uniq('style'),ops=uniq('operation'),buyers=uniq('_buyer'),defects=uniq('defectType'),operators=uniq('operatorId');
+  const F=all.filter(i=>{
+    if(f.from&&i._date<f.from)return false;
+    if(f.to&&i._date>f.to)return false;
+    if(f.line!=='__all'&&i.module!==f.line)return false;
+    if(f.buyer!=='__all'&&i._buyer!==f.buyer)return false;
+    if(f.style!=='__all'&&i.style!==f.style)return false;
+    if(f.operation!=='__all'&&i.operation!==f.operation)return false;
+    if(f.operator&&f.operator!=='__all'&&i.operatorId!==f.operator)return false;
+    if(f.cat!=='__all'&&i._cat!==f.cat)return false;
+    if(f.defect!=='__all'&&i.defectType!==f.defect)return false;
+    return true;
+  });
+  const insp=F.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const defTot=F.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  const defPct=insp?(defTot/insp)*100:0;
+  const byOpr={};F.forEach(i=>{const o=i.operatorId;if(!o)return;if(!byOpr[o])byOpr[o]={chk:0,def:0,operation:i.operation||'',lines:{}};byOpr[o].chk+=parseInt(i.checkedQty)||0;byOpr[o].def+=parseInt(i.defectQty)||0;if(i.module)byOpr[o].lines[i.module]=(byOpr[o].lines[i.module]||0)+(parseInt(i.checkedQty)||0)+1;});
+  const domLine=ls=>{const e=Object.entries(ls||{}).sort((a,b)=>b[1]-a[1])[0];return e?e[0]:'—';};
+  const oprArr=Object.entries(byOpr).map(([o,g])=>({o,operation:g.operation,line:domLine(g.lines),chk:g.chk,def:g.def,dhu:g.chk?(g.def/g.chk)*100:0}));
+  const topByDef=oprArr.slice().sort((a,b)=>b.def-a.def).slice(0,f.topN);
+  const topByDhu=oprArr.filter(x=>x.chk>=20).sort((a,b)=>b.dhu-a.dhu).slice(0,f.topN);
+  const topGood=oprArr.filter(x=>x.chk>=20).sort((a,b)=>a.dhu-b.dhu).slice(0,f.topN);
+  D._opa={topByDef,topByDhu,topGood,insp};
+  const worst=topByDhu[0];
+  const noData=F.length===0||oprArr.length===0;
+
+  const slicer=(label,key,opts,cur)=>`<div style="min-width:0"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><select class="form-input" style="padding:7px 9px;font-size:12px" onchange="setPbi('${key}',this.value)"><option value="__all" ${cur==='__all'||!cur?'selected':''}>All</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+  const dateBox=(label,key,cur)=>`<div><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><input type="date" class="form-input" style="padding:7px 9px;font-size:12px" value="${cur||''}" onchange="setPbi('${key}',this.value)"></div>`;
+  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><button class="btn btn-ghost btn-sm" onclick="resetPbi()">${ic('refresh',12)} Reset all</button></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateBox('Date from','from',f.from)}${dateBox('Date to','to',f.to)}${slicer('Section / Line','line',lines,f.line)}${slicer('Buyer','buyer',buyers,f.buyer)}${slicer('Style','style',styles,f.style)}${slicer('Operation','operation',ops,f.operation)}${slicer('Operator','operator',operators,f.operator||'__all')}${slicer('Defect Category','cat',EL_CAT_ORDER,f.cat)}${slicer('Defect Name','defect',defects,f.defect)}</div></div>`;
+  const topTog=[3,5,10,15].map(n=>`<button class="btn btn-sm ${f.topN===n?'btn-primary':'btn-ghost'}" style="border:none" onclick="setPbiTopN(${n})">Top ${n}</button>`).join('');
+  const kpiC=(v,l,c)=>`<div class="card card-sm" style="text-align:center"><div class="metric-val" style="color:${c};font-size:24px">${v}</div><div class="metric-label">${l}</div></div>`;
+  const kpis=`<div class="grid-4">${kpiC(oprArr.length.toLocaleString(),'Operators','var(--accent2)')}${kpiC(insp.toLocaleString(),'Inspected Qty','var(--accent)')}${kpiC(defTot.toLocaleString(),'Total Defects','var(--red)')}${kpiC(worst?worst.o:'—','Highest Defect % Operator',worst&&worst.dhu>5?'var(--red)':worst&&worst.dhu>3?'var(--yellow)':'var(--green)')}</div>`;
+  const cc=(title,desc,id)=>`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700">${title}</div><div style="font-size:11px;color:var(--text2)">${desc}</div></div><div class="chart-wrap" style="height:260px">${noData?'<div style="text-align:center;padding:70px 0;color:var(--text3)">No data for the current filters</div>':`<canvas id="${id}"></canvas>`}</div></div>`;
+  const tableRows=oprArr.slice().sort((a,b)=>b.dhu-a.dhu).map(x=>{const col=x.dhu>5?'var(--red)':x.dhu>3?'var(--yellow)':'var(--green)';return `<tr><td style="font-family:var(--mono);font-weight:600">${x.o}</td><td>${x.line||'—'}</td><td>${x.operation||'—'}</td><td style="font-family:var(--mono);text-align:right">${x.chk.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right;color:var(--red)">${x.def}</td><td style="font-family:var(--mono);text-align:right;color:${col};font-weight:700">${x.dhu.toFixed(1)}%</td></tr>`;}).join('');
+  const table=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">Operator-wise Defect Rate <span style="font-size:11px;color:var(--text3);font-weight:400">(worst first · red needs support)</span></div><div class="table-wrap" style="max-height:420px;overflow:auto"><table><thead><tr><th>Operator</th><th>Line</th><th>Operation</th><th style="text-align:right">Checked</th><th style="text-align:right">Defects</th><th style="text-align:right">Defect %</th></tr></thead><tbody>${tableRows||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No operator data for the current filters</td></tr>'}</tbody></table></div></div>`;
+
+  return`<div style="display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div style="font-size:20px;font-weight:800">Operator Analysis</div><div style="font-size:12px;color:var(--text2)">Same filters as Defect Analytics — find which operators need support. Filters are shared between both pages.</div></div><div style="display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${topTog}</div></div>
+    ${filterBar}
+    ${kpis}
+    <div class="grid-2">${cc('⚠️ Highest Defect % Operators','Worst defect % · min 20 pieces · Top '+f.topN+' (hover a bar for line)','chTopOprDhu')}${cc('🏆 Top Good Operators','Best defect % · min 20 pieces · Top '+f.topN+' (hover a bar for line)','chTopOprGood')}</div>
+    ${cc('Top Operators by Defects','Most defects by raw count · Top '+f.topN,'chTopOprDef')}
+    ${table}
+  </div>`;
+}
+
+// ======================== 3RD PARTY QUALITY CHECKING ========================
+// Optional post-End-Line audit stage, gated by the Settings switch (thirdPartyOn()).
+// Each worker submission is one "round" = {defects:[{type,part,partName,qty}], offerPcs,
+// checkedPcs, passPcs, defectPct, passPct, ...}. This page rolls those rounds up.
+function pgThirdParty(){
+  const tpOn=thirdPartyOn();
+  const offBanner=tpOn?'':`<div class="card" style="border-color:var(--red)"><div style="font-weight:700;color:var(--red)">⏸ 3rd Party Quality Checking is OFF</div><div style="font-size:12px;color:var(--text2);margin-top:4px">No new audits are being collected right now. Historical data below is still visible. <button class="btn btn-primary btn-sm" style="margin-left:8px" onclick="nav('settings')">Turn it ON in Settings →</button></div></div>`;
+
+  const all=D.thirdPartyAudits||[];
+  const fx=D.tpFilter||(D.tpFilter={from:'',to:'',module:'__all',style:'__all',checker:'__all'});
+  const uniq=k=>[...new Set(all.map(x=>x[k]).filter(Boolean))].sort();
+  const modules=uniq('module'),stylesL=uniq('style'),checkers=uniq('checkerName');
+  const F=all.filter(r=>{
+    if(fx.from&&r.date<fx.from)return false;
+    if(fx.to&&r.date>fx.to)return false;
+    if(fx.module!=='__all'&&r.module!==fx.module)return false;
+    if(fx.style!=='__all'&&r.style!==fx.style)return false;
+    if(fx.checker!=='__all'&&r.checkerName!==fx.checker)return false;
+    return true;
+  }).sort((a,b)=>(b.date+(b.time||'')).localeCompare(a.date+(a.time||'')));
+
+  const totChecked=F.reduce((a,r)=>a+(parseInt(r.checkedPcs)||0),0);
+  const totPass=F.reduce((a,r)=>a+(parseInt(r.passPcs)||0),0);
+  const totDef=F.reduce((a,r)=>a+(parseInt(r.totalDefectQty)||0),0);
+  const defPct=totChecked?(totDef/totChecked*100):0;
+  const passPct=totChecked?(totPass/totChecked*100):0;
+
+  const slicer=(label,key,opts,cur)=>`<div style="min-width:0"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><select class="form-input" style="padding:7px 9px;font-size:12px" onchange="setTpFilter('${key}',this.value)"><option value="__all" ${cur==='__all'?'selected':''}>All</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+  const dateBox=(label,key,cur)=>`<div><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><input type="date" class="form-input" style="padding:7px 9px;font-size:12px" value="${cur||''}" onchange="setTpFilter('${key}',this.value)"></div>`;
+  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="resetTpFilter()">${ic('refresh',12)} Reset</button><button class="btn btn-ghost btn-sm" onclick="tpExportExcel()">${ic('excel',12)} Excel</button><button class="btn btn-ghost btn-sm" onclick="tpExportPDF()">${ic('pdf',12)} PDF</button></div></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateBox('Date from','from',fx.from)}${dateBox('Date to','to',fx.to)}${slicer('Module / Line','module',modules,fx.module)}${slicer('Style','style',stylesL,fx.style)}${slicer('Checker','checker',checkers,fx.checker)}</div></div>`;
+
+  const kpiC=(v,l,c)=>`<div class="card card-sm" style="text-align:center"><div class="metric-val" style="color:${c};font-size:24px">${v}</div><div class="metric-label">${l}</div></div>`;
+  const kpis=`<div class="grid-4">${kpiC(totChecked.toLocaleString(),'Total Checked','var(--accent2)')}${kpiC(totDef.toLocaleString(),'Total Defects','var(--red)')}${kpiC(defPct.toFixed(2)+'%','Defect %',defPct>2.5?'var(--red)':'var(--green)')}${kpiC(passPct.toFixed(2)+'%','Pass %','var(--green)')}</div>`;
+
+  // Defects by part-code (which garment area fails most)
+  const byPart={};F.forEach(r=>(r.defects||[]).forEach(d=>{const k=d.part+' — '+(d.partName||tpPartName(d.part));byPart[k]=(byPart[k]||0)+(parseInt(d.qty)||0);}));
+  const partRows=Object.entries(byPart).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<tr><td style="font-weight:500">${k}</td><td style="font-family:var(--mono);text-align:right">${n}</td><td style="font-family:var(--mono);text-align:right;color:var(--text2)">${totDef?((n/totDef)*100).toFixed(1):'0.0'}%</td></tr>`).join('');
+  const partTable=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">Defects by Part / Operation Code</div><div class="table-wrap" style="max-height:340px;overflow:auto"><table><thead><tr><th>Part</th><th style="text-align:right">Defects</th><th style="text-align:right">%</th></tr></thead><tbody>${partRows||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:20px">No data</td></tr>'}</tbody></table></div></div>`;
+
+  // Defects by type (which defect happens most)
+  const byType={};F.forEach(r=>(r.defects||[]).forEach(d=>{byType[d.type]=(byType[d.type]||0)+(parseInt(d.qty)||0);}));
+  const typeRows=Object.entries(byType).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<tr><td style="font-weight:500">${k}</td><td style="font-family:var(--mono);text-align:right">${n}</td><td style="font-family:var(--mono);text-align:right;color:var(--text2)">${totDef?((n/totDef)*100).toFixed(1):'0.0'}%</td></tr>`).join('');
+  const typeTable=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">Defects by Type</div><div class="table-wrap" style="max-height:340px;overflow:auto"><table><thead><tr><th>Defect</th><th style="text-align:right">Count</th><th style="text-align:right">%</th></tr></thead><tbody>${typeRows||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:20px">No data</td></tr>'}</tbody></table></div></div>`;
+
+  // Records table — one row per submitted audit round
+  const recRows=F.map(r=>{const dp=parseInt(r.checkedPcs)?((parseInt(r.totalDefectQty)||0)/parseInt(r.checkedPcs)*100):0;const col=dp>5?'var(--red)':dp>3?'var(--yellow)':'var(--green)';return `<tr><td style="font-size:12px">${fd(r.date)} ${r.time||''}</td><td style="font-weight:500">${r.module||''}</td><td style="font-size:12px">${r.style||'—'}</td><td style="font-size:12px">${r.leaderName||'—'}</td><td style="font-size:12px">${r.checkerName||'—'}</td><td style="font-family:var(--mono);text-align:right">${r.offerPcs||0}</td><td style="font-family:var(--mono);text-align:right">${r.checkedPcs||0}</td><td style="font-family:var(--mono);text-align:right;color:var(--green)">${r.passPcs||0}</td><td style="font-family:var(--mono);text-align:right;color:var(--red)">${r.totalDefectQty||0}</td><td style="font-family:var(--mono);text-align:right;color:${col};font-weight:700">${dp.toFixed(1)}%</td></tr>`;}).join('');
+  const recTable=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">Audit Rounds (${F.length})</div><div class="table-wrap" style="max-height:460px;overflow:auto"><table><thead><tr><th>Date / Time</th><th>Module</th><th>Style</th><th>Leader</th><th>Checker</th><th style="text-align:right">Offer</th><th style="text-align:right">Checked</th><th style="text-align:right">Pass</th><th style="text-align:right">Defects</th><th style="text-align:right">Defect %</th></tr></thead><tbody>${recRows||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">No 3rd party audits recorded yet</td></tr>'}</tbody></table></div></div>`;
+
+  D._tpExport=F;
+  return`<div style="display:flex;flex-direction:column;gap:16px">
+    <div><div style="font-size:20px;font-weight:800">3rd Party Quality Checking</div><div style="font-size:12px;color:var(--text2)">The independent audit stage after End Line — modelled on the paper Hourly Audit Report.</div></div>
+    ${offBanner}
+    ${filterBar}
+    ${kpis}
+    <div class="grid-2">${partTable}${typeTable}</div>
+    ${recTable}
+  </div>`;
+}
+window.setTpFilter=function(k,v){D.tpFilter=D.tpFilter||{};D.tpFilter[k]=v;render();};
+window.resetTpFilter=function(){D.tpFilter={from:'',to:'',module:'__all',style:'__all',checker:'__all'};render();};
+window.tpExportExcel=function(){
+  const F=D._tpExport||[];
+  const aoa=[['Date','Time','Module','Style','Leader','Checker','Offer Pcs','Checked Pcs','Pass Pcs','Defects','Defect %','Pass %']];
+  F.forEach(r=>aoa.push([r.date||'',r.time||'',r.module||'',r.style||'',r.leaderName||'',r.checkerName||'',r.offerPcs||0,r.checkedPcs||0,r.passPcs||0,r.totalDefectQty||0,(r.defectPct||0)+'%',(r.passPct||0)+'%']));
+  aoa.push([]);aoa.push(['DEFECT DETAIL']);aoa.push(['Date','Module','Defect Type','Part','Qty']);
+  F.forEach(r=>(r.defects||[]).forEach(d=>aoa.push([r.date||'',r.module||'',d.type||'',d.part+' — '+(d.partName||''),d.qty||0])));
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'3rd Party Audit');
+  XLSX.writeFile(wb,`3rd_Party_Audit_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('Excel downloaded');
+};
+window.tpExportPDF=function(){
+  const F=D._tpExport||[];
+  const rows=F.map(r=>[fd(r.date),r.time||'',r.module||'',r.style||'',r.leaderName||'',r.checkerName||'',r.offerPcs||0,r.checkedPcs||0,r.passPcs||0,r.totalDefectQty||0,(r.defectPct||0).toFixed(1)+'%']);
+  makePDF('3rd Party Quality Checking',['Date','Time','Module','Style','Leader','Checker','Offer','Checked','Pass','Defects','Defect%'],rows);
+};
 
 // ======================== MODULES ========================
 // Real, live DHU for a module — returns separate End Line and Roving metrics.
@@ -2536,7 +2833,7 @@ function pgAlerts(){return`<div style="display:flex;flex-direction:column;gap:20
 function pgInsp(){
   let ins=allInspections().sort((a,b)=>((b.createdAt||b.date||'')+'').localeCompare((a.createdAt||a.date||'')+''));const q=D.sq.toLowerCase();
   if(q)ins=ins.filter(i=>(i.type||'').includes(q)||(i.module||'').toLowerCase().includes(q)||(i.inspector||'').toLowerCase().includes(q)||(i.operatorId||'').toLowerCase().includes(q));
-  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='endline'?'purple':i.type==='roving'?'green':'blue'}">${i.type==='roving'?'Roving':i.type==='endline'?'End Line':i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td title="Sheet: ${sheetIdFor(i.type==='roving'?'roving':'endline',i.module,i.shift,i.date||(i.createdAt||'').split('T')[0])}">${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono)">${c}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'}">${v}%</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('${i.type==='roving'?'rovingInspections':'inspections'}','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><input class="search-input" placeholder="Search module, operator, inspector..." value="${D.sq||''}" oninput="onSearch(this.value)"><div style="display:flex;gap:8px"><span class="fb">🔥 ${ins.length}</span><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('excel')">${ic('download',14)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptAllInsp('pdf')">${ic('pdf',14)} PDF</button></div></div><div class="card" style="padding:0;overflow:hidden">${ins.length===0?'<div style="padding:48px;text-align:center;color:var(--text3)">No data</div>':`<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Module</th><th>Operator</th><th>Operation</th><th>Checked</th><th>Defects</th><th>DHU</th><th>Inspector</th><th></th></tr></thead><tbody>${ins.map(i=>{const c=parseInt(i.checkedQty)||0,d=parseInt(i.defectQty)||0,v=c?((d/c)*100).toFixed(1):'0';return`<tr><td><span class="badge badge-${i.type==='endline'?'purple':i.type==='roving'?'green':'blue'}">${i.type==='roving'?'Roving':i.type==='endline'?'End Line':i.type||''}</span></td><td style="font-size:12px">${fd(i.createdAt||i.date)}</td><td title="Sheet: ${sheetIdFor(i.type==='roving'?'roving':'endline',i.module,i.shift,i.date||(i.createdAt||'').split('T')[0])}">${i.module||''}</td><td style="font-family:var(--mono);font-size:12px">${i.operatorId||''}</td><td style="font-size:12px">${i.operation||''}</td><td style="font-family:var(--mono);color:${c?'var(--text)':'var(--text3)'}">${c||'—'}</td><td style="font-family:var(--mono);color:${d>0?'var(--red)':'var(--green)'}">${d}</td><td style="font-family:var(--mono);color:${c?(v>5?'var(--red)':v>3?'var(--yellow)':'var(--green)'):'var(--text3)'}">${c?v+'%':'—'}</td><td style="font-size:12px">${i.inspector||''}</td><td><button class="btn-icon" style="color:var(--red)" onclick="del('${i.type==='roving'?'rovingInspections':'inspections'}','${i.fbKey}')">${ic('trash',14)}</button></td></tr>`;}).join('')}</tbody></table></div>`}</div></div>`;
 }
 
 // Count of everything awaiting an admin decision — drives the sidebar badge.
@@ -3393,6 +3690,7 @@ function pgSettings(){
   const rs=rotationState();
   const slot=wkClockSlot();
   const autoOn=(D.rotation?.autoRotate!==false);
+  const tpOn=thirdPartyOn();
   const nextStr=rs.nextRotation?rs.nextRotation.toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'})+' 02:00':'—';
   return`<div style="max-width:680px;display:flex;flex-direction:column;gap:16px">
   <div class="card"><div class="card-header"><span class="card-title">Profile</span></div>
@@ -3443,6 +3741,16 @@ function pgSettings(){
       <button class="btn btn-primary" onclick="saveFactoryName()">Save</button>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-top:8px">Current on reports: <b>${factoryName()}</b></div>
+  </div>
+
+  <div class="card" style="border-color:${tpOn?'var(--accent)':'var(--border)'}">
+    <div class="card-header"><span class="card-title">🧪 3rd Party Quality Checking</span>
+      <span style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:${tpOn?'rgba(14,169,143,.14)':'var(--bg3)'};color:${tpOn?'var(--accent)':'var(--text3)'}">${tpOn?'ON':'OFF'}</span>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px;background:var(--bg3);border-radius:8px">
+      An optional extra quality stage that happens <b>after End Line</b> — a 3rd-party inspector re-checks the garments. When this is <b>ON</b>, the app collects 3rd-party check data and shows it in the dashboard &amp; reports. When <b>OFF</b>, it is hidden everywhere and no 3rd-party data is collected. ${tpOn&&D.thirdParty?.updatedBy?`<br><span style="color:var(--text3)">Turned on by ${D.thirdParty.updatedBy} · ${ft(D.thirdParty.updatedAt)}</span>`:''}
+    </div>
+    <button class="btn ${tpOn?'btn-ghost':'btn-primary'}" onclick="toggleThirdParty()">${tpOn?'⏹ Turn OFF 3rd Party Checking':'▶ Turn ON 3rd Party Checking'}</button>
   </div>
 
   <div class="card" style="border-color:rgba(255,80,80,.3)">
@@ -3512,9 +3820,9 @@ function renderModal(){
   }else if(m==='addAlert'){
     title='Create Alert';body=`<form id="mf"><div class="form-group"><label class="form-label">Title</label><input class="form-input" name="title" required></div><div class="form-group"><label class="form-label">Message</label><textarea class="form-input" name="message" rows="3" required></textarea></div><div class="form-row"><div class="form-group"><label class="form-label">Level</label><select class="form-input" name="level"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div><div class="form-group"><label class="form-label">Module</label><input class="form-input" name="module"></div></div><button class="btn btn-primary" type="button" onclick="sub('addAlert')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Create</button></form>`;
   }else if(m==='addUser'){
-    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@garmentfix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Team</label><select class="form-input" name="shift"><option value="">— Select Team —</option><option>A</option><option>B</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
+    title='Add User';body=`<form id="mf"><div style="font-size:12px;color:var(--accent);margin-bottom:16px;padding:10px;background:rgba(0,212,168,.05);border-radius:8px;border:1px solid rgba(0,212,168,.2)">💡 Username & password are stored in database. Users login with these credentials directly — no email verification needed.</div><div class="form-row"><div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" name="name" required placeholder="John Smith"></div><div class="form-group"><label class="form-label">Username *</label><input class="form-input" name="username" required placeholder="john"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password *</label><input class="form-input" name="password" required placeholder="password123"></div><div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" name="email" placeholder="john@garmentfix.com"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="add-role-sel" onchange="toggleLineField('add')"><option>Admin</option><option>Manager</option><option>Supervisor</option><option>QC End Line Inspector</option><option>QC Roving Inspector</option><option>QC 3rd Party Auditor</option></select></div><div class="form-group"><label class="form-label">Dept</label><select class="form-input" name="dept"><option>Quality</option><option>Production</option><option>Management</option></select></div></div><div class="form-group" id="add-line-group" style="display:none"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}">${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="add-shift-group" style="display:none"><label class="form-label">Team</label><select class="form-input" name="shift"><option value="">— Select Team —</option><option>A</option><option>B</option></select></div><button class="btn btn-primary" type="button" onclick="sub('addUser')" style="width:100%;justify-content:center;padding:12px">${ic('plus',14)} Add User</button></form>`;
   }else if(m==='editUser'){
-    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${(['Admin','Manager','Supervisor','QC End Line Inspector','QC Roving Inspector'].concat(d?.role==='Line Head'?['Line Head']:[])).map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Team</label><select class="form-input" name="shift"><option value="">— Select Team —</option>${['A','B'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
+    title='Edit User';body=`<form id="mf"><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input class="form-input" name="name" value="${d?.name||''}"></div><div class="form-group"><label class="form-label">Username</label><input class="form-input" name="username" value="${d?.username||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Password</label><input class="form-input" name="password" value="${d?.password||''}"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" name="email" value="${d?.email||''}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Role</label><select class="form-input" name="role" id="edit-role-sel" onchange="toggleLineField('edit')">${(['Admin','Manager','Supervisor','QC End Line Inspector','QC Roving Inspector','QC 3rd Party Auditor'].concat(d?.role==='Line Head'?['Line Head']:[])).map(r=>`<option ${d?.role===r?'selected':''}>${r}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-input" name="status"><option ${d?.status==='Active'?'selected':''}>Active</option><option ${d?.status==='Inactive'?'selected':''}>Inactive</option></select></div></div><div class="form-group" id="edit-line-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Line / Module Assigned</label><select class="form-input" name="assignedLine"><option value="">— Select Module —</option>${D.modules.map(m=>`<option value="${m.name}" ${d?.assignedLine===m.name?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}</select></div><div class="form-group" id="edit-shift-group" style="display:${SHIFT_MODULE_ROLES.includes(d?.role)?'block':'none'}"><label class="form-label">Team</label><select class="form-input" name="shift"><option value="">— Select Team —</option>${['A','B'].map(s=>`<option ${d?.shift===s?'selected':''}>${s}</option>`).join('')}</select></div><button class="btn btn-primary" type="button" onclick="sub('editUser')" style="width:100%;justify-content:center;padding:12px">${ic('check',14)} Save</button></form>`;
   }else{title='Info';body='<button class="btn btn-ghost" onclick="closeModal()">Close</button>';}
   return`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-header"><div class="modal-title">${title}</div><button class="btn-icon" onclick="closeModal()">${ic('x',18)}</button></div>${body}</div></div>`;
 }
@@ -3613,6 +3921,16 @@ function currentShift(){const st=rotationState();return wkClockSlot()==='morning
 // Factory name shown on official PDF/Excel report headers. Configurable per client in
 // Settings, so each factory's reports carry their own name. Defaults to the product brand.
 function factoryName(){return (D.factory&&D.factory.name)||'GarmentFix QMS';}
+// 3rd Party Quality Checking is an OPTIONAL extra stage after End Line. Everything
+// related to it (capture, nav, reports) is hidden unless this is switched ON in Settings.
+function thirdPartyOn(){return !!(D.thirdParty&&D.thirdParty.enabled);}
+window.toggleThirdParty=async function(){
+  const next=!thirdPartyOn();
+  if(next&&!confirm('Turn ON 3rd Party Quality Checking?\n\nThe app will start collecting and showing 3rd-party check data (the stage after End Line).'))return;
+  if(!next&&!confirm('Turn OFF 3rd Party Quality Checking?\n\nNo new 3rd-party data will be collected and it will be hidden from reports. Existing data is kept.'))return;
+  await window._set(window._ref(window._db,'settings/thirdParty'),{enabled:next,updatedBy:D.user?.username||'admin',updatedAt:new Date().toISOString()});
+  toast(next?'✅ 3rd Party Quality Checking is ON':'3rd Party Quality Checking turned OFF');
+};
 
 // A "sheet" = one module + record type (endline/roving) + shift + date — what one paper
 // sheet on the floor covers. Same deterministic ID algorithm as the worker app, so an ID
@@ -3851,6 +4169,61 @@ function bindSeed(){
 function renderCharts(){
   const ins=allInspections();const colors=['#e5484d','#e2a200','#3b7ff5','#7c5cff','#0ea98f','#ff8a3d'];
   const GRID='rgba(15,23,42,.07)',TICK='#5b6678';
+  // KPI sparklines (tiny axis-less area lines inside the top KPI cards)
+  const sp=window.D._spark||{};
+  const spark=(id,data,color)=>{const e=document.getElementById(id);if(!e||!data||!data.length)return;charts['s_'+id]=new Chart(e,{type:'line',data:{labels:data.map((_,i)=>i),datasets:[{data,borderColor:color,backgroundColor:color+'22',fill:true,tension:.4,pointRadius:0,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false,beginAtZero:true}}}});};
+  spark('spkChk',sp.sChk,'#0ea98f');spark('spkGood',sp.sGood,'#0a9d82');spark('spkDef',sp.sDef,'#e5484d');spark('spkDhu',sp.sDhu,'#2f72e6');
+  // Defect Analytics (Power BI–style) charts: green % bars + navy defect-% trend lines w/ 2.5% target
+  const pb=window.D._pbi;
+  if(pb){
+    const pinsp=pb.insp||1, pctOf=c=>+((c/pinsp)*100).toFixed(2), cut=n=>n.length>16?n.slice(0,16)+'…':n;
+    const pctTip={callbacks:{label:ctx=>ctx.parsed.y+'%'}};
+    const pctY={grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true};
+    const barO=rot=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:pctTip},scales:{y:pctY,x:{grid:{display:false},ticks:{color:TICK,font:{size:9},maxRotation:rot,minRotation:rot}}}});
+    const lineO={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:pctTip},scales:{y:pctY,x:{grid:{display:false},ticks:{color:TICK,font:{size:9}}}}};
+    const mkBar=(id,arr,color)=>{const e=document.getElementById(id);if(!e||!arr||!arr.length)return;charts['c_'+id]=new Chart(e,{type:'bar',data:{labels:arr.map(([n])=>cut(n)),datasets:[{data:arr.map(([,c])=>pctOf(c)),backgroundColor:color,borderRadius:3}]},options:barO(50)});};
+    const mkLine=(id,pts,short)=>{const e=document.getElementById(id);if(!e||!pts||!pts.length)return;charts['c_'+id]=new Chart(e,{type:'line',data:{labels:pts.map(p=>short?fd(p.d).slice(0,6):fd(p.d)),datasets:[{data:pts.map(p=>+p.pct.toFixed(2)),borderColor:'#283593',backgroundColor:'rgba(40,53,147,.08)',fill:true,tension:.3,pointRadius:short?2:3,pointBackgroundColor:'#283593'},{data:pts.map(()=>2.5),borderColor:'#e5484d',borderDash:[5,5],pointRadius:0,fill:false}]},options:lineO});};
+    mkBar('chTopDef',pb.topDef,'#2e7d32');
+    mkBar('chTopOp',pb.topOp,'#388e3c');
+    mkLine('chWk',pb.weekly,false);
+    mkLine('chDy',pb.daily,true);
+  }
+  // Combined 5-line chart: End Line Output/Defects + 3rd Party Offer/Pass/Reject.
+  // Pieces (Output/Offer/Pass) share the LEFT axis; Defects (End Line Def / 3rd Party
+  // Reject) share the RIGHT axis so small defect counts aren't flattened by big volumes.
+  const cb=window.D._combo;
+  if(cb&&cb.days&&cb.days.length){
+    const eCombo=document.getElementById('chCombo');
+    if(eCombo)charts.cCombo=new Chart(eCombo,{type:'line',data:{
+      labels:cb.days.map(d=>fd(d).slice(0,6)),
+      datasets:[
+        {label:'End Line Output',data:cb.elOut,borderColor:'#0ea98f',backgroundColor:'rgba(14,169,143,.08)',yAxisID:'y',tension:.3,pointRadius:2,fill:false},
+        {label:'End Line Defects',data:cb.elDef,borderColor:'#e5484d',backgroundColor:'rgba(229,72,77,.08)',yAxisID:'y1',tension:.3,pointRadius:2,fill:false},
+        {label:'3rd Party Offer',data:cb.tpOffer,borderColor:'#3b7ff5',backgroundColor:'rgba(59,127,245,.08)',yAxisID:'y',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]},
+        {label:'3rd Party Pass',data:cb.tpPass,borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,.08)',yAxisID:'y',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]},
+        {label:'3rd Party Reject',data:cb.tpRej,borderColor:'#e2a200',backgroundColor:'rgba(226,162,0,.08)',yAxisID:'y1',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]}
+      ]},options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'bottom',labels:{color:TICK,boxWidth:12,font:{size:10}}}},
+      scales:{
+        y:{position:'left',grid:{color:GRID},ticks:{color:TICK},title:{display:true,text:'Pieces',color:TICK,font:{size:10}},beginAtZero:true},
+        y1:{position:'right',grid:{display:false},ticks:{color:TICK},title:{display:true,text:'Defects',color:TICK,font:{size:10}},beginAtZero:true},
+        x:{grid:{display:false},ticks:{color:TICK,font:{size:9}}}
+      }}});
+  }
+  // Operator Analysis charts: top operators by defect count + by defect %
+  const op=window.D._opa;
+  if(op){
+    const catX={grid:{display:false},ticks:{color:TICK,font:{size:9},maxRotation:55,minRotation:55}};
+    const tip=(arr,pct)=>({callbacks:{label:ctx=>{const x=arr[ctx.dataIndex]||{};return ' '+ctx.parsed.y+(pct?'%':'')+(x.line&&x.line!=='—'?' · '+x.line:'')+(x.operation?' · '+x.operation:'');}}});
+    const ed=document.getElementById('chTopOprDef');
+    if(ed&&op.topByDef&&op.topByDef.length)charts.c_oprDef=new Chart(ed,{type:'bar',data:{labels:op.topByDef.map(x=>x.o),datasets:[{data:op.topByDef.map(x=>x.def),backgroundColor:'#e2a200',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topByDef,false)},scales:{y:{grid:{color:GRID},ticks:{color:TICK},beginAtZero:true},x:catX}}});
+    const eh=document.getElementById('chTopOprDhu');
+    if(eh&&op.topByDhu&&op.topByDhu.length)charts.c_oprDhu=new Chart(eh,{type:'bar',data:{labels:op.topByDhu.map(x=>x.o),datasets:[{data:op.topByDhu.map(x=>+x.dhu.toFixed(1)),backgroundColor:op.topByDhu.map(x=>x.dhu>5?'#e5484d':x.dhu>3?'#e2a200':'#0ea98f'),borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topByDhu,true)},scales:{y:{grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true},x:catX}}});
+    const eg=document.getElementById('chTopOprGood');
+    if(eg&&op.topGood&&op.topGood.length)charts.c_oprGood=new Chart(eg,{type:'bar',data:{labels:op.topGood.map(x=>x.o),datasets:[{data:op.topGood.map(x=>+x.dhu.toFixed(1)),backgroundColor:'#0a9d82',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topGood,true)},scales:{y:{grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true},x:catX}}});
+  }
   const chOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:GRID},ticks:{color:TICK,font:{size:11}}},x:{grid:{color:GRID},ticks:{color:TICK,font:{size:10}}}}};
   // Dashboard range filter (Today / This Week / All) — drives every dashboard chart.
   const _range=D.dashRange||'today';
@@ -3872,7 +4245,7 @@ function renderCharts(){
   if(eDhu){const dm={};delI.forEach(i=>{const key=_byDay?((i.time||'').slice(0,2)+'h'):_dOf(i);if(!dm[key])dm[key]={c:0,d:0};dm[key].c+=parseInt(i.checkedQty)||0;dm[key].d+=parseInt(i.defectQty)||0;});const s=Object.entries(dm).filter(([k])=>k&&k!=='h').sort((a,b)=>a[0].localeCompare(b[0])).slice(-16);charts.cDhu=new Chart(eDhu,{type:'line',data:{labels:s.map(([d])=>_byDay?d:d.slice(5)),datasets:[{label:'DHU %',data:s.map(([_,v])=>v.c?+((v.d/v.c)*100).toFixed(1):0),borderColor:'#0ea98f',backgroundColor:'rgba(14,169,143,.12)',tension:.4,fill:true,pointRadius:3,pointBackgroundColor:'#0ea98f'},{label:'Target 2.5%',data:s.map(()=>2.5),borderColor:'#e5484d',borderDash:[5,4],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#5b6678',boxWidth:12,font:{size:10}}}},scales:{y:{grid:{color:GRID},ticks:{color:TICK},suggestedMin:0},x:{grid:{color:GRID},ticks:{color:TICK,font:{size:9}}}}}});}
   // chMod - DHU by module (horizontal bar, color-coded by severity)
   const eMod=document.getElementById('chMod');
-  if(eMod){const mm={};dins.forEach(i=>{if(!i.module)return;if(!mm[i.module])mm[i.module]={c:0,d:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;});const arr=Object.entries(mm).map(([m,v])=>[m,v.c?+((v.d/v.c)*100).toFixed(1):0]).sort((a,b)=>b[1]-a[1]).slice(0,8);if(arr.length)charts.cMod=new Chart(eMod,{type:'bar',data:{labels:arr.map(([m])=>m.length>14?m.slice(0,14)+'…':m),datasets:[{data:arr.map(([_,v])=>v),backgroundColor:arr.map(([_,v])=>v>5?'#e5484d':v>3?'#e2a200':'#0ea98f'),borderRadius:5}]},options:{...chOpts,indexAxis:'y'}});}
+  if(eMod){const mm={};delI.forEach(i=>{if(!i.module)return;if(!mm[i.module])mm[i.module]={c:0,d:0};mm[i.module].c+=parseInt(i.checkedQty)||0;mm[i.module].d+=parseInt(i.defectQty)||0;});const arr=Object.entries(mm).filter(([,v])=>v.c>0).map(([m,v])=>[m,+((v.d/v.c)*100).toFixed(1)]).sort((a,b)=>b[1]-a[1]).slice(0,8);if(arr.length)charts.cMod=new Chart(eMod,{type:'bar',data:{labels:arr.map(([m])=>m.length>16?m.slice(0,16)+'…':m),datasets:[{label:'DHU %',data:arr.map(([_,v])=>v),backgroundColor:arr.map(([_,v])=>v>5?'#e5484d':v>3?'#e2a200':'#0ea98f'),borderRadius:5}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.x+'%'}}},scales:{x:{grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true,suggestedMax:5},y:{grid:{display:false},ticks:{color:TICK,font:{size:11}}}}}});}
   // chType - End Line vs Roving split
   const eType=document.getElementById('chType');
   if(eType){const elN=dins.filter(i=>i.type==='endline').length,rvN=dins.filter(i=>i.type==='roving'||i.type==='inline').length;if(elN+rvN>0)charts.cType=new Chart(eType,{type:'doughnut',data:{labels:['End Line','Roving'],datasets:[{data:[elN,rvN],backgroundColor:['#7c5cff','#3b7ff5'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#5b6678'}}},cutout:'62%'}});}
