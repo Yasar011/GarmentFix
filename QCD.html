@@ -92,6 +92,7 @@
     onValue(ref(db,'settings/rotation'), s => { window.D.rotation = s.exists() ? s.val() : null; if(['settings','dashboard'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/factory'), s => { window.D.factory = s.exists() ? s.val() : null; if(['settings','reports'].includes(window.D.page)) window.render(); });
     onValue(ref(db,'settings/thirdParty'), s => { window.D.thirdParty = s.exists() ? s.val() : null; window.render(); });
+    onValue(ref(db,'settings/aiConfig'), s => { window.D.aiConfig = s.exists() ? s.val() : null; if(window.D.page==='settings') window.render(); });
     onValue(ref(db,'elRework'), s => { window.D.elRework = s.exists() ? Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})) : []; if(window.D.page==='endline') window.render(); });
   };
 
@@ -330,7 +331,7 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'analytics',ic:'chart',l:'Defect Analytics'},{id:'operator-analysis',ic:'users',l:'Operator Analysis'},{id:'third-party',ic:'check',l:'3rd Party QC',tpOnly:true},{id:'approvals',ic:'check',l:'Approvals',apBadge:1},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Reports',items:[{id:'module-report',ic:'layout',l:'Module Report'},{id:'style-report',ic:'tag',l:'Style Report'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'All Reports'}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'analytics',ic:'chart',l:'Defect Analytics'},{id:'operator-analysis',ic:'users',l:'Operator Analysis'},{id:'third-party',ic:'check',l:'3rd Party QC',tpOnly:true},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'},{id:'approvals',ic:'check',l:'Approvals',apBadge:1},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Reports',items:[{id:'module-report',ic:'layout',l:'Module Report'},{id:'style-report',ic:'tag',l:'Style Report'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'All Reports'}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
   return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.filter(i=>!i.tpOnly||thirdPartyOn()).map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}${i.apBadge&&pendApprovalCount()>0?`<span class="nav-badge hide-c" style="background:var(--yellow);color:#fff">${pendApprovalCount()}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
@@ -388,9 +389,54 @@ function dhuOf(a){const c=sumChk(a),d=sumDef(a);return c?((d/c)*100).toFixed(1):
 
 window.setDashRange=function(r){D.dashRange=r;render();};
 window.setStyleGrain=function(g){D.styleRptGrain=g;render();};
+window.setMrRange=function(v){D.mrRange=v;render();};
+window.setSrRange=function(v){D.srRange=v;render();};
+// Shared Today/Week/Month/All date-range presets for the Module & Style reports (each
+// keeps its own state key so they don't clash). Returns {from,to,label}; empty from/to = all.
+function presetRange(val){
+  const today=new Date().toISOString().split('T')[0];
+  const back=n=>new Date(Date.now()-n*86400000).toISOString().split('T')[0];
+  if(val==='today')return{from:today,to:today,label:'Today'};
+  if(val==='week') return{from:back(6),to:today,label:'This Week'};
+  if(val==='month')return{from:back(29),to:today,label:'This Month'};
+  return{from:'',to:'',label:'All Time'};
+}
+function presetToggle(cur,fn){
+  const b=(v,l)=>`<button class="btn btn-sm ${(cur||'all')===v?'btn-primary':'btn-ghost'}" style="border:none" onclick="${fn}('${v}')">${l}</button>`;
+  return`<div style="display:flex;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow);flex-wrap:wrap">${b('today','Today')}${b('week','This Week')}${b('month','This Month')}${b('all','All Time')}</div>`;
+}
+function inPreset(i,r){if(!r.from&&!r.to)return true;const d=(i.date||(i.createdAt||'').split('T')[0])||'';if(r.from&&d<r.from)return false;if(r.to&&d>r.to)return false;return true;}
 window.setPbi=function(k,v){D.pbi=D.pbi||{};D.pbi[k]=v;render();};
 window.setPbiTopN=function(n){D.pbi=D.pbi||{};D.pbi.topN=n;render();};
-window.resetPbi=function(){D.pbi={from:'',to:'',line:'__all',buyer:'__all',style:'__all',operation:'__all',operator:'__all',cat:'__all',defect:'__all',topN:15};render();};
+window.resetPbi=function(){D.pbi={from:'',to:'',range:'week',line:'__all',buyer:'__all',style:'__all',operation:'__all',operator:'__all',cat:'__all',defect:'__all',topN:15};render();};
+window.setPbiRange=function(r){D.pbi=D.pbi||{};D.pbi.range=r;render();};
+
+// Shared by Defect Analytics + Operator Analysis (they share the same D.pbi filter state):
+// turns the Today/Week/Month/Custom preset into an actual {from,to} date range. "Today"
+// also flags isToday so callers can switch their trend charts to hour-by-hour buckets —
+// a single day has no daily/weekly trend worth showing, but hour-by-hour does.
+function pbiEffRange(f){
+  const today=new Date().toISOString().split('T')[0];
+  const weekAgo=new Date(Date.now()-6*86400000).toISOString().split('T')[0];
+  const monthAgo=new Date(Date.now()-29*86400000).toISOString().split('T')[0];
+  const range=f.range||'week';
+  let from=f.from,to=f.to;
+  if(range==='today'){from=today;to=today;}
+  else if(range==='week'){from=weekAgo;to=today;}
+  else if(range==='month'){from=monthAgo;to=today;}
+  return {range,from,to,isToday:range==='today',today,weekAgo,monthAgo};
+}
+// The range-preset toggle + a matching date display/editor — Custom shows editable date
+// pickers, the presets show a read-only summary so it's clear the typed dates are ignored.
+function pbiRangeBar(f,eff){
+  const tog=(v,l)=>`<button class="btn btn-sm ${eff.range===v?'btn-primary':'btn-ghost'}" style="border:none" onclick="setPbiRange('${v}')">${l}</button>`;
+  const rangeTog=`<div style="display:flex;gap:4px;background:var(--bg3);border-radius:10px;padding:4px;width:fit-content">${tog('today','Today (Hourly)')}${tog('week','This Week')}${tog('month','This Month')}${tog('custom','Custom')}</div>`;
+  const dateBox=(label,key,cur)=>`<div><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><input type="date" class="form-input" style="padding:7px 9px;font-size:12px" value="${cur||''}" onchange="setPbi('${key}',this.value)"></div>`;
+  const dateSection=eff.range==='custom'
+    ?`${dateBox('Date from','from',f.from)}${dateBox('Date to','to',f.to)}`
+    :`<div style="grid-column:span 2"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Showing</div><div style="padding:8px 10px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text2)">${eff.range==='today'?'Today ('+fd(eff.today)+') — charts below switch to hour-by-hour':eff.range==='week'?'Last 7 days ('+fd(eff.from)+' → '+fd(eff.to)+')':'Last 30 days ('+fd(eff.from)+' → '+fd(eff.to)+')'}</div></div>`;
+  return {rangeTog,dateSection};
+}
 
 // Shared by Dashboard + Defect Analytics: 3rd Party summary KPIs, plus a compare-card
 // against the internal (End Line) defect rate — the whole point of an independent audit
@@ -438,6 +484,9 @@ function pgDash(){
   const tog=(v,l)=>`<button class="btn btn-sm ${range===v?'btn-primary':'btn-ghost'}" onclick="setDashRange('${v}')" style="border:none">${l}</button>`;
   const toolbar=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px"><div><div style="font-size:20px;font-weight:800">Factory Quality Dashboard</div><div style="font-size:12px;color:var(--text2)">A simple view of how production quality is doing — showing <b>${rangeLabel.toLowerCase()}</b>.</div></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="nav('analytics')">${ic('chart',13)} Analyst view (filters)</button><div style="display:flex;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${tog('today','Today')}${tog('week','This Week')}${tog('all','All Time')}</div></div></div>`;
   const approvalsStrip=pend>0?`<div class="card" style="border-color:var(--yellow);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="font-size:13px">🔔 <b style="color:var(--yellow)">${pend}</b> request${pend!==1?'s':''} from the floor ${pend!==1?'are':'is'} waiting for your approval.</div><button class="btn btn-primary btn-sm" onclick="nav('approvals')">Review now →</button></div>`:'';
+  // ---- AMMS (maintenance) tickets QCM has sent — surface open ones on the dashboard too ----
+  const ammsOpen=(D.qcmAmmsTickets||[]).filter(t=>!t.qcVerified);
+  const ammsStrip=ammsOpen.length>0?`<div class="card" style="border-color:var(--blue);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="font-size:13px">🔧 <b style="color:var(--blue)">${ammsOpen.length}</b> maintenance ticket${ammsOpen.length!==1?'s':''} sent to AMMS ${ammsOpen.length!==1?'are':'is'} still open.</div><button class="btn btn-ghost btn-sm" onclick="nav('amms-tickets')">View AMMS Tickets →</button></div>`:'';
   const noData=recent.length===0;
   const rangeWord=range==='today'?'today':range==='week'?'this week':'so far';
 
@@ -507,7 +556,7 @@ function pgDash(){
   const term=(t,d)=>`<div style="padding:10px 0;border-bottom:1px solid var(--border)"><div style="font-weight:700;font-size:13px;color:var(--text)">${t}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">${d}</div></div>`;
   const glossary=`<div class="card"><div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">📖 New here? What these words mean</div><div class="grid-2" style="gap:0 28px">${term('Pieces Checked (End Line)','Finished garments inspected at the end of the production line — the final quality gate before packing.')}${term('Spot-Check (Roving)','Random checks done while garments are still being made, to catch problems early.')}${term('Defect Rate (DHU)','Out of every 100 pieces checked, how many had a defect. Lower is better. The goal is under 2.5%.')}${term('Line / Module','One production line — a team and its machines making a style of garment.')}${term('Passed / Good','Pieces inspected with zero defects found.')}${term('Had Defects','Pieces that needed rework before they could pass.')}</div></div>`;
 
-  return`<div style="display:flex;flex-direction:column;gap:20px">${toolbar}${approvalsStrip}${hero}${primary}${insights}${secHead}${secondary}${tpBlock}${charts}<div class="grid-2">${latest}${alerts}</div>${glossary}</div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px">${toolbar}${approvalsStrip}${ammsStrip}${hero}${primary}${insights}${secHead}${secondary}${tpBlock}${charts}<div class="grid-2">${latest}${alerts}</div>${glossary}</div>`;
 }
 
 // ======================== DEFECT ANALYTICS (Power BI–style) ========================
@@ -515,16 +564,17 @@ function pgDash(){
 // top filter bar + Top-N toggle + Top Defects / Top Defective Operations bars +
 // defect-category table + weekly & daily defect-% trend lines.
 function pgAnalytics(){
-  const f=D.pbi||(D.pbi={from:'',to:'',line:'__all',buyer:'__all',style:'__all',operation:'__all',cat:'__all',defect:'__all',topN:15});
+  const f=D.pbi||(D.pbi={from:'',to:'',range:'week',line:'__all',buyer:'__all',style:'__all',operation:'__all',cat:'__all',defect:'__all',topN:15});
   if(!f.topN)f.topN=15;
+  const eff=pbiEffRange(f);
   const styleBuyer={};(D.styles||[]).forEach(s=>{if(s.name)styleBuyer[s.name]=s.buyer||'';if(s.styleId)styleBuyer[s.styleId]=s.buyer||'';});
   const enrich=i=>{const code=elResolveCode(i.defectType);return {...i,_cat:i.defectType?elCategory(code,i.defectType):'',_buyer:styleBuyer[i.style]||styleBuyer[i.styleId]||'',_date:(i.date||(i.createdAt||'').split('T')[0])||''};};
   const all=allInspections().map(enrich);
   const uniq=k=>[...new Set(all.map(x=>x[k]).filter(Boolean))].sort();
   const lines=uniq('module'),styles=uniq('style'),ops=uniq('operation'),buyers=uniq('_buyer'),defects=uniq('defectType');
   const F=all.filter(i=>{
-    if(f.from&&i._date<f.from)return false;
-    if(f.to&&i._date>f.to)return false;
+    if(eff.from&&i._date<eff.from)return false;
+    if(eff.to&&i._date>eff.to)return false;
     if(f.line!=='__all'&&i.module!==f.line)return false;
     if(f.buyer!=='__all'&&i._buyer!==f.buyer)return false;
     if(f.style!=='__all'&&i.style!==f.style)return false;
@@ -541,19 +591,29 @@ function pgAnalytics(){
   const byOp={};F.forEach(i=>{if(i.operation&&parseInt(i.defectQty)>0)byOp[i.operation]=(byOp[i.operation]||0)+(parseInt(i.defectQty)||0);});
   const topOp=Object.entries(byOp).sort((a,b)=>b[1]-a[1]).slice(0,f.topN);
   const byCat={};EL_CAT_ORDER.forEach(c=>byCat[c]=0);F.forEach(i=>{const dq=parseInt(i.defectQty)||0;if(dq>0&&i._cat)byCat[i._cat]=(byCat[i._cat]||0)+dq;});
-  const byDay={};F.forEach(i=>{const d=i._date;if(!d)return;if(!byDay[d])byDay[d]={c:0,df:0};byDay[d].c+=parseInt(i.checkedQty)||0;byDay[d].df+=parseInt(i.defectQty)||0;});
-  const dayKeys=Object.keys(byDay).sort();
-  const daily=dayKeys.map(d=>({d,pct:byDay[d].c?(byDay[d].df/byDay[d].c)*100:0}));
-  const byWk={};dayKeys.forEach(d=>{const dt=new Date(d+'T00:00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);const wk=dt.toISOString().split('T')[0];if(!byWk[wk])byWk[wk]={c:0,df:0};byWk[wk].c+=byDay[d].c;byWk[wk].df+=byDay[d].df;});
-  const wkKeys=Object.keys(byWk).sort();
-  const weekly=wkKeys.map(w=>({d:w,pct:byWk[w].c?(byWk[w].df/byWk[w].c)*100:0}));
-  D._pbi={topDef,topOp,insp,daily,weekly};
+  // Trend granularity: a single day has no daily/weekly trend worth plotting, so "Today"
+  // switches this to an hour-by-hour breakdown instead.
+  let daily,weekly;
+  if(eff.isToday){
+    const byHour={};F.forEach(i=>{const h=(i.time||'').slice(0,2);if(!h)return;if(!byHour[h])byHour[h]={c:0,df:0};byHour[h].c+=parseInt(i.checkedQty)||0;byHour[h].df+=parseInt(i.defectQty)||0;});
+    const hourKeys=Object.keys(byHour).sort();
+    daily=hourKeys.map(h=>({d:h+':00',pct:byHour[h].c?(byHour[h].df/byHour[h].c)*100:0}));
+    weekly=[];
+  }else{
+    const byDay={};F.forEach(i=>{const d=i._date;if(!d)return;if(!byDay[d])byDay[d]={c:0,df:0};byDay[d].c+=parseInt(i.checkedQty)||0;byDay[d].df+=parseInt(i.defectQty)||0;});
+    const dayKeys=Object.keys(byDay).sort();
+    daily=dayKeys.map(d=>({d,pct:byDay[d].c?(byDay[d].df/byDay[d].c)*100:0}));
+    const byWk={};dayKeys.forEach(d=>{const dt=new Date(d+'T00:00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);const wk=dt.toISOString().split('T')[0];if(!byWk[wk])byWk[wk]={c:0,df:0};byWk[wk].c+=byDay[d].c;byWk[wk].df+=byDay[d].df;});
+    const wkKeys=Object.keys(byWk).sort();
+    weekly=wkKeys.map(w=>({d:w,pct:byWk[w].c?(byWk[w].df/byWk[w].c)*100:0}));
+  }
+  D._pbi={topDef,topOp,insp,daily,weekly,hourly:eff.isToday};
 
   const noData=F.length===0;
   // --- filter bar ---
   const slicer=(label,key,opts,cur)=>`<div style="min-width:0"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><select class="form-input" style="padding:7px 9px;font-size:12px" onchange="setPbi('${key}',this.value)"><option value="__all" ${cur==='__all'?'selected':''}>All</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
-  const dateBox=(label,key,cur)=>`<div><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><input type="date" class="form-input" style="padding:7px 9px;font-size:12px" value="${cur||''}" onchange="setPbi('${key}',this.value)"></div>`;
-  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><button class="btn btn-ghost btn-sm" onclick="resetPbi()">${ic('refresh',12)} Reset all</button></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateBox('Date from','from',f.from)}${dateBox('Date to','to',f.to)}${slicer('Section / Line','line',lines,f.line)}${slicer('Buyer','buyer',buyers,f.buyer)}${slicer('Style','style',styles,f.style)}${slicer('Operation','operation',ops,f.operation)}${slicer('Defect Category','cat',EL_CAT_ORDER,f.cat)}${slicer('Defect Name','defect',defects,f.defect)}</div></div>`;
+  const {rangeTog,dateSection}=pbiRangeBar(f,eff);
+  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><button class="btn btn-ghost btn-sm" onclick="resetPbi()">${ic('refresh',12)} Reset all</button></div><div style="margin-bottom:12px">${rangeTog}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateSection}${slicer('Section / Line','line',lines,f.line)}${slicer('Buyer','buyer',buyers,f.buyer)}${slicer('Style','style',styles,f.style)}${slicer('Operation','operation',ops,f.operation)}${slicer('Defect Category','cat',EL_CAT_ORDER,f.cat)}${slicer('Defect Name','defect',defects,f.defect)}</div></div>`;
   // --- top N toggle ---
   const topTog=[3,5,10,15].map(n=>`<button class="btn btn-sm ${f.topN===n?'btn-primary':'btn-ghost'}" style="border:none" onclick="setPbiTopN(${n})">Top ${n}</button>`).join('');
   // --- KPI strip ---
@@ -561,8 +621,8 @@ function pgAnalytics(){
   const kpis=`<div class="grid-4">${kpiC(insp.toLocaleString(),'Inspected Qty','var(--accent2)')}${kpiC(defTot.toLocaleString(),'Total Defects','var(--red)')}${kpiC(defPct.toFixed(2)+'%','Overall Defect %',defPct>2.5?'var(--red)':'var(--green)')}${kpiC(F.length.toLocaleString(),'Records','var(--purple)')}</div>`;
   // --- 3rd Party compare, scoped to the same date/line/style filters selected above ---
   const tpF=(D.thirdPartyAudits||[]).filter(r=>{
-    if(f.from&&r.date<f.from)return false;
-    if(f.to&&r.date>f.to)return false;
+    if(eff.from&&r.date<eff.from)return false;
+    if(eff.to&&r.date>eff.to)return false;
     if(f.line!=='__all'&&r.module!==f.line)return false;
     if(f.style!=='__all'&&r.style!==f.style)return false;
     return true;
@@ -570,17 +630,21 @@ function pgAnalytics(){
   const tpBlock=tpCompareBlock(tpF,defPct,'Internal (this filtered view)');
   // --- Combined "everything in one view" chart: End Line Output/Defects + 3rd Party
   // Offer/Pass/Reject, all 5 lines on one graph, all driven by the SAME filters above.
+  // On "Today" this buckets by HOUR instead of by date — a single day's worth of dots
+  // isn't a trend, but hour-by-hour is.
   const elF=F.filter(i=>i.type==='endline');
-  const elByDay={};elF.forEach(i=>{const d=i._date;if(!d)return;if(!elByDay[d])elByDay[d]={c:0,df:0};elByDay[d].c+=parseInt(i.checkedQty)||0;elByDay[d].df+=parseInt(i.defectQty)||0;});
-  const tpByDay={};tpF.forEach(r=>{const d=r.date;if(!d)return;if(!tpByDay[d])tpByDay[d]={offer:0,pass:0,rej:0};tpByDay[d].offer+=parseInt(r.offerPcs)||0;tpByDay[d].pass+=parseInt(r.passPcs)||0;tpByDay[d].rej+=parseInt(r.totalDefectQty)||0;});
+  const elBucket=eff.isToday?(i=>{const h=(i.time||'').slice(0,2);return h?h+':00':'';}):(i=>i._date);
+  const tpBucket=eff.isToday?(r=>{const h=(r.time||'').slice(0,2);return h?h+':00':'';}):(r=>r.date);
+  const elByDay={};elF.forEach(i=>{const k=elBucket(i);if(!k)return;if(!elByDay[k])elByDay[k]={c:0,df:0};elByDay[k].c+=parseInt(i.checkedQty)||0;elByDay[k].df+=parseInt(i.defectQty)||0;});
+  const tpByDay={};tpF.forEach(r=>{const k=tpBucket(r);if(!k)return;if(!tpByDay[k])tpByDay[k]={offer:0,pass:0,rej:0};tpByDay[k].offer+=parseInt(r.offerPcs)||0;tpByDay[k].pass+=parseInt(r.passPcs)||0;tpByDay[k].rej+=parseInt(r.totalDefectQty)||0;});
   const comboDays=[...new Set([...Object.keys(elByDay),...Object.keys(tpByDay)])].sort();
-  D._combo={days:comboDays,
+  D._combo={days:comboDays,hourly:eff.isToday,
     elOut:comboDays.map(d=>elByDay[d]?.c||0),
     elDef:comboDays.map(d=>elByDay[d]?.df||0),
     tpOffer:comboDays.map(d=>tpByDay[d]?.offer||0),
     tpPass:comboDays.map(d=>tpByDay[d]?.pass||0),
     tpRej:comboDays.map(d=>tpByDay[d]?.rej||0)};
-  const comboCard=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:15px;font-weight:800">📈 End Line vs 3rd Party — Everything in One View</div><div style="font-size:11px;color:var(--text2)">End Line Output &amp; Defects, plus 3rd Party Offer / Pass / Reject — all 5 lines update together as you change the filters above</div></div><div class="chart-wrap" style="height:320px">${comboDays.length===0?'<div style="text-align:center;padding:110px 0;color:var(--text3)">No data for the current filters</div>':'<canvas id="chCombo"></canvas>'}</div></div>`;
+  const comboCard=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:15px;font-weight:800">📈 End Line vs 3rd Party — Everything in One View</div><div style="font-size:11px;color:var(--text2)">End Line Output &amp; Defects, plus 3rd Party Offer / Pass / Reject — all 5 lines update together as you change the filters above${eff.isToday?' <b>(hour-by-hour for Today)</b>':''}</div></div><div class="chart-wrap" style="height:320px">${comboDays.length===0?'<div style="text-align:center;padding:110px 0;color:var(--text3)">No data for the current filters</div>':'<canvas id="chCombo"></canvas>'}</div></div>`;
   // --- defect-category table ---
   const catTot=Object.values(byCat).reduce((a,v)=>a+v,0);
   const catRows=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<tr><td style="font-weight:500">${c}</td><td style="font-family:var(--mono);text-align:right">${n.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right;color:var(--text2)">${insp?((n/insp)*100).toFixed(2):'0.00'}%</td></tr>`).join('');
@@ -594,7 +658,7 @@ function pgAnalytics(){
     ${comboCard}
     ${kpis}
     <div class="grid-2">${cc('Top Defects','chTopDef')}${cc('Top Defective Operations','chTopOp')}</div>
-    <div class="grid-2">${cc('Weekly Defect Trend','chWk',240)}${cc('Daily Defect Trend','chDy',240)}</div>
+    ${eff.isToday?cc('Hourly Defect Trend — Today','chDy',260):`<div class="grid-2">${cc('Weekly Defect Trend','chWk',240)}${cc('Daily Defect Trend','chDy',240)}</div>`}
     ${catTable}
     ${tpBlock}
   </div>`;
@@ -603,17 +667,66 @@ function pgAnalytics(){
 // ======================== OPERATOR ANALYSIS (Power BI–style) ========================
 // Same filter bar / slicers as Defect Analytics, but ranks OPERATORS: who has the most
 // defects and the highest defect rate, plus a full operator-wise table.
+// Groups a set of (already-filtered) inspection rows by operator, tracking their
+// dominant line and single most-common defect type alongside checked/defect totals.
+// Shared by End Line, Roving, and Combined breakdowns on the Operator Analysis page.
+function oprStatsFrom(rows){
+  const byOpr={};
+  rows.forEach(i=>{
+    const o=i.operatorId;if(!o)return;
+    if(!byOpr[o])byOpr[o]={chk:0,def:0,operation:i.operation||'',lines:{},defects:{}};
+    const g=byOpr[o];
+    g.chk+=parseInt(i.checkedQty)||0;g.def+=parseInt(i.defectQty)||0;
+    if(i.module)g.lines[i.module]=(g.lines[i.module]||0)+(parseInt(i.checkedQty)||0)+1;
+    if(i.defectType&&parseInt(i.defectQty)>0)g.defects[i.defectType]=(g.defects[i.defectType]||0)+(parseInt(i.defectQty)||0);
+  });
+  const top1=obj=>{const e=Object.entries(obj||{}).sort((a,b)=>b[1]-a[1])[0];return e?e[0]:'—';};
+  return Object.entries(byOpr).map(([o,g])=>({o,operation:g.operation,line:top1(g.lines),topDefect:top1(g.defects),chk:g.chk,def:g.def,dhu:g.chk?(g.def/g.chk)*100:0}));
+}
+// "Red Operator" (Roving-specific rule): flags an operator who repeats the SAME defect
+// type across 2+ SEPARATE roving visits — not a one-off slip, the same mistake showing up
+// again on a later visit (visit 1 mistake, visit 2 clean, visit 3 same mistake = red).
+// A single visit with several instances of a defect does NOT count — it must recur across
+// distinct visit records.
+function computeRedOperators(rovRows){
+  const byKey={};
+  rovRows.forEach(r=>{
+    const o=r.operatorId,dt=r.defectType,dq=parseInt(r.defectQty)||0;
+    if(!o||!dt||dq<=0)return;
+    const key=o+'||'+dt;
+    if(!byKey[key])byKey[key]={o,defectType:dt,visits:0,qty:0,lines:{}};
+    byKey[key].visits++;byKey[key].qty+=dq;
+    if(r.module)byKey[key].lines[r.module]=(byKey[key].lines[r.module]||0)+1;
+  });
+  const top1=obj=>{const e=Object.entries(obj||{}).sort((a,b)=>b[1]-a[1])[0];return e?e[0]:'—';};
+  const repeats=Object.values(byKey).filter(x=>x.visits>=2).map(x=>({...x,line:top1(x.lines)}));
+  // an operator can repeat more than one defect type — keep their most-repeated one for the headline row
+  const byOpr={};
+  repeats.forEach(r=>{if(!byOpr[r.o]||byOpr[r.o].visits<r.visits)byOpr[r.o]=r;});
+  return Object.values(byOpr).sort((a,b)=>b.visits-a.visits);
+}
+function oprTops(arr,n){
+  return {
+    byDef:arr.slice().sort((a,b)=>b.def-a.def).slice(0,n),
+    worst:arr.filter(x=>x.chk>=20).sort((a,b)=>b.dhu-a.dhu).slice(0,n),
+    good:arr.filter(x=>x.chk>=20).sort((a,b)=>a.dhu-b.dhu).slice(0,n)
+  };
+}
 function pgOperatorAnalysis(){
-  const f=D.pbi||(D.pbi={from:'',to:'',line:'__all',buyer:'__all',style:'__all',operation:'__all',operator:'__all',cat:'__all',defect:'__all',topN:15});
+  const f=D.pbi||(D.pbi={from:'',to:'',range:'week',line:'__all',buyer:'__all',style:'__all',operation:'__all',operator:'__all',cat:'__all',defect:'__all',topN:15});
   if(!f.topN)f.topN=15;
+  const eff=pbiEffRange(f);
   const styleBuyer={};(D.styles||[]).forEach(s=>{if(s.name)styleBuyer[s.name]=s.buyer||'';if(s.styleId)styleBuyer[s.styleId]=s.buyer||'';});
   const enrich=i=>{const code=elResolveCode(i.defectType);return {...i,_cat:i.defectType?elCategory(code,i.defectType):'',_buyer:styleBuyer[i.style]||styleBuyer[i.styleId]||'',_date:(i.date||(i.createdAt||'').split('T')[0])||''};};
-  const all=allInspections().map(enrich);
-  const uniq=k=>[...new Set(all.map(x=>x[k]).filter(Boolean))].sort();
+  // Split End Line and Roving up front (same source-of-truth helpers the Dashboard uses),
+  // so every section below can show them apart AND combined, per the redesign.
+  const elAll=elInsp().map(enrich), rovAll=rovInsp().map(enrich);
+  const combinedAll=elAll.concat(rovAll);
+  const uniq=k=>[...new Set(combinedAll.map(x=>x[k]).filter(Boolean))].sort();
   const lines=uniq('module'),styles=uniq('style'),ops=uniq('operation'),buyers=uniq('_buyer'),defects=uniq('defectType'),operators=uniq('operatorId');
-  const F=all.filter(i=>{
-    if(f.from&&i._date<f.from)return false;
-    if(f.to&&i._date>f.to)return false;
+  const filterFn=i=>{
+    if(eff.from&&i._date<eff.from)return false;
+    if(eff.to&&i._date>eff.to)return false;
     if(f.line!=='__all'&&i.module!==f.line)return false;
     if(f.buyer!=='__all'&&i._buyer!==f.buyer)return false;
     if(f.style!=='__all'&&i.style!==f.style)return false;
@@ -622,39 +735,120 @@ function pgOperatorAnalysis(){
     if(f.cat!=='__all'&&i._cat!==f.cat)return false;
     if(f.defect!=='__all'&&i.defectType!==f.defect)return false;
     return true;
-  });
-  const insp=F.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
-  const defTot=F.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
-  const defPct=insp?(defTot/insp)*100:0;
-  const byOpr={};F.forEach(i=>{const o=i.operatorId;if(!o)return;if(!byOpr[o])byOpr[o]={chk:0,def:0,operation:i.operation||'',lines:{}};byOpr[o].chk+=parseInt(i.checkedQty)||0;byOpr[o].def+=parseInt(i.defectQty)||0;if(i.module)byOpr[o].lines[i.module]=(byOpr[o].lines[i.module]||0)+(parseInt(i.checkedQty)||0)+1;});
-  const domLine=ls=>{const e=Object.entries(ls||{}).sort((a,b)=>b[1]-a[1])[0];return e?e[0]:'—';};
-  const oprArr=Object.entries(byOpr).map(([o,g])=>({o,operation:g.operation,line:domLine(g.lines),chk:g.chk,def:g.def,dhu:g.chk?(g.def/g.chk)*100:0}));
-  const topByDef=oprArr.slice().sort((a,b)=>b.def-a.def).slice(0,f.topN);
-  const topByDhu=oprArr.filter(x=>x.chk>=20).sort((a,b)=>b.dhu-a.dhu).slice(0,f.topN);
-  const topGood=oprArr.filter(x=>x.chk>=20).sort((a,b)=>a.dhu-b.dhu).slice(0,f.topN);
-  D._opa={topByDef,topByDhu,topGood,insp};
-  const worst=topByDhu[0];
-  const noData=F.length===0||oprArr.length===0;
+  };
+  const elF=elAll.filter(filterFn), rovF=rovAll.filter(filterFn);
+  const combF=elF.concat(rovF);
+  const insp=combF.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const defTot=combF.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+
+  const elOpr=oprStatsFrom(elF), rovOpr=oprStatsFrom(rovF), combOpr=oprStatsFrom(combF);
+  const elTop=oprTops(elOpr,f.topN), rovTop=oprTops(rovOpr,f.topN);
+  const topFiveEl=oprTops(elOpr,5), topFiveRov=oprTops(rovOpr,5);
+  const combTopN=oprTops(combOpr,f.topN);
+  D._opa={topByDef:combTopN.byDef,topByDhu:combTopN.worst,topGood:combTopN.good,insp};
+  D._oprExport={elWorst10:oprTops(elOpr,10).worst,elGood10:oprTops(elOpr,10).good,rovWorst10:oprTops(rovOpr,10).worst,rovGood10:oprTops(rovOpr,10).good};
+  const worst=combTopN.worst[0];
+  const noData=combF.length===0;
 
   const slicer=(label,key,opts,cur)=>`<div style="min-width:0"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><select class="form-input" style="padding:7px 9px;font-size:12px" onchange="setPbi('${key}',this.value)"><option value="__all" ${cur==='__all'||!cur?'selected':''}>All</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
-  const dateBox=(label,key,cur)=>`<div><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><input type="date" class="form-input" style="padding:7px 9px;font-size:12px" value="${cur||''}" onchange="setPbi('${key}',this.value)"></div>`;
-  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><button class="btn btn-ghost btn-sm" onclick="resetPbi()">${ic('refresh',12)} Reset all</button></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateBox('Date from','from',f.from)}${dateBox('Date to','to',f.to)}${slicer('Section / Line','line',lines,f.line)}${slicer('Buyer','buyer',buyers,f.buyer)}${slicer('Style','style',styles,f.style)}${slicer('Operation','operation',ops,f.operation)}${slicer('Operator','operator',operators,f.operator||'__all')}${slicer('Defect Category','cat',EL_CAT_ORDER,f.cat)}${slicer('Defect Name','defect',defects,f.defect)}</div></div>`;
+  const {rangeTog,dateSection}=pbiRangeBar(f,eff);
+  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><button class="btn btn-ghost btn-sm" onclick="resetPbi()">${ic('refresh',12)} Reset all</button></div><div style="margin-bottom:12px">${rangeTog}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateSection}${slicer('Section / Line','line',lines,f.line)}${slicer('Buyer','buyer',buyers,f.buyer)}${slicer('Style','style',styles,f.style)}${slicer('Operation','operation',ops,f.operation)}${slicer('Operator','operator',operators,f.operator||'__all')}${slicer('Defect Category','cat',EL_CAT_ORDER,f.cat)}${slicer('Defect Name','defect',defects,f.defect)}</div></div>`;
   const topTog=[3,5,10,15].map(n=>`<button class="btn btn-sm ${f.topN===n?'btn-primary':'btn-ghost'}" style="border:none" onclick="setPbiTopN(${n})">Top ${n}</button>`).join('');
   const kpiC=(v,l,c)=>`<div class="card card-sm" style="text-align:center"><div class="metric-val" style="color:${c};font-size:24px">${v}</div><div class="metric-label">${l}</div></div>`;
-  const kpis=`<div class="grid-4">${kpiC(oprArr.length.toLocaleString(),'Operators','var(--accent2)')}${kpiC(insp.toLocaleString(),'Inspected Qty','var(--accent)')}${kpiC(defTot.toLocaleString(),'Total Defects','var(--red)')}${kpiC(worst?worst.o:'—','Highest Defect % Operator',worst&&worst.dhu>5?'var(--red)':worst&&worst.dhu>3?'var(--yellow)':'var(--green)')}</div>`;
+  const kpis=`<div class="grid-4">${kpiC(combOpr.length.toLocaleString(),'Operators','var(--accent2)')}${kpiC(insp.toLocaleString(),'Inspected Qty','var(--accent)')}${kpiC(defTot.toLocaleString(),'Total Defects','var(--red)')}${kpiC(worst?worst.o:'—','Highest Defect % Operator',worst&&worst.dhu>5?'var(--red)':worst&&worst.dhu>3?'var(--yellow)':'var(--green)')}</div>`;
   const cc=(title,desc,id)=>`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700">${title}</div><div style="font-size:11px;color:var(--text2)">${desc}</div></div><div class="chart-wrap" style="height:260px">${noData?'<div style="text-align:center;padding:70px 0;color:var(--text3)">No data for the current filters</div>':`<canvas id="${id}"></canvas>`}</div></div>`;
-  const tableRows=oprArr.slice().sort((a,b)=>b.dhu-a.dhu).map(x=>{const col=x.dhu>5?'var(--red)':x.dhu>3?'var(--yellow)':'var(--green)';return `<tr><td style="font-family:var(--mono);font-weight:600">${x.o}</td><td>${x.line||'—'}</td><td>${x.operation||'—'}</td><td style="font-family:var(--mono);text-align:right">${x.chk.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right;color:var(--red)">${x.def}</td><td style="font-family:var(--mono);text-align:right;color:${col};font-weight:700">${x.dhu.toFixed(1)}%</td></tr>`;}).join('');
-  const table=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">Operator-wise Defect Rate <span style="font-size:11px;color:var(--text3);font-weight:400">(worst first · red needs support)</span></div><div class="table-wrap" style="max-height:420px;overflow:auto"><table><thead><tr><th>Operator</th><th>Line</th><th>Operation</th><th style="text-align:right">Checked</th><th style="text-align:right">Defects</th><th style="text-align:right">Defect %</th></tr></thead><tbody>${tableRows||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No operator data for the current filters</td></tr>'}</tbody></table></div></div>`;
 
-  return`<div style="display:flex;flex-direction:column;gap:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div style="font-size:20px;font-weight:800">Operator Analysis</div><div style="font-size:12px;color:var(--text2)">Same filters as Defect Analytics — find which operators need support. Filters are shared between both pages.</div></div><div style="display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${topTog}</div></div>
-    ${filterBar}
-    ${kpis}
+  // Reusable row/table builders — Operator · Line · Top Defect · Checked · Defects · Defect%.
+  const oprRow=x=>{const col=x.dhu>5?'var(--red)':x.dhu>3?'var(--yellow)':'var(--green)';return `<tr><td style="font-family:var(--mono);font-weight:600">${x.o}</td><td>${x.line||'—'}</td><td style="font-size:12px">${x.topDefect||'—'}</td><td style="font-family:var(--mono);text-align:right">${x.chk.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right;color:var(--red)">${x.def}</td><td style="font-family:var(--mono);text-align:right;color:${col};font-weight:700">${x.dhu.toFixed(1)}%</td></tr>`;};
+  const oprTable=(title,sub,arr,emptyMsg,maxH)=>`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">${title} <span style="font-size:11px;color:var(--text3);font-weight:400">${sub}</span></div><div class="table-wrap"${maxH?` style="max-height:${maxH}px;overflow:auto"`:''}><table><thead><tr><th>Operator</th><th>Line</th><th>Top Defect</th><th style="text-align:right">Checked</th><th style="text-align:right">Defects</th><th style="text-align:right">Defect %</th></tr></thead><tbody>${arr.length?arr.map(oprRow).join(''):`<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">${emptyMsg}</td></tr>`}</tbody></table></div></div>`;
+
+  // ---- Top 5 comparison, side by side, so both check-types are visible in one glance ----
+  const top5Compare=`<div><div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">🔍 Top 5 — Roving vs End Line, At a Glance</div><div class="grid-2">${oprTable('🧵 End Line — Top 5','(worst first)',topFiveEl.worst,'No End Line operator data')}${oprTable('🏃 Roving — Top 5','(worst first)',topFiveRov.worst,'No Roving operator data')}</div></div>`;
+
+  // ---- Separate full breakdowns: End Line only, Roving only ----
+  const elKpis=`<div class="grid-4">${kpiC(elOpr.length,'End Line Operators','var(--purple)')}${kpiC(sumChk(elF).toLocaleString(),'Checked','var(--accent)')}${kpiC(sumDef(elF).toLocaleString(),'Defects','var(--red)')}${kpiC(dhuOf(elF)+'%','Defect %',parseFloat(dhuOf(elF))>2.5?'var(--red)':'var(--green)')}</div>`;
+  const rovKpis=`<div class="grid-4">${kpiC(rovOpr.length,'Roving Operators','var(--blue)')}${kpiC(sumChk(rovF).toLocaleString(),'Sampled','var(--accent)')}${kpiC(sumDef(rovF).toLocaleString(),'Defects','var(--red)')}${kpiC(dhuOf(rovF)+'%','Defect %',parseFloat(dhuOf(rovF))>2.5?'var(--red)':'var(--green)')}</div>`;
+  D._opaEl={topByDef:elTop.byDef,topByDhu:elTop.worst,topGood:elTop.good};
+  D._opaRov={topByDef:rovTop.byDef,topByDhu:rovTop.worst,topGood:rovTop.good};
+  const elCharts=`<div class="grid-2">${cc('⚠️ Highest Defect % — End Line','Worst defect % · min 20 pieces · Top '+f.topN,'chElOprDhu')}${cc('🏆 Top Good — End Line','Best defect % · min 20 pieces · Top '+f.topN,'chElOprGood')}</div>${cc('Top Operators by Defects — End Line','Most defects by raw count · Top '+f.topN,'chElOprDef')}`;
+  const rovCharts=`<div class="grid-2">${cc('⚠️ Highest Defect % — Roving','Worst defect % · min 20 pieces · Top '+f.topN,'chRovOprDhu')}${cc('🏆 Top Good — Roving','Best defect % · min 20 pieces · Top '+f.topN,'chRovOprGood')}</div>${cc('Top Operators by Defects — Roving','Most defects by raw count · Top '+f.topN,'chRovOprDef')}`;
+  const elSection=`<div style="display:flex;flex-direction:column;gap:12px"><div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">🧵 End Line — Operator Performance (separate)</div>${elKpis}${elCharts}${oprTable('End Line — Operator-wise Defect Rate','(worst first · Top '+f.topN+' shown of '+elOpr.length+')',elTop.worst,'No End Line operator data for the current filters',380)}</div>`;
+  const redOperators=computeRedOperators(rovF);
+  const redCard=`<div class="card" style="border-color:var(--red);background:rgba(229,72,77,.05)">
+    <div style="font-weight:700;color:var(--red);margin-bottom:2px">🔴 Red Operators — Repeat Mistakes</div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Same defect type found on <b>2 or more separate roving visits</b> — not a one-off slip, the mistake keeps recurring (e.g. clean on visit 2, same mistake again on visit 3).</div>
+    ${redOperators.length===0?'<div style="text-align:center;padding:16px;color:var(--text3);font-size:12px">✓ No repeat offenders for the current filters</div>':`<div class="table-wrap"><table><thead><tr><th>Operator</th><th>Line</th><th>Repeated Defect</th><th style="text-align:right">Visits Repeated</th></tr></thead><tbody>${redOperators.map(r=>`<tr><td style="font-family:var(--mono);font-weight:600;color:var(--red)">${r.o}</td><td>${r.line||'—'}</td><td style="font-size:12px">${r.defectType}</td><td style="font-family:var(--mono);text-align:right;font-weight:700;color:var(--red)">${r.visits}×</td></tr>`).join('')}</tbody></table></div>`}
+  </div>`;
+  const rovSection=`<div style="display:flex;flex-direction:column;gap:12px"><div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">🏃 Roving — Operator Performance (separate)</div>${redCard}${rovKpis}${rovCharts}${oprTable('Roving — Operator-wise Defect Rate','(worst first · Top '+f.topN+' shown of '+rovOpr.length+')',rovTop.worst,'No Roving operator data for the current filters',380)}</div>`;
+
+  // ---- Combined (End Line + Roving) — charts (existing canvases) + full table ----
+  const combSection=`<div style="display:flex;flex-direction:column;gap:12px"><div style="font-weight:600;color:var(--text2);font-size:12px;letter-spacing:.06em;text-transform:uppercase">🔗 Combined (End Line + Roving)</div>
     <div class="grid-2">${cc('⚠️ Highest Defect % Operators','Worst defect % · min 20 pieces · Top '+f.topN+' (hover a bar for line)','chTopOprDhu')}${cc('🏆 Top Good Operators','Best defect % · min 20 pieces · Top '+f.topN+' (hover a bar for line)','chTopOprGood')}</div>
     ${cc('Top Operators by Defects','Most defects by raw count · Top '+f.topN,'chTopOprDef')}
-    ${table}
+    ${oprTable('Operator-wise Defect Rate — Combined','(worst first · red needs support)',combTopN.worst,'No operator data for the current filters',420)}
+  </div>`;
+
+  return`<div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div style="font-size:20px;font-weight:800">Operator Analysis</div><div style="font-size:12px;color:var(--text2)">Same filters as Defect Analytics — find which operators need support, split by End Line, Roving, or combined.</div></div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="oprExportExcel()">${ic('excel',13)} Excel (Top 10)</button><button class="btn btn-ghost btn-sm" onclick="oprExportPDF()">${ic('pdf',13)} PDF (Top 10)</button></div><div style="display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${topTog}</div></div></div>
+    ${filterBar}
+    ${kpis}
+    ${top5Compare}
+    ${elSection}
+    ${rovSection}
+    ${combSection}
   </div>`;
 }
+// Downloadable report: ALWAYS Top 10 (independent of the on-screen Top-N toggle) for both
+// End Line and Roving, worst (red) and good (green) — matches the on-screen filters.
+window.oprExportExcel=function(){
+  const ex=D._oprExport;if(!ex){toast('Open Operator Analysis first','error');return;}
+  const rowsOf=arr=>arr.map(x=>[x.o,x.line||'—',x.topDefect||'—',x.chk,x.def,x.dhu.toFixed(1)+'%']);
+  const aoa=[];
+  aoa.push(['END LINE — TOP 10 NEEDING SUPPORT (highest defect %)']);
+  aoa.push(['Operator','Line','Top Defect','Checked','Defects','Defect %']);
+  rowsOf(ex.elWorst10).forEach(r=>aoa.push(r));
+  aoa.push([]);
+  aoa.push(['END LINE — TOP 10 GOOD OPERATORS (lowest defect %)']);
+  aoa.push(['Operator','Line','Top Defect','Checked','Defects','Defect %']);
+  rowsOf(ex.elGood10).forEach(r=>aoa.push(r));
+  aoa.push([]);
+  aoa.push(['ROVING — TOP 10 NEEDING SUPPORT (highest defect %)']);
+  aoa.push(['Operator','Line','Top Defect','Checked','Defects','Defect %']);
+  rowsOf(ex.rovWorst10).forEach(r=>aoa.push(r));
+  aoa.push([]);
+  aoa.push(['ROVING — TOP 10 GOOD OPERATORS (lowest defect %)']);
+  aoa.push(['Operator','Line','Top Defect','Checked','Defects','Defect %']);
+  rowsOf(ex.rovGood10).forEach(r=>aoa.push(r));
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:14},{wch:16},{wch:20},{wch:10},{wch:10},{wch:10}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Operator Analysis');
+  XLSX.writeFile(wb,`Operator_Analysis_Top10_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('Excel downloaded');
+};
+window.oprExportPDF=function(){
+  const ex=D._oprExport;if(!ex){toast('Open Operator Analysis first','error');return;}
+  const{jsPDF}=window.jspdf;const doc=new jsPDF();
+  pdfHeader(doc,'Operator Analysis — Top 10','End Line & Roving · needing support (red) vs good performers (green)',`Generated: ${new Date().toLocaleString()}`);
+  const head=['Operator','Line','Top Defect','Checked','Defects','Defect %'];
+  const bodyOf=arr=>arr.map(x=>[x.o,x.line||'—',x.topDefect||'—',x.chk,x.def,x.dhu.toFixed(1)+'%']);
+  const RED=[229,72,77],GREEN=[10,157,130];
+  const section=(doc,title,arr,color,startY)=>{
+    doc.setFontSize(10);doc.setTextColor(...color);doc.text(title,14,startY);
+    doc.autoTable({startY:startY+3,head:[head],body:bodyOf(arr),theme:'grid',styles:{fontSize:7.5,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:color,textColor:255,fontStyle:'bold'},
+      didParseCell:d=>{if(d.section==='body'&&d.column.index===5){d.cell.styles.textColor=color;d.cell.styles.fontStyle='bold';}},
+      margin:{left:14,right:14}});
+    return doc.lastAutoTable.finalY+8;
+  };
+  let y=38;
+  y=section(doc,'END LINE — Top 10 Needing Support (highest defect %)',ex.elWorst10,RED,y);
+  y=section(doc,'END LINE — Top 10 Good Operators (lowest defect %)',ex.elGood10,GREEN,y);
+  if(y>230){doc.addPage();y=20;}
+  y=section(doc,'ROVING — Top 10 Needing Support (highest defect %)',ex.rovWorst10,RED,y);
+  y=section(doc,'ROVING — Top 10 Good Operators (lowest defect %)',ex.rovGood10,GREEN,y);
+  pdfStamp(doc);
+  doc.save(`Operator_Analysis_Top10_${new Date().toISOString().slice(0,10)}.pdf`);
+  toast('PDF downloaded');
+};
 
 // ======================== 3RD PARTY QUALITY CHECKING ========================
 // Optional post-End-Line audit stage, gated by the Settings switch (thirdPartyOn()).
@@ -685,10 +879,28 @@ function pgThirdParty(){
 
   const slicer=(label,key,opts,cur)=>`<div style="min-width:0"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><select class="form-input" style="padding:7px 9px;font-size:12px" onchange="setTpFilter('${key}',this.value)"><option value="__all" ${cur==='__all'?'selected':''}>All</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
   const dateBox=(label,key,cur)=>`<div><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><input type="date" class="form-input" style="padding:7px 9px;font-size:12px" value="${cur||''}" onchange="setTpFilter('${key}',this.value)"></div>`;
-  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="resetTpFilter()">${ic('refresh',12)} Reset</button><button class="btn btn-ghost btn-sm" onclick="tpExportExcel()">${ic('excel',12)} Excel</button><button class="btn btn-ghost btn-sm" onclick="tpExportPDF()">${ic('pdf',12)} PDF</button></div></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateBox('Date from','from',fx.from)}${dateBox('Date to','to',fx.to)}${slicer('Module / Line','module',modules,fx.module)}${slicer('Style','style',stylesL,fx.style)}${slicer('Checker','checker',checkers,fx.checker)}</div></div>`;
+  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="resetTpFilter()">${ic('refresh',12)} Reset</button><button class="btn btn-ghost btn-sm" onclick="tpExportExcel()">${ic('excel',12)} Excel (records)</button><button class="btn btn-ghost btn-sm" onclick="tpExportPDF()">${ic('pdf',12)} PDF (records)</button></div></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateBox('Date from','from',fx.from)}${dateBox('Date to','to',fx.to)}${slicer('Module / Line','module',modules,fx.module)}${slicer('Style','style',stylesL,fx.style)}${slicer('Checker','checker',checkers,fx.checker)}</div></div>`;
 
   const kpiC=(v,l,c)=>`<div class="card card-sm" style="text-align:center"><div class="metric-val" style="color:${c};font-size:24px">${v}</div><div class="metric-label">${l}</div></div>`;
   const kpis=`<div class="grid-4">${kpiC(totChecked.toLocaleString(),'Total Checked','var(--accent2)')}${kpiC(totDef.toLocaleString(),'Total Defects','var(--red)')}${kpiC(defPct.toFixed(2)+'%','Defect %',defPct>2.5?'var(--red)':'var(--green)')}${kpiC(passPct.toFixed(2)+'%','Pass %','var(--green)')}</div>`;
+
+  // ---- Shift End Summary — the exact on-screen format that Excel/PDF also download,
+  // so what's on screen always matches the file (same rows, same grouping, same filters). ----
+  const shiftRows=buildTpShiftRows();
+  const shiftBody=shiftRows.map(g=>{
+    const endPer=g.checkQty?((g.defectQty/g.checkQty)*100).toFixed(1):'0.0';
+    const col=parseFloat(endPer)>5?'var(--red)':parseFloat(endPer)>3?'var(--yellow)':'var(--green)';
+    const top3=Object.entries(g.defectTypes).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([dt,n])=>`${dt}(${n})`).join(', ')||'—';
+    return `<tr><td style="font-size:12px">${fd(g.date)}</td><td style="font-weight:500">${g.module}</td><td><span class="badge badge-purple">${g.shift}</span></td><td style="font-family:var(--mono);text-align:right">${g.offerQty}</td><td style="font-family:var(--mono);text-align:right">${g.checkQty}</td><td style="font-family:var(--mono);text-align:right;color:var(--green)">${g.passQty}</td><td style="font-family:var(--mono);text-align:right;color:var(--red)">${g.defectQty}</td><td style="font-family:var(--mono);text-align:right;color:${col};font-weight:700">${endPer}%</td><td style="font-family:var(--mono);text-align:right">${g.defectQty}</td><td style="font-size:11px">${top3}</td></tr>`;
+  }).join('');
+  const shiftSummaryTable=`<div class="card" style="padding:0;overflow:hidden;border-color:var(--accent)">
+    <div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span>📋 Shift End Summary Report <span style="font-size:11px;color:var(--text3);font-weight:400">(same format as the paper sheet, grouped by date/line/team)</span></span>
+      <div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="rptTpShiftSummary('excel')">${ic('excel',12)} Excel</button><button class="btn btn-ghost btn-sm" onclick="rptTpShiftSummary('pdf')">${ic('pdf',12)} PDF</button></div>
+    </div>
+    <div class="table-wrap" style="max-height:420px;overflow:auto"><table><thead><tr><th>Date</th><th>Line/Zone</th><th>Team</th><th style="text-align:right">Offer Qty</th><th style="text-align:right">Check Qty</th><th style="text-align:right">Pass Qty</th><th style="text-align:right">Defect Qty</th><th style="text-align:right">End %</th><th style="text-align:right">No of Rejections</th><th>Top 3 Defects</th></tr></thead>
+    <tbody>${shiftBody||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">No 3rd party audits for the current filters</td></tr>'}</tbody></table></div>
+  </div>`;
 
   // Defects by part-code (which garment area fails most)
   const byPart={};F.forEach(r=>(r.defects||[]).forEach(d=>{const k=d.part+' — '+(d.partName||tpPartName(d.part));byPart[k]=(byPart[k]||0)+(parseInt(d.qty)||0);}));
@@ -710,6 +922,7 @@ function pgThirdParty(){
     ${offBanner}
     ${filterBar}
     ${kpis}
+    ${shiftSummaryTable}
     <div class="grid-2">${partTable}${typeTable}</div>
     ${recTable}
   </div>`;
@@ -732,6 +945,57 @@ window.tpExportPDF=function(){
   const rows=F.map(r=>[fd(r.date),r.time||'',r.module||'',r.style||'',r.leaderName||'',r.checkerName||'',r.offerPcs||0,r.checkedPcs||0,r.passPcs||0,r.totalDefectQty||0,(r.defectPct||0).toFixed(1)+'%']);
   makePDF('3rd Party Quality Checking',['Date','Time','Module','Style','Leader','Checker','Offer','Checked','Pass','Defects','Defect%'],rows);
 };
+
+// ---- 3rd Party "Shift End Summary" — same paper-sheet format as End Line's Shift Summary,
+// minus the Red Operator columns (3rd Party audits have no per-operator ID, only Leader/
+// Checker names and which body Part failed — confirmed with user to drop those columns
+// rather than misuse Leader/Checker as a stand-in "operator"). Grouped by date+module+shift,
+// respects the same date/module filters as the on-screen 3rd Party page.
+// Shared by the on-screen table AND the downloads, so what you SEE always matches what
+// you DOWNLOAD exactly — same grouping, same filters, same numbers.
+function buildTpShiftRows(){
+  const all=D.thirdPartyAudits||[];
+  const map={};
+  all.forEach(r=>{
+    const dateKey=r.date;if(!dateKey)return;
+    const shift=r.shift||'A',module=r.module||'—';
+    const key=`${dateKey}__${module}__${shift}`;
+    if(!map[key])map[key]={date:dateKey,module,shift,offerQty:0,checkQty:0,passQty:0,defectQty:0,defectTypes:{}};
+    const g=map[key];
+    g.offerQty+=parseInt(r.offerPcs)||0;g.checkQty+=parseInt(r.checkedPcs)||0;
+    g.passQty+=parseInt(r.passPcs)||0;g.defectQty+=parseInt(r.totalDefectQty)||0;
+    (r.defects||[]).forEach(d=>{if(d.type&&(parseInt(d.qty)||0)>0)g.defectTypes[d.type]=(g.defectTypes[d.type]||0)+(parseInt(d.qty)||0);});
+  });
+  const fx=D.tpFilter||{};
+  return Object.values(map).sort((a,b)=>b.date.localeCompare(a.date)||a.module.localeCompare(b.module))
+    .filter(r=>(!fx.from||r.date>=fx.from)&&(!fx.to||r.date<=fx.to)&&(!fx.module||fx.module==='__all'||r.module===fx.module));
+}
+window.rptTpShiftSummary=function(fmt){
+  const rows=buildTpShiftRows();
+  if(!rows.length){toast('No 3rd Party data for the current filters','error');return;}
+  if(fmt==='pdf')tpShiftSummaryPDF(rows);else tpShiftSummaryExcel(rows);
+};
+function tpShiftRow(g){
+  const endPer=g.checkQty?((g.defectQty/g.checkQty)*100).toFixed(1):'0.0';
+  const top3=Object.entries(g.defectTypes).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([dt,n])=>`${dt}(${n})`).join(', ')||'—';
+  return[fd(g.date),g.module,g.shift,g.offerQty,g.checkQty,g.passQty,g.defectQty,endPer+'%',g.defectQty,top3];
+}
+const TP_SHIFT_HEAD=['Date','Line/Zone','Team','Offer Qty','Check Qty','Pass Qty','Defect Qty','End Per %','No of Rejections','Top 3 Defects'];
+function tpShiftSummaryPDF(rows){
+  const{jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  pdfHeader(doc,'3rd Party — Shift End Summary Report',null,`Generated: ${new Date().toLocaleString()}`);
+  doc.autoTable({startY:37,head:[TP_SHIFT_HEAD],body:rows.map(tpShiftRow),styles:{fontSize:7.5,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[14,169,143],textColor:[255,255,255],fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid'});
+  pdfStamp(doc);
+  doc.save(`ThirdParty_ShiftEndSummary_${new Date().toISOString().slice(0,10)}.pdf`);
+  toast('3rd Party Shift End Summary PDF downloaded');
+}
+function tpShiftSummaryExcel(rows){
+  const ws=XLSX.utils.aoa_to_sheet([TP_SHIFT_HEAD,...rows.map(tpShiftRow)]);
+  ws['!cols']=TP_SHIFT_HEAD.map((_,i)=>({wch:[12,16,8,10,10,10,10,10,14,28][i]||12}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'3rd Party Shift Summary');
+  XLSX.writeFile(wb,`ThirdParty_ShiftEndSummary_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('3rd Party Shift End Summary Excel downloaded');
+}
 
 // ======================== MODULES ========================
 // Real, live DHU for a module — returns separate End Line and Roving metrics.
@@ -772,12 +1036,13 @@ function pgStyleReport(){
   const key=D.styleReportKey||'';
   const sel=styles.find(s=>s.fbKey===key);
 
+  const sr=presetRange(D.srRange||'all');
   const selector=`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
     <select class="form-control" style="min-width:260px" onchange="D.styleReportKey=this.value;render()">
       <option value="">— Select a Style —</option>
       ${styles.map(s=>`<option value="${s.fbKey}" ${key===s.fbKey?'selected':''}>${s.styleId} — ${s.name}${s.buyer?' ('+s.buyer+')':''}</option>`).join('')}
     </select>
-    ${sel?`<div style="margin-left:auto;display:flex;gap:8px">
+    ${sel?`${presetToggle(D.srRange||'all','setSrRange')}<div style="margin-left:auto;display:flex;gap:8px">
       <button class="btn btn-ghost btn-sm" onclick="rptStyleReport('excel')">${ic('download',14)} Excel</button>
       <button class="btn btn-ghost btn-sm" onclick="rptStyleReport('pdf')">${ic('pdf',14)} PDF</button>
     </div>`:''}
@@ -790,9 +1055,10 @@ function pgStyleReport(){
   // All inspections for this style. Prefer the Style ID stamped at check time
   // (the refcode) so a style change mid-day attributes each piece correctly;
   // fall back to the legacy style-name match for older records with no styleId.
+  // Then apply the Today/Week/Month/All range preset.
   const matchStyle=i=>(i.styleId&&sel.styleId&&i.styleId===sel.styleId)||(i.style&&(i.style===sel.name||i.style===sel.styleId||i.style.includes(sel.name)||i.style.includes(sel.styleId)));
-  const ins=D.inspections.filter(matchStyle);
-  const rovIns=(D.rovingInspections||[]).filter(matchStyle);
+  const ins=D.inspections.filter(i=>matchStyle(i)&&inPreset(i,sr));
+  const rovIns=(D.rovingInspections||[]).filter(i=>matchStyle(i)&&inPreset(i,sr));
 
   // Totals
   const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
@@ -1002,8 +1268,10 @@ function pgStyleReport(){
 function rptStyleReport(fmt){
   const sel=D.styles.find(s=>s.fbKey===D.styleReportKey);
   if(!sel){toast('Select a style first','error');return;}
-  const ins=D.inspections.filter(i=>i.style&&(i.style===sel.name||i.style===sel.styleId||i.style.includes(sel.name)||i.style.includes(sel.styleId)));
-  if(!ins.length){toast('No inspection data for this style','error');return;}
+  const sr=presetRange(D.srRange||'all');
+  const matchStyle=i=>(i.styleId&&sel.styleId&&i.styleId===sel.styleId)||(i.style&&(i.style===sel.name||i.style===sel.styleId||i.style.includes(sel.name)||i.style.includes(sel.styleId)));
+  const ins=D.inspections.filter(i=>matchStyle(i)&&inPreset(i,sr));
+  if(!ins.length){toast('No inspection data for this style in '+sr.label,'error');return;}
   if(fmt==='excel')return styleReportExcel(sel,ins);
   styleReportPDF(sel,ins);
 }
@@ -1016,7 +1284,7 @@ function styleReportPDF(sel,ins){
   const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
   const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
   doc.setFontSize(9);doc.setTextColor(40,40,40);
-  doc.text(`Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`,148,37,{align:'center'});
+  doc.text(`Period: ${presetRange(D.srRange||'all').label}   |   Total Checked: ${totChk}   Total Defects: ${totDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}`,148,37,{align:'center'});
   // Daily table
   const byDate={};
   ins.forEach(i=>{const d=i.date||(i.createdAt||'').split('T')[0];if(!d)return;const sh=i.shift||'A';if(!byDate[d])byDate[d]={chk:0,def:0,A:0,B:0};byDate[d].chk+=parseInt(i.checkedQty)||0;byDate[d].def+=parseInt(i.defectQty)||0;byDate[d][sh]=(byDate[d][sh]||0)+(parseInt(i.defectQty)||0);});
@@ -1033,7 +1301,7 @@ function styleReportPDF(sel,ins){
 function styleReportExcel(sel,ins){
   const aoa=[];
   aoa.push([factoryName()+' — STYLE REPORT']);
-  aoa.push([`Style: ${sel.styleId} — ${sel.name}`,`Buyer: ${sel.buyer||'—'}`,`Colour: ${sel.color||'—'}`,`Status: ${sel.status}`,`Target DHU: ${sel.targetDhu||'—'}%`]);
+  aoa.push([`Style: ${sel.styleId} — ${sel.name}`,`Buyer: ${sel.buyer||'—'}`,`Colour: ${sel.color||'—'}`,`Status: ${sel.status}`,`Target DHU: ${sel.targetDhu||'—'}%`,`Period: ${presetRange(D.srRange||'all').label}`]);
   const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
   const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
   const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
@@ -1087,12 +1355,13 @@ function pgModuleReport(){
   const key=D.moduleReportKey||'';
   const sel=mods.find(m=>m.fbKey===key);
 
+  const mr=presetRange(D.mrRange||'all');
   const selector=`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
     <select class="form-control" style="min-width:260px" onchange="D.moduleReportKey=this.value;render()">
       <option value="">— Select a Module / Line —</option>
       ${mods.map(m=>`<option value="${m.fbKey}" ${key===m.fbKey?'selected':''}>${m.name}${m.styleName?' — '+m.styleName:''}</option>`).join('')}
     </select>
-    ${sel?`<div style="margin-left:auto;display:flex;gap:8px">
+    ${sel?`${presetToggle(D.mrRange||'all','setMrRange')}<div style="margin-left:auto;display:flex;gap:8px">
       <button class="btn btn-ghost btn-sm" onclick="rptModuleReport('excel')">${ic('download',14)} Excel</button>
       <button class="btn btn-ghost btn-sm" onclick="rptModuleReport('pdf')">${ic('pdf',14)} PDF</button>
     </div>`:''}
@@ -1102,9 +1371,9 @@ function pgModuleReport(){
     <div class="card" style="padding:48px;text-align:center;color:var(--text3)">Select a module above to view its full report.</div>
   </div>`;
 
-  // All inspections + roving for this module (match by module name)
-  const ins=D.inspections.filter(i=>i.module===sel.name);
-  const rovIns=(D.rovingInspections||[]).filter(i=>i.module===sel.name);
+  // All inspections + roving for this module (match by module name), filtered by the range preset.
+  const ins=D.inspections.filter(i=>i.module===sel.name&&inPreset(i,mr));
+  const rovIns=(D.rovingInspections||[]).filter(i=>i.module===sel.name&&inPreset(i,mr));
 
   // End Line = the line's output (good garments). Roving/Inline = separate in-process checks.
   const elRows=ins.filter(i=>i.type!=='inline'), inlineRows=ins.filter(i=>i.type==='inline');
@@ -1210,9 +1479,10 @@ function pgModuleReport(){
 function rptModuleReport(fmt){
   const sel=D.modules.find(m=>m.fbKey===D.moduleReportKey);
   if(!sel){toast('Select a module first','error');return;}
-  const ins=D.inspections.filter(i=>i.module===sel.name);
-  const rov=(D.rovingInspections||[]).filter(i=>i.module===sel.name);
-  if(!ins.length&&!rov.length){toast('No data for this module','error');return;}
+  const mr=presetRange(D.mrRange||'all');
+  const ins=D.inspections.filter(i=>i.module===sel.name&&inPreset(i,mr));
+  const rov=(D.rovingInspections||[]).filter(i=>i.module===sel.name&&inPreset(i,mr));
+  if(!ins.length&&!rov.length){toast('No data for this module in '+mr.label,'error');return;}
   if(fmt==='excel')return moduleReportExcel(sel,ins,rov);
   moduleReportPDF(sel,ins,rov);
 }
@@ -1236,7 +1506,8 @@ function moduleReportPDF(sel,ins,rov){
   const rovDef=rov.reduce((a,i)=>a+(parseInt(i.dc)||0),0)+inlineRows.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
   const dhu=elChk?((elDef/elChk)*100).toFixed(2):'0.00';
   const rovDhu=rovChk?((rovDef/rovChk)*100).toFixed(2):'0.00';
-  pdfHeader(doc,'Module Report — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),`End Line output: ${elChk}   Good: ${elChk-elDef}   Defects: ${elDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}   |   Roving: ${rovChk} sampled · ${rovDef} def · ${rovDhu}%`,`Generated: ${new Date().toLocaleString()}`);
+  const mrL=presetRange(D.mrRange||'all').label;
+  pdfHeader(doc,'Module Report — '+(sel.name||'')+(sel.styleName?'  ('+sel.styleName+')':''),`Period: ${mrL}   |   End Line output: ${elChk}   Good: ${elChk-elDef}   Defects: ${elDef}   DHU: ${dhu}%   AQL: ${parseFloat(dhu)<=2.5?'PASS':'REVIEW'}   |   Roving: ${rovChk} sampled · ${rovDef} def · ${rovDhu}%`,`Generated: ${new Date().toLocaleString()}`);
   doc.setFontSize(7.5);doc.setTextColor(100,100,100);
   doc.text(`End Line Sheet: ${sheetSummary('endline',sel.name,elRows)}     Roving Sheet: ${sheetSummary('roving',sel.name,rov)}`,14,34);
   // Operator table
@@ -1252,7 +1523,7 @@ function moduleReportPDF(sel,ins,rov){
 function moduleReportExcel(sel,ins,rov){
   const aoa=[];
   aoa.push([factoryName()+' — MODULE REPORT']);
-  aoa.push([`Module: ${sel.name}`,`Style: ${sel.styleName||'—'}`,`Buyer: ${sel.buyer||'—'}`,`Team: ${sel.shift||'—'}`]);
+  aoa.push([`Module: ${sel.name}`,`Style: ${sel.styleName||'—'}`,`Buyer: ${sel.buyer||'—'}`,`Team: ${sel.shift||'—'}`,`Period: ${presetRange(D.mrRange||'all').label}`]);
   const elRows=ins.filter(i=>i.type!=='inline'), inlineRows=ins.filter(i=>i.type==='inline');
   const elChk=elRows.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
   const elDef=elRows.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
@@ -2292,13 +2563,18 @@ function pgShiftSummary(){
   const tableRows=vis.map(g=>{
     const endPer=g.checkQty?((g.defectQty/g.checkQty)*100).toFixed(1):'0.0';
     const redOps=Object.entries(g.operatorDHU).filter(([,od])=>od.chk&&(od.def/od.chk)*100>5);
+    // Show only the worst 3 in each list column (worst first, by defect rate) — the true
+    // count still shows in "# Red" so nothing is silently hidden, just decluttered.
+    const redOpsSorted=redOps.slice().sort((a,b)=>((b[1].def/b[1].chk)-(a[1].def/a[1].chk)));
+    const top3Red=redOpsSorted.slice(0,3);
     const noRed=redOps.length;
-    const repRed=redOps.filter(([opId])=>(redByOp[opId]||0)>1).map(([opId])=>opId).join(', ')||'—';
-    const redReasons=redOps.map(([opId,od])=>{
+    const repRedAll=redOpsSorted.filter(([opId])=>(redByOp[opId]||0)>1);
+    const repRed=(repRedAll.slice(0,3).map(([opId])=>opId).join(', ')||'—')+(repRedAll.length>3?` +${repRedAll.length-3} more`:'');
+    const redReasons=(top3Red.map(([opId,od])=>{
       const top=Object.entries(od.topDef).sort((a,b)=>b[1]-a[1])[0];
       return top?`${opId}:${top[0]}`:'';
-    }).filter(Boolean).join('; ')||'—';
-    const redOpsList=redOps.map(([opId])=>opId).join(', ')||'—';
+    }).filter(Boolean).join('; ')||'—')+(noRed>3?` +${noRed-3} more`:'');
+    const redOpsList=(top3Red.map(([opId])=>opId).join(', ')||'—')+(noRed>3?` +${noRed-3} more`:'');
     const top3=Object.entries(g.defectTypes).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([dt,n])=>`${dt}(${n})`).join(', ')||'—';
     return`<tr>
       <td>${g.date}</td>
@@ -2838,12 +3114,13 @@ function pgInsp(){
 
 // Count of everything awaiting an admin decision — drives the sidebar badge.
 function pendApprovalCount(){
+  // AI tickets are detections to REVIEW (on the AI Analysis page), not decisions needing
+  // approval — they don't count toward the Approvals badge.
   const pr=(D.machineRosters||[]).filter(r=>r.status==='Pending Approval').length;
   const pe=(D.editRequests||[]).filter(r=>r.status==='pending').length;
   const ps=(D.sheetAccess||[]).filter(r=>r.status==='pending').length;
-  const pt=(D.aiTickets||[]).filter(t=>t.status==='Open').length;
   const pc=(D.users||[]).filter(u=>u.changeRequest).length;
-  return pr+pe+ps+pt+pc;
+  return pr+pe+ps+pc;
 }
 
 // ======================== APPROVALS & REQUESTS ========================
@@ -2871,12 +3148,9 @@ function pgApprovals(){
     changeHtml=`<div class="card" style="border-color:var(--yellow)"><div class="card-header"><span class="card-title" style="color:var(--yellow)">⚠️ Pending Module Change Requests (${reqs.length})</span></div><div style="display:flex;flex-direction:column;gap:8px">${reqs.map(u=>{let am={name:'Unknown'};try{am=JSON.parse(u.activeModule||'{}')}catch(e){}return`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${u.name||u.username}</div><div style="font-size:11px;color:var(--text2)">Wants to change from: ${am.name||am.moduleId||'Unknown'}</div></div><button class="btn btn-primary btn-sm" onclick="approveChange('${u.fbKey}')">Approve Unlock</button></div>`}).join('')}</div></div>`;
   }
 
-  // ---- AI insights ----
-  const tickets = (D.aiTickets||[]).filter(t=>t.status==='Open');
-  let ticketHtml = '';
-  if(tickets.length>0){
-    ticketHtml = `<div class="card" style="border-color:var(--red)"><div class="card-header"><span class="card-title" style="color:var(--red)">🤖 AI Insights (${tickets.length})</span></div><div style="display:flex;flex-direction:column;gap:8px">${tickets.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px"><div><div style="font-size:14px;font-weight:600">${t.title}</div><div style="font-size:11px;color:var(--text2)">${t.description}</div></div><button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Acknowledge</button></div>`).join('')}</div></div>`;
-  }
+  // AI Insights moved off Approvals — they aren't things needing an admin DECISION like edit
+  // requests/sheet access, they're detections to review. They now live on the AI Analysis
+  // page (pgAI) with their own Acknowledge/Resolve actions.
 
   // ---- worker edit requests: pending approvals + full audit log ----
   const allEdits=(D.editRequests||[]).slice().sort((a,b)=>(b.requestedAt||'').localeCompare(a.requestedAt||''));
@@ -2899,10 +3173,10 @@ function pgApprovals(){
 
   const total=pendApprovalCount();
   const stat=(n,l,c)=>`<div class="card card-sm" style="border-left:3px solid ${c}"><div class="metric-val" style="color:${n>0?c:'var(--text3)'};font-size:22px">${n}</div><div class="metric-label">${l}</div></div>`;
-  const header=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px"><div><div style="font-size:16px;font-weight:700">${total>0?`${total} item${total!==1?'s':''} need your decision`:'All caught up — nothing pending ✓'}</div><div style="font-size:12px;color:var(--text2)">Edit requests, sheet access, rosters and AI insights live here so the dashboard stays clean.</div></div><button class="btn btn-ghost btn-sm" id="ai-run-btn" onclick="runAIAnalysisNow()">🤖 Run AI Analysis</button></div><div class="grid-4">${stat(pendEdits.length,'Edit Requests','var(--yellow)')}${stat(pendSA.length,'Sheet Access','var(--accent)')}${stat(pendingRosters.length+reqs.length,'Roster / Module','var(--purple)')}${stat(tickets.length,'AI Insights','var(--red)')}</div>`;
+  const header=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px"><div><div style="font-size:16px;font-weight:700">${total>0?`${total} item${total!==1?'s':''} need your decision`:'All caught up — nothing pending ✓'}</div><div style="font-size:12px;color:var(--text2)">Edit requests, sheet access and rosters live here so the dashboard stays clean. <a href="#" onclick="nav('ai-analysis');return false" style="color:var(--accent)">AI-detected issues are on the AI Analysis page →</a></div></div></div><div class="grid-3">${stat(pendEdits.length,'Edit Requests','var(--yellow)')}${stat(pendSA.length,'Sheet Access','var(--accent)')}${stat(pendingRosters.length+reqs.length,'Roster / Module','var(--purple)')}</div>`;
   const allClear=total===0?`<div class="card" style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:40px;margin-bottom:8px">✅</div><div style="font-weight:600;color:var(--text)">Nothing waiting for approval</div><div style="font-size:12px;margin-top:4px">New worker requests will appear here in real time.</div></div>`:'';
 
-  return`<div style="display:flex;flex-direction:column;gap:20px">${header}${pendingHtml}${changeHtml}${sheetAccessHtml}${editReqHtml}${ticketHtml}${allClear}${saAuditHtml}${auditHtml}</div>`;
+  return`<div style="display:flex;flex-direction:column;gap:20px">${header}${pendingHtml}${changeHtml}${sheetAccessHtml}${editReqHtml}${allClear}${saAuditHtml}${auditHtml}</div>`;
 }
 
 // ======================== SUPERVISOR (analytics) ========================
@@ -3118,7 +3392,7 @@ window.syncMachines = async function(){
 // count this against machine downtime KPIs — the machine kept running while QC flagged it,
 // this isn't an actual breakdown.
 window.pushAMMSTicket = async function(opts){
-  const {refId,machineId,machineName,department,issueDescription,priority,reportedBy,raisedBy} = opts;
+  const {refId,machineId,machineName,department,issueDescription,priority,reportedBy,raisedBy,operatorId} = opts;
   if(!machineId||!window._fmDb) return false;
   try{
     const machSnap = await window._get(window._ref(window._fmDb,'machines/'+machineId));
@@ -3127,7 +3401,7 @@ window.pushAMMSTicket = async function(opts){
     if(mach && OPEN_STATUSES.includes(mach.status)) return false; // already has an open ticket — don't duplicate
     const ticketId = '#TKT-QCM-'+refId.replace(/[^a-zA-Z0-9]/g,'').slice(-10);
     await window._set(window._ref(window._fmDb,'incoming_tickets/'+ticketId.replace('#','')), {
-      machineId, issueDescription, priority: priority||'Normal',
+      machineId, operatorId: operatorId||'', issueDescription, priority: priority||'Normal',
       reportedBy: reportedBy||'QCM AI', timestamp: new Date().toISOString(), ticketId,
       department, source: 'QCM', skipDowntime: true
     });
@@ -3137,7 +3411,7 @@ window.pushAMMSTicket = async function(opts){
     // only that person is allowed to do the closing verification scan.
     const qcmKey = refId.replace(/[^a-zA-Z0-9_]/g,'');
     await window._set(window._ref(window._db,'qcmAmmsTickets/'+qcmKey), {
-      refId, ticketId, machineId, machineName: machineName||machineId, department,
+      refId, ticketId, machineId, machineName: machineName||machineId, department, operatorId: operatorId||'',
       issueDescription, priority: priority||'Normal', reportedBy: reportedBy||'QCM AI',
       raisedBy: raisedBy||null, qcVerified:false, qcVerifiedBy:null, qcVerifiedAt:null,
       createdAt: new Date().toISOString()
@@ -3161,6 +3435,79 @@ const QCM_CATEGORY_DEPT = {
 let _aiTimer=null;
 window.scheduleAI=function(){clearTimeout(_aiTimer);_aiTimer=setTimeout(()=>{try{window.runAIAnalysis&&window.runAIAnalysis();}catch(e){console.warn('AI analysis error',e);}},1500);};
 window.runAIAnalysisNow=async function(){const b=document.getElementById('ai-run-btn');if(b){b.disabled=true;b.innerHTML='<span class="spinner"></span> Analyzing...';}try{await window.runAIAnalysis();toast('AI analysis complete');}catch(e){toast('AI error: '+e.message,'error');}if(b){b.disabled=false;b.innerHTML='🤖 Run AI Analysis';}};
+
+// ---- Real narrative AI report, called directly from the browser via Groq (no n8n needed).
+// Writes a record into the SAME `aiTickets` shape the existing "Latest Analysis" card
+// (pgAI's latestCard) already knows how to render — findings/rootCauses/recommendations —
+// so that whole rendering path lights up with zero changes once a real report exists.
+window.generateAIReport=async function(){
+  const key=D.aiConfig?.apiKey;
+  if(!key){toast('Add a Groq API key in Settings first','error');return;}
+  const btn=document.getElementById('ai-report-btn');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Generating...';}
+  try{
+    const ins=D.inspections||[];
+    const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+    const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+    const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
+    const dm={};ins.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||0);});
+    const topDef=Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const modMap={};ins.forEach(i=>{const m=i.module||'—';if(!modMap[m])modMap[m]={chk:0,def:0};modMap[m].chk+=parseInt(i.checkedQty)||0;modMap[m].def+=parseInt(i.defectQty)||0;});
+    const modStats=Object.entries(modMap).map(([n,s])=>({n,dhu:s.chk?((s.def/s.chk)*100).toFixed(1):'0.0',chk:s.chk,def:s.def})).sort((a,b)=>parseFloat(b.dhu)-parseFloat(a.dhu)).slice(0,10);
+    const om={};ins.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});
+    const topOps=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,8);
+    const openAiTickets=(D.aiTickets||[]).filter(t=>t.status==='Open').slice(0,15).map(t=>t.title);
+
+    const dataSummary=`Overall DHU: ${dhu}% (target ≤2.5%). Total inspected: ${totChk}, total defects: ${totDef}.
+Top defect types (name: count): ${topDef.map(([n,c])=>`${n}: ${c}`).join(', ')||'none'}.
+Module DHU (worst first): ${modStats.map(m=>`${m.n}: ${m.dhu}% (${m.chk} checked, ${m.def} defects)`).join('; ')||'none'}.
+Operators with most defects: ${topOps.map(([o,d])=>`${o}: ${d.d} defects over ${d.n} checks`).join('; ')||'none'}.
+Already-open auto-detected alerts: ${openAiTickets.join('; ')||'none'}.`;
+
+    const sys='You are a garment factory quality analyst. Given live inspection metrics, respond with ONLY a JSON object (no markdown, no code fences) matching exactly this shape: '
+      +'{"overallStatus":"Critical|High|Medium|Low","trend":"improving|stable|declining","summary":"2-3 sentence plain-English summary a factory manager would understand","findings":[{"title":"short title","module":"module name or empty","detail":"1-2 sentences","level":"Critical|High|Medium|Low"}],"rootCauses":[{"cause":"short cause","evidence":"1 sentence citing the numbers"}],"recommendations":[{"action":"concrete action","target":"who/what it targets","priority":"immediate|soon|planned"}]}. '
+      +'Give 2-5 findings, 1-3 root causes, 2-5 recommendations. Base everything on the data given — do not invent modules/operators/defects not mentioned. overallStatus should reflect the overall DHU vs the 2.5% target; trend should reflect whether DHU/defect counts look concerning.';
+
+    const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        temperature:0.3,
+        response_format:{type:'json_object'},
+        messages:[{role:'system',content:sys},{role:'user',content:dataSummary}]
+      })
+    });
+    if(!resp.ok){
+      const errBody=await resp.text().catch(()=>'');
+      if(resp.status===401)throw new Error('Groq rejected the API key — check it in Settings');
+      if(resp.status===429)throw new Error('Groq rate limit hit — wait a moment and try again');
+      throw new Error('Groq API error '+resp.status+(errBody?': '+errBody.slice(0,150):''));
+    }
+    const payload=await resp.json();
+    let raw=payload?.choices?.[0]?.message?.content||'';
+    raw=raw.trim().replace(/^```(json)?/i,'').replace(/```$/,'').trim(); // in case the model wraps it anyway
+    let parsed;
+    try{parsed=JSON.parse(raw);}catch(e){throw new Error('Groq returned non-JSON — try again');}
+
+    const now=new Date().toISOString();
+    await window.fbAdd('aiTickets',{
+      overallStatus:parsed.overallStatus||'Medium',
+      trend:parsed.trend||'stable',
+      summary:parsed.summary||'',
+      dhu:parseFloat(dhu),totalInsp:totChk,totalDef:totDef,
+      findings:Array.isArray(parsed.findings)?parsed.findings.slice(0,8):[],
+      rootCauses:Array.isArray(parsed.rootCauses)?parsed.rootCauses.slice(0,5):[],
+      recommendations:Array.isArray(parsed.recommendations)?parsed.recommendations.slice(0,8):[],
+      analysisDate:new Date().toLocaleString(),
+      generatedAt:now,createdAt:now,provider:'groq',
+      status:'Report' // distinct from 'Open' pattern-ticket status so it doesn't show up in the Auto-Detected Issues list
+    });
+    toast('✅ AI report generated');
+    if(D.page==='ai-analysis')render();
+  }catch(e){toast('AI report failed: '+e.message,'error');}
+  if(btn){btn.disabled=false;btn.innerHTML='✨ Generate AI Report';}
+};
 window.runAIAnalysis = async function(){
   const ins = D.inspections;
   if(ins.length < 3) return;
@@ -3186,7 +3533,7 @@ window.runAIAnalysis = async function(){
       if(!existingIds.has(refId)){
         const mach = (D.machines||[]).find(m=>m.fbKey===machId);
         await window.fbAdd('aiTickets',{refId,type:'OperatorRisk',level:'high',status:'Open',operatorId:opId,machineId:machId,machineName:mach?.name||machId,title:`High DHU: Operator ${opId} on ${mach?.name||machId}`,description:`Operator ${opId} has exceeded 5% DHU for 3+ consecutive inspections on machine ${mach?.name||machId}. Consider retraining.`,autoGenerated:true});
-        await window.pushAMMSTicket({refId,machineId:machId,department:'IE',priority:'Low',reportedBy:'QCM AI — Operator Risk',
+        await window.pushAMMSTicket({refId,machineId:machId,operatorId:opId,department:'IE',priority:'Low',reportedBy:'QCM AI — Operator Risk',
           issueDescription:`[QCM] Operator ${opId} exceeded 5% DHU for 3+ consecutive checks on ${mach?.name||machId}. Review technique/retraining (line-balance, ergonomics).`});
       }
     }
@@ -3243,12 +3590,15 @@ window.runAIAnalysis = async function(){
     const cat=elCategory('',d.defectType||'');
     if(!QCM_CATEGORY_DEPT[cat]) return;
     if(!catByMachine[d.machineId]) catByMachine[d.machineId]={};
-    if(!catByMachine[d.machineId][cat]) catByMachine[d.machineId][cat]={byVisit:{},lastSubmittedBy:null,lastAt:''};
+    if(!catByMachine[d.machineId][cat]) catByMachine[d.machineId][cat]={byVisit:{},lastSubmittedBy:null,operatorId:null,lastAt:''};
     const bucket=catByMachine[d.machineId][cat];
     const visit=d.visitNum!=null?d.visitNum:0;
     bucket.byVisit[visit]=(bucket.byVisit[visit]||0)+(parseInt(d.defectQty||d.dc)||0);
     const at=d.createdAt||d.date||'';
-    if(at>=bucket.lastAt){bucket.lastAt=at;bucket.lastSubmittedBy=d.submittedBy||bucket.lastSubmittedBy;}
+    // Track the OPERATOR whose defect most recently pushed this bucket over the threshold —
+    // separate from lastSubmittedBy (the Roving QC who logged it). AMMS/maintenance needs to
+    // know which garment-line operator was on the machine, not just who inspected it.
+    if(at>=bucket.lastAt){bucket.lastAt=at;bucket.lastSubmittedBy=d.submittedBy||bucket.lastSubmittedBy;bucket.operatorId=d.operatorId||bucket.operatorId;}
   });
   for(const [machId,cats] of Object.entries(catByMachine)){
     for(const [cat,bucket] of Object.entries(cats)){
@@ -3262,11 +3612,11 @@ window.runAIAnalysis = async function(){
       const dept=QCM_CATEGORY_DEPT[cat];
       const reason = maxInOneVisit>=2 ? `${maxInOneVisit}x in one visit` : `recurring across ${distinctVisits} visits today`;
       const isHighSeverity = cat==='OIL MARK' || cat==='CUT HOLE';
-      await window.fbAdd('aiTickets',{refId,type:'DefectCategoryRisk',level:isHighSeverity?'high':'medium',status:'Open',machineId:machId,machineName:mach?.name||machId,title:`${cat}: ${reason} — ${mach?.name||machId}`,description:`"${cat}" defects (${reason}) on ${mach?.name||machId} — routed to ${dept}. Raised by ${bucket.lastSubmittedBy||'Roving QC'}.`,autoGenerated:true});
+      await window.fbAdd('aiTickets',{refId,type:'DefectCategoryRisk',level:isHighSeverity?'high':'medium',status:'Open',machineId:machId,machineName:mach?.name||machId,operatorId:bucket.operatorId||'',title:`${cat}: ${reason} — ${mach?.name||machId}`,description:`"${cat}" defects (${reason}) on ${mach?.name||machId}${bucket.operatorId?' by Operator '+bucket.operatorId:''} — routed to ${dept}. Raised by ${bucket.lastSubmittedBy||'Roving QC'}.`,autoGenerated:true});
       // raisedBy = the Roving QC whose submission most recently pushed this machine/category
       // over the threshold — only they can do the closing verification scan in the worker app.
-      await window.pushAMMSTicket({refId,machineId:machId,machineName:mach?.name||machId,department:dept,priority:isHighSeverity?'High':'Normal',reportedBy:'QCM AI — Defect Pattern',raisedBy:bucket.lastSubmittedBy||null,
-        issueDescription:`[QCM] "${cat}" defects (${reason}) on ${mach?.name||machId}.`});
+      await window.pushAMMSTicket({refId,machineId:machId,machineName:mach?.name||machId,operatorId:bucket.operatorId||'',department:dept,priority:isHighSeverity?'High':'Normal',reportedBy:'QCM AI — Defect Pattern',raisedBy:bucket.lastSubmittedBy||null,
+        issueDescription:`[QCM] "${cat}" defects (${reason}) on ${mach?.name||machId}${bucket.operatorId?' by Operator '+bucket.operatorId:''}.`});
     }
   }
 };
@@ -3297,6 +3647,7 @@ function pgAmmsTickets(){
     return `<tr>
       <td style="padding:10px 12px;font-size:12px;color:var(--text3)">${ft(t.createdAt)}</td>
       <td style="padding:10px 12px;font-size:12px;font-weight:600">${t.machineName||t.machineId}</td>
+      <td style="padding:10px 12px;font-size:12px;font-family:var(--mono)">${t.operatorId?t.operatorId:'<span style="color:var(--text3)">—</span>'}</td>
       <td style="padding:10px 12px;font-size:12px"><span class="badge badge-blue">${t.department}</span></td>
       <td style="padding:10px 12px;font-size:12px;color:var(--text2);max-width:280px">${t.issueDescription}</td>
       <td style="padding:10px 12px;font-size:12px">${t.raisedBy||'<span style="color:var(--text3)">AI (pattern)</span>'}</td>
@@ -3313,6 +3664,7 @@ function pgAmmsTickets(){
       <thead><tr style="background:rgba(255,255,255,.03);text-align:left">
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Sent</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Machine</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Operator</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Dept</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Issue</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Raised By</th>
@@ -3320,7 +3672,7 @@ function pgAmmsTickets(){
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Assigned Worker</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">QC Verification</th>
       </tr></thead>
-      <tbody>${rows||`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3)">No QCM → AMMS tickets yet.</td></tr>`}</tbody>
+      <tbody>${rows||`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No QCM → AMMS tickets yet.</td></tr>`}</tbody>
     </table>
     </div>
   </div>`;
@@ -3329,7 +3681,11 @@ function pgAmmsTickets(){
 function pgAI(){
   const ins=D.inspections||[];
   const rovIns=D.rovingInspections||[];
-  const tickets=(D.aiTickets||[]).sort((a,b)=>(b.generatedAt||b.createdAt||'').localeCompare(a.generatedAt||a.createdAt||''));
+  // Only real narrative reports (status:'Report', written by generateAIReport) qualify as
+  // "latest" — pattern-detection tickets (status:'Open', from runAIAnalysis) share the same
+  // Firebase collection but have a totally different shape and would render as blank/garbage
+  // in latestCard if picked up here by mistake.
+  const tickets=(D.aiTickets||[]).filter(t=>t.status==='Report').sort((a,b)=>(b.generatedAt||b.createdAt||'').localeCompare(a.generatedAt||a.createdAt||''));
   const latest=tickets[0]||null;
 
   // Live computed metrics
@@ -3353,17 +3709,51 @@ function pgAI(){
   const om={};ins.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});
   const topOps=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,6);
 
-  // Status helpers
+  // Status helpers (used below — declared here since trendCard needs trendColor/trendIcon)
   const statusColor={'Critical':'var(--red)','High':'var(--red)','Medium':'var(--yellow)','Low':'var(--green)'};
   const trendIcon={'improving':'↑','stable':'→','declining':'↓'};
   const trendColor={'improving':'var(--green)','stable':'var(--yellow)','declining':'var(--red)'};
   const prioColor={'immediate':'var(--red)','soon':'var(--yellow)','planned':'var(--blue)'};
 
+  // ---- Real, always-on analysis (no external AI needed) — the DHU trend and the "biggest
+  // risk right now" headline are computed straight from live inspection data, so this page
+  // has something genuinely useful even if the optional n8n/Grok pipeline was never set up. ----
+  const dOf=i=>(i.date||(i.createdAt||'').split('T')[0])||'';
+  const last7=new Date(Date.now()-6*86400000).toISOString().split('T')[0];
+  const prev7Start=new Date(Date.now()-13*86400000).toISOString().split('T')[0];
+  const thisWk=ins.filter(i=>dOf(i)>=last7);
+  const prevWk=ins.filter(i=>dOf(i)>=prev7Start&&dOf(i)<last7);
+  const dhuOfSet=a=>{const c=a.reduce((s,i)=>s+(parseInt(i.checkedQty)||0),0),d=a.reduce((s,i)=>s+(parseInt(i.defectQty)||0),0);return c?(d/c)*100:null;};
+  const dhuThisWk=dhuOfSet(thisWk),dhuPrevWk=dhuOfSet(prevWk);
+  const trend=(dhuThisWk==null||dhuPrevWk==null)?null:(dhuThisWk<dhuPrevWk-0.3?'improving':dhuThisWk>dhuPrevWk+0.3?'declining':'stable');
+  const trendCard=trend?`<div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:3px">7-DAY TREND</div><div style="font-size:18px;font-weight:700;color:${trendColor[trend]}">${trendIcon[trend]} ${trend.toUpperCase()}</div><div style="font-size:10px;color:var(--text3)">${dhuThisWk.toFixed(1)}% vs ${dhuPrevWk.toFixed(1)}% last week</div></div>`:'';
+
+  const worstMod=modStats.filter(m=>m.chk>=20)[0]||null;
+  const worstOp=topOps.filter(([,d])=>d.n>=3).sort((a,b)=>(b[1].d/b[1].n)-(a[1].d/a[1].n))[0]||null;
+  const topProblem=topDef[0]||null;
+  const riskParts=[];
+  if(worstMod&&parseFloat(worstMod.dhu)>2.5)riskParts.push(`<b>${worstMod.n}</b> is running at <b style="color:var(--red)">${worstMod.dhu}%</b> defect rate — the worst line right now`);
+  if(worstOp)riskParts.push(`operator <b>${worstOp[0]}</b> is averaging <b style="color:var(--red)">${(worstOp[1].d/worstOp[1].n).toFixed(1)}</b> defects per check`);
+  if(topProblem)riskParts.push(`<b>${topProblem[0]}</b> is the most common defect (${topProblem[1]} found, ${totDef?((topProblem[1]/totDef)*100).toFixed(0):0}% of all defects)`);
+  const riskCard=riskParts.length===0?'':`<div class="card" style="border-color:var(--red);border-width:2px;background:rgba(229,72,77,.04)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:20px">🎯</span><span style="font-size:15px;font-weight:800">Biggest Risk Right Now</span><span style="font-size:10px;color:var(--text3);margin-left:auto">computed live — no external AI needed</span></div>
+    <div style="font-size:14px;line-height:1.7;color:var(--text)">${riskParts.join('. ')}.</div>
+  </div>`;
+
+  // ---- The auto-detection engine (runAIAnalysis) actually runs client-side and generates
+  // these tickets — give them a real, actionable home here instead of just a count. ----
+  const openTickets=(D.aiTickets||[]).filter(t=>t.status==='Open').sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  const ticketLevelColor={critical:'var(--red)',high:'var(--red)',medium:'var(--yellow)',low:'var(--green)'};
+  const ticketsCard=`<div class="card">
+    <div class="card-header"><span class="card-title">🔔 Auto-Detected Issues (${openTickets.length})</span><span style="font-size:11px;color:var(--text3)">from live inspection patterns — Operator Risk, Machine Risk, Frequent Swaps, Defect Patterns</span></div>
+    ${openTickets.length===0?'<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px">✓ Nothing flagged right now</div>':`<div style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto">${openTickets.map(t=>{const c=ticketLevelColor[(t.level||'').toLowerCase()]||'var(--text3)';return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-left:3px solid ${c};border-radius:8px"><div style="min-width:0"><div style="font-size:13px;font-weight:600">${t.title||''}</div><div style="font-size:11px;color:var(--text2);margin-top:2px">${t.description||''}</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Acknowledge</button><button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="resolveTicket('${t.fbKey}')">✓ Resolve</button></div></div>`;}).join('')}</div>`}
+  </div>`;
+
   const latestCard=latest?`
   <div class="card" style="border-color:${statusColor[latest.overallStatus]||'var(--border)'};border-width:2px">
     <div class="card-header" style="flex-wrap:wrap;gap:8px">
       <div style="display:flex;align-items:center;gap:10px">
-        <div class="ai-chip">${ic('cpu',12)} Grok AI</div>
+        <div class="ai-chip">${ic('cpu',12)} Groq</div>
         <span class="card-title">Latest Analysis</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
@@ -3415,11 +3805,11 @@ function pgAI(){
       </div>`).join('')}
     </div>`:''}
   </div>`:`
-  <div class="card" style="text-align:center;padding:40px 20px">
-    <div style="font-size:32px;margin-bottom:12px">🤖</div>
-    <div style="font-size:16px;font-weight:600;margin-bottom:8px">No AI Analysis Yet</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:16px">Run the n8n workflow to generate Grok AI root cause analysis.</div>
-    <div class="ai-chip" style="margin:0 auto">${ic('cpu',12)} Awaiting n8n Trigger</div>
+  <div class="card" style="text-align:center;padding:32px 20px;border-style:dashed">
+    <div style="font-size:28px;margin-bottom:10px">✨</div>
+    <div style="font-size:14px;font-weight:600;margin-bottom:6px">${D.aiConfig?.apiKey?'No report generated yet':'Connect Groq to generate written reports'}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px">${D.aiConfig?.apiKey?'Click "Generate AI Report" above — it reads your live inspection data and writes a full narrative report (findings, root causes, recommendations) right here, in seconds.':'Everything above (biggest risk, alerts, trends) already runs live with no setup. Add a Groq API key in Settings to also get written root-cause paragraphs on demand — no n8n server needed.'}</div>
+    ${D.aiConfig?.apiKey?`<button class="btn btn-primary btn-sm" onclick="generateAIReport()">✨ Generate AI Report</button>`:`<button class="btn btn-ghost btn-sm" onclick="nav('settings')">Go to Settings →</button>`}
   </div>`;
 
   return`<div style="display:flex;flex-direction:column;gap:20px">
@@ -3429,15 +3819,15 @@ function pgAI(){
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <div>
         <div style="font-size:18px;font-weight:700;margin-bottom:4px">🤖 AI Quality Analysis</div>
-        <div style="font-size:12px;color:var(--text2)">Root cause detection powered by Grok AI via n8n automation</div>
+        <div style="font-size:12px;color:var(--text2)">Live metrics run automatically below. Root-cause narrative reports are generated on demand via Groq.</div>
       </div>
-      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-        <span class="ai-chip">${ic('cpu',12)} Grok AI (xAI)</span>
-        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(255,127,0,.1);border:1px solid rgba(255,127,0,.25);border-radius:20px;font-size:11px;color:#ff7f00">⚙ n8n Automation</span>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        ${D.aiConfig?.apiKey?`<button class="btn btn-primary btn-sm" id="ai-report-btn" onclick="generateAIReport()">✨ Generate AI Report</button>`:`<button class="btn btn-ghost btn-sm" onclick="nav('settings')">➕ Connect Groq to enable reports</button>`}
+        <span class="ai-chip">${ic('cpu',12)} Groq (Llama 3.3)</span>
         <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);border-radius:20px;font-size:11px;color:var(--red)">🔥 Firebase</span>
       </div>
     </div>
-    ${latest?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:var(--text3)">Last analysis: ${latest.analysisDate||fd(latest.generatedAt||latest.createdAt)||'—'} &nbsp;•&nbsp; ${tickets.length} analysis records in database</div>`:''}
+    ${latest?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:var(--text3)">Last report: ${latest.analysisDate||fd(latest.generatedAt||latest.createdAt)||'—'} &nbsp;•&nbsp; ${tickets.length} report${tickets.length!==1?'s':''} in database</div>`:''}
   </div>
 
   <!-- Live KPI row -->
@@ -3457,14 +3847,14 @@ function pgAI(){
       <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:var(--red)">${totDef}</div>
       <div style="font-size:11px;color:var(--text2)">${todayIns.length} today</div>
     </div>
-    <div class="card" style="padding:14px;border-color:${latest?statusColor[latest.overallStatus]||'var(--border)':'var(--border)'}">
-      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">AI STATUS</div>
-      <div style="font-size:18px;font-weight:700;color:${latest?statusColor[latest.overallStatus]||'var(--text)':'var(--text3)'}">${latest?latest.overallStatus:'No data'}</div>
-      <div style="font-size:11px;color:${latest?trendColor[latest.trend]||'var(--text2)':'var(--text3)'}">${latest?(trendIcon[latest.trend]||'')+'  '+(latest.trend||''):'Run n8n workflow'}</div>
-    </div>
+    ${trendCard||`<div class="card" style="padding:14px"><div style="font-size:10px;color:var(--text3);margin-bottom:4px">7-DAY TREND</div><div style="font-size:14px;color:var(--text3)">Not enough history yet</div></div>`}
   </div>
 
-  <!-- Latest AI analysis card -->
+  <!-- Real, always-on: biggest risk headline + the tickets the auto-detection engine found -->
+  ${riskCard}
+  ${ticketsCard}
+
+  <!-- Real narrative report via Groq, once generated (or the empty-state prompting for one) -->
   ${latestCard}
 
   <!-- Live Defect Distribution -->
@@ -3526,12 +3916,15 @@ function pgAI(){
     </div>
   </div>
 
-  <!-- n8n Integration info -->
+  <!-- n8n Integration info — alternate/legacy path; the "Generate AI Report" button above
+       calls Groq directly and doesn't need any of this set up. Kept for anyone who'd rather
+       have reports auto-run on a schedule via their own n8n server. -->
   <div class="card" style="border-color:rgba(255,127,0,.3)">
     <div class="card-header">
-      <span class="card-title">⚙ n8n Automation Setup</span>
-      <span style="font-size:11px;color:var(--text3)">Auto-runs every 30 min</span>
+      <span class="card-title">⚙ Alternative: Scheduled Reports via n8n</span>
+      <span style="font-size:11px;color:var(--text3)">Optional — not required, runs every 30 min if set up</span>
     </div>
+    <div style="font-size:11px;color:var(--text2);padding:0 0 12px">The button above generates a report on demand with no setup. This n8n path is only for auto-generating a report every 30 minutes unattended.</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div>
         <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.8px;margin-bottom:10px">WORKFLOW STEPS</div>
@@ -3743,6 +4136,19 @@ function pgSettings(){
     <div style="font-size:11px;color:var(--text3);margin-top:8px">Current on reports: <b>${factoryName()}</b></div>
   </div>
 
+  <div class="card" style="border-color:${D.aiConfig?.apiKey?'var(--accent)':'var(--border)'}">
+    <div class="card-header"><span class="card-title">✨ AI Analysis (Groq)</span><span style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:${D.aiConfig?.apiKey?'rgba(14,169,143,.14)':'var(--bg3)'};color:${D.aiConfig?.apiKey?'var(--accent)':'var(--text3)'}">${D.aiConfig?.apiKey?'CONNECTED':'NOT CONNECTED'}</span></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px;background:var(--bg3);border-radius:8px">
+      Paste your <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="color:var(--accent)">console.groq.com</a> API key here to enable the "Generate AI Report" button on the AI Analysis page — it calls Groq's fast Llama model directly from this browser (no n8n needed) and writes a real narrative report. ⚠ <b>This key is visible to anyone who can view this page's source or network requests</b> — same exposure your Firebase config already has. Don't paste a key you're not comfortable being seen; you can revoke/rotate it at console.groq.com anytime.
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input class="form-input" id="ai-key" type="password" style="flex:1;min-width:220px" placeholder="gsk_..." value="${(D.aiConfig?.apiKey||'').replace(/"/g,'&quot;')}">
+      <button class="btn btn-primary" onclick="saveAIConfig()">Save</button>
+      ${D.aiConfig?.apiKey?`<button class="btn btn-ghost" style="color:var(--red)" onclick="clearAIConfig()">Remove Key</button>`:''}
+    </div>
+    ${D.aiConfig?.updatedBy?`<div style="font-size:11px;color:var(--text3);margin-top:8px">Last set by ${D.aiConfig.updatedBy} · ${ft(D.aiConfig.updatedAt)}</div>`:''}
+  </div>
+
   <div class="card" style="border-color:${tpOn?'var(--accent)':'var(--border)'}">
     <div class="card-header"><span class="card-title">🧪 3rd Party Quality Checking</span>
       <span style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:${tpOn?'rgba(14,169,143,.14)':'var(--bg3)'};color:${tpOn?'var(--accent)':'var(--text3)'}">${tpOn?'ON':'OFF'}</span>
@@ -3946,6 +4352,18 @@ window.saveFactoryName=async function(){
   const v=el.value.trim();
   await window._set(window._ref(window._db,'settings/factory'),{name:v,updatedBy:D.user?.username||'admin',updatedAt:new Date().toISOString()});
   toast(v?('✅ Factory name saved — reports will show "'+v+'"'):'Factory name cleared — reports show GarmentFix QMS');
+};
+window.saveAIConfig=async function(){
+  const el=document.getElementById('ai-key');if(!el)return;
+  const v=el.value.trim();
+  if(!v){toast('Enter an API key first','error');return;}
+  await window._set(window._ref(window._db,'settings/aiConfig'),{provider:'groq',apiKey:v,updatedBy:D.user?.username||'admin',updatedAt:new Date().toISOString()});
+  toast('✅ Groq API key saved — try "Generate AI Report" on the AI Analysis page');
+};
+window.clearAIConfig=async function(){
+  if(!confirm('Remove the saved Groq API key? The "Generate AI Report" button will stop working until a new key is added.'))return;
+  await window._set(window._ref(window._db,'settings/aiConfig'),null);
+  toast('API key removed');
 };
 function shiftLabel(){const s=currentShift();const hrs={A:'06:00–14:00',B:'14:00–22:00'};return`Team ${s} (${wkClockSlot()==='morning'?'06:00–14:00':'14:00–22:00'})`;}
 
@@ -4182,7 +4600,7 @@ function renderCharts(){
     const barO=rot=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:pctTip},scales:{y:pctY,x:{grid:{display:false},ticks:{color:TICK,font:{size:9},maxRotation:rot,minRotation:rot}}}});
     const lineO={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:pctTip},scales:{y:pctY,x:{grid:{display:false},ticks:{color:TICK,font:{size:9}}}}};
     const mkBar=(id,arr,color)=>{const e=document.getElementById(id);if(!e||!arr||!arr.length)return;charts['c_'+id]=new Chart(e,{type:'bar',data:{labels:arr.map(([n])=>cut(n)),datasets:[{data:arr.map(([,c])=>pctOf(c)),backgroundColor:color,borderRadius:3}]},options:barO(50)});};
-    const mkLine=(id,pts,short)=>{const e=document.getElementById(id);if(!e||!pts||!pts.length)return;charts['c_'+id]=new Chart(e,{type:'line',data:{labels:pts.map(p=>short?fd(p.d).slice(0,6):fd(p.d)),datasets:[{data:pts.map(p=>+p.pct.toFixed(2)),borderColor:'#283593',backgroundColor:'rgba(40,53,147,.08)',fill:true,tension:.3,pointRadius:short?2:3,pointBackgroundColor:'#283593'},{data:pts.map(()=>2.5),borderColor:'#e5484d',borderDash:[5,5],pointRadius:0,fill:false}]},options:lineO});};
+    const mkLine=(id,pts,short)=>{const e=document.getElementById(id);if(!e||!pts||!pts.length)return;charts['c_'+id]=new Chart(e,{type:'line',data:{labels:pts.map(p=>pb.hourly?p.d:(short?fd(p.d).slice(0,6):fd(p.d))),datasets:[{data:pts.map(p=>+p.pct.toFixed(2)),borderColor:'#283593',backgroundColor:'rgba(40,53,147,.08)',fill:true,tension:.3,pointRadius:short?2:3,pointBackgroundColor:'#283593'},{data:pts.map(()=>2.5),borderColor:'#e5484d',borderDash:[5,5],pointRadius:0,fill:false}]},options:lineO});};
     mkBar('chTopDef',pb.topDef,'#2e7d32');
     mkBar('chTopOp',pb.topOp,'#388e3c');
     mkLine('chWk',pb.weekly,false);
@@ -4195,7 +4613,7 @@ function renderCharts(){
   if(cb&&cb.days&&cb.days.length){
     const eCombo=document.getElementById('chCombo');
     if(eCombo)charts.cCombo=new Chart(eCombo,{type:'line',data:{
-      labels:cb.days.map(d=>fd(d).slice(0,6)),
+      labels:cb.hourly?cb.days:cb.days.map(d=>fd(d).slice(0,6)),
       datasets:[
         {label:'End Line Output',data:cb.elOut,borderColor:'#0ea98f',backgroundColor:'rgba(14,169,143,.08)',yAxisID:'y',tension:.3,pointRadius:2,fill:false},
         {label:'End Line Defects',data:cb.elDef,borderColor:'#e5484d',backgroundColor:'rgba(229,72,77,.08)',yAxisID:'y1',tension:.3,pointRadius:2,fill:false},
@@ -4212,18 +4630,23 @@ function renderCharts(){
         x:{grid:{display:false},ticks:{color:TICK,font:{size:9}}}
       }}});
   }
-  // Operator Analysis charts: top operators by defect count + by defect %
-  const op=window.D._opa;
-  if(op){
+  // Operator Analysis charts: top operators by defect count + by defect %.
+  // Same 3-chart set drawn for Combined, End Line, and Roving — one helper, three callers,
+  // so bar charts render BEFORE each section's table (chart-first layout).
+  const drawOprCharts=(op,ids)=>{
+    if(!op)return;
     const catX={grid:{display:false},ticks:{color:TICK,font:{size:9},maxRotation:55,minRotation:55}};
     const tip=(arr,pct)=>({callbacks:{label:ctx=>{const x=arr[ctx.dataIndex]||{};return ' '+ctx.parsed.y+(pct?'%':'')+(x.line&&x.line!=='—'?' · '+x.line:'')+(x.operation?' · '+x.operation:'');}}});
-    const ed=document.getElementById('chTopOprDef');
-    if(ed&&op.topByDef&&op.topByDef.length)charts.c_oprDef=new Chart(ed,{type:'bar',data:{labels:op.topByDef.map(x=>x.o),datasets:[{data:op.topByDef.map(x=>x.def),backgroundColor:'#e2a200',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topByDef,false)},scales:{y:{grid:{color:GRID},ticks:{color:TICK},beginAtZero:true},x:catX}}});
-    const eh=document.getElementById('chTopOprDhu');
-    if(eh&&op.topByDhu&&op.topByDhu.length)charts.c_oprDhu=new Chart(eh,{type:'bar',data:{labels:op.topByDhu.map(x=>x.o),datasets:[{data:op.topByDhu.map(x=>+x.dhu.toFixed(1)),backgroundColor:op.topByDhu.map(x=>x.dhu>5?'#e5484d':x.dhu>3?'#e2a200':'#0ea98f'),borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topByDhu,true)},scales:{y:{grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true},x:catX}}});
-    const eg=document.getElementById('chTopOprGood');
-    if(eg&&op.topGood&&op.topGood.length)charts.c_oprGood=new Chart(eg,{type:'bar',data:{labels:op.topGood.map(x=>x.o),datasets:[{data:op.topGood.map(x=>+x.dhu.toFixed(1)),backgroundColor:'#0a9d82',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topGood,true)},scales:{y:{grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true},x:catX}}});
-  }
+    const ed=document.getElementById(ids.def);
+    if(ed&&op.topByDef&&op.topByDef.length)charts['c_'+ids.def]=new Chart(ed,{type:'bar',data:{labels:op.topByDef.map(x=>x.o),datasets:[{data:op.topByDef.map(x=>x.def),backgroundColor:'#e2a200',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topByDef,false)},scales:{y:{grid:{color:GRID},ticks:{color:TICK},beginAtZero:true},x:catX}}});
+    const eh=document.getElementById(ids.dhu);
+    if(eh&&op.topByDhu&&op.topByDhu.length)charts['c_'+ids.dhu]=new Chart(eh,{type:'bar',data:{labels:op.topByDhu.map(x=>x.o),datasets:[{data:op.topByDhu.map(x=>+x.dhu.toFixed(1)),backgroundColor:op.topByDhu.map(x=>x.dhu>5?'#e5484d':x.dhu>3?'#e2a200':'#0ea98f'),borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topByDhu,true)},scales:{y:{grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true},x:catX}}});
+    const eg=document.getElementById(ids.good);
+    if(eg&&op.topGood&&op.topGood.length)charts['c_'+ids.good]=new Chart(eg,{type:'bar',data:{labels:op.topGood.map(x=>x.o),datasets:[{data:op.topGood.map(x=>+x.dhu.toFixed(1)),backgroundColor:'#0a9d82',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tip(op.topGood,true)},scales:{y:{grid:{color:GRID},ticks:{color:TICK,callback:v=>v+'%'},beginAtZero:true},x:catX}}});
+  };
+  drawOprCharts(window.D._opa,{def:'chTopOprDef',dhu:'chTopOprDhu',good:'chTopOprGood'});
+  drawOprCharts(window.D._opaEl,{def:'chElOprDef',dhu:'chElOprDhu',good:'chElOprGood'});
+  drawOprCharts(window.D._opaRov,{def:'chRovOprDef',dhu:'chRovOprDhu',good:'chRovOprGood'});
   const chOpts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:GRID},ticks:{color:TICK,font:{size:11}}},x:{grid:{color:GRID},ticks:{color:TICK,font:{size:10}}}}};
   // Dashboard range filter (Today / This Week / All) — drives every dashboard chart.
   const _range=D.dashRange||'today';
