@@ -86,6 +86,16 @@
     onValue(ref(db,'machineRosters'),s=>{WS.machineRosters=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
     onValue(ref(db,'settings/rotation'),s=>{WS.rotation=s.exists()?s.val():null;if(WS.step&&!['login','loading'].includes(WS.step))renderW();});
     onValue(ref(db,'settings/factory'),s=>{WS.factory=s.exists()?s.val():null;});
+    // 3rd Party Quality Checking master switch — while OFF, no new audit data is captured.
+    onValue(ref(db,'settings/thirdParty'),s=>{WS.thirdParty=s.exists()?s.val():null;if(WS.step&&(WS.step+'').startsWith('tp_'))renderW();});
+    onValue(ref(db,'thirdPartyAudits'),s=>{
+      if(s.exists()){
+        const today=new Date().toISOString().split('T')[0];
+        WS.myTpAudits=Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v}))
+          .filter(i=>i.submittedBy===WS.user?.username&&i.date===today);
+      } else WS.myTpAudits=[];
+      if(WS.step==='tp_home')renderW();
+    });
     // Pieces reworked at End Shift, keyed per module+date+team — subtracted from raw defects
     // to show the FINAL net result after rework is done.
     onValue(ref(db,'elRework'),s=>{WS.elRework=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];if(WS.step==='endline_home')renderW();});
@@ -304,6 +314,13 @@ window.WS = {
   elAddDefCode:null,       // selected code in add-defect screen
   elAddDefQty:1,           // qty in add-defect screen
   elCheckedQty:0,          // pieces checked — entered at end of hour
+  // 3rd Party Hourly Audit state
+  thirdParty:null,         // {enabled} from settings/thirdParty — gates data capture
+  tpLeaderName:'',
+  tpRoundDefects:[],       // running tally for current round: [{defect,part,partName,count}]
+  tpAddDefect:null, tpAddPart:null, tpAddQty:1,
+  tpOfferPcs:0, tpCheckedPcs:0, tpPassPcs:0,
+  myTpAudits:[],
   showEventModal:false,
   _manualRows:[], _manualBackStep:'check_home',
   // Corrective Action Plan (CAP) — Roving QC defect escalation sheet
@@ -329,7 +346,15 @@ function isWorker(){const r=(WS.user?.role||'').toLowerCase();return r.includes(
 function isLineHead(){const r=(WS.user?.role||'').toLowerCase();return r.includes('line head')||r.includes('linehead')||r.includes('line-head');}
 function isEndline(){return (WS.user?.role||'').toLowerCase().includes('end');}
 function isRoving(){return (WS.user?.role||'').toLowerCase().includes('roving');}
+function isThirdParty(){const r=(WS.user?.role||'').toLowerCase();return r.includes('3rd party')||r.includes('third party')||r.includes('3rdparty');}
 function isSupervisor(){const r=(WS.user?.role||'').toLowerCase();return r.includes('supervis')||r.includes('manager')||r.includes('executive');}
+function thirdPartyOn(){return !!(WS.thirdParty&&WS.thirdParty.enabled);}
+
+// 3rd Party Hourly Audit sheet — defect list (rows) and operation/part codes (letter key),
+// modelled on the paper "HOURLY AUDIT REPORT" the 3rd-party checker fills by hand.
+const TP_DEFECTS=['NEP / SLUB','FABRIC DAMAGE/HOLES','FABRIC DEFECTS','SHAPE OFF','PUCKERING/GATHERING','BROKEN STITCH','OPEN SEAM','LOOSENESS','NEEDLE HOLES/MARKS','JOINT STITCH/MISMATCH','SKIP STITCH','PLEATS','UNCUT THREADS','MISSING','RAW EDGE','ZERO RAW EDGE','PAD PRINT SLANT/CENTER OUT','STRIP MISMATCH','SHADE VARIATION','HIGH LOW','DIRTY STAIN/PEN MARK','OIL STAIN','WIDTH UNEVEN','RUN OFF/UNCOMPLETE STITCH','DOWN STITCH','MEASUREMENT/STRETCH ISSUES','SPC VARIATION','STICKER','SIZE MISMATCH/SIZE JUMP','OTHERS'];
+const TP_PARTS=[['A','WAISTBAND'],['B','NECK'],['C','FRONT RISE'],['D','FRONT BODY'],['E','BACK BODY'],['F','LEG OPENING'],['G','BOTTOM HEM'],['H','SIDE SEAM'],['I','INSEAM'],['J','BACK RISE'],['K','SIDE SLIT'],['L','INSIDE BODY'],['M','INSIDE BUTTON HEM'],['N','SLEEVE'],['O','BOW'],['P','ARMHOLE'],['Q','GUSSET'],['R','POUCH'],['S','BARTACK'],['T','FLY'],['U','ELASTIC'],['V','LABEL'],['W','BUTTON'],['X','DOT STITCH'],['Y','POCKET']];
+function tpPartName(code){const f=TP_PARTS.find(p=>p[0]===code);return f?f[1]:code;}
 
 // ==================== SESSION PERSISTENCE ====================
 // Mobile Chrome discards/reloads the tab under memory pressure (e.g. while the QR
@@ -370,7 +395,7 @@ function restoreSession(){
     if(s.draft){BX_DRAFT_FIELDS.forEach(k=>{if(s.draft[k]!==undefined)WS[k]=s.draft[k];});}
     // Land on the role's home screen — it shows the preserved tally / roster / round
     // so the operator continues, without restoring a half-filled single-machine form.
-    WS.step=isSupervisor()?'sup_home':!WS.scannedModule?'scan':isLineHead()?'lh_scan':isEndline()?'endline_home':isRoving()?'roving_home':'check_home';
+    WS.step=isSupervisor()?'sup_home':!WS.scannedModule?'scan':isLineHead()?'lh_scan':isEndline()?'endline_home':isRoving()?'roving_home':isThirdParty()?'tp_home':'check_home';
     if(isEndline())window.startHourlyReminder();
     return true;
   }catch(e){return false;}
@@ -416,6 +441,10 @@ function renderStep(){
   if(s==='roving_form')      return renderRovingForm();
   if(s==='roving_end')       return renderRovingEnd();
   if(s==='roving_update')    return renderRovingUpdate();
+
+  if(s==='tp_home')          return renderTpHome();
+  if(s==='tp_add_defect')    return renderTpAddDefect();
+  if(s==='tp_round_end')     return renderTpRoundEnd();
   // CAP — Corrective Action Plan (Roving QC defect escalation sheet)
   if(s==='cap_list')         return renderCapList();
   if(s==='cap_form')         return renderCapForm();
@@ -435,8 +464,8 @@ function renderStep(){
 }
 
 function renderHeader(){
-  const roleColor=isLineHead()?'var(--yellow)':isWorker()?'var(--blue)':isEndline()?'var(--purple)':'var(--red)';
-  const roleLabel=isLineHead()?'Line Head':isWorker()?'Machine Operator':isEndline()?'End Line QC':'Roving QC';
+  const roleColor=isLineHead()?'var(--yellow)':isWorker()?'var(--blue)':isEndline()?'var(--purple)':isThirdParty()?'var(--accent)':'var(--red)';
+  const roleLabel=isLineHead()?'Line Head':isWorker()?'Machine Operator':isEndline()?'End Line QC':isThirdParty()?'3rd Party Auditor':'Roving QC';
   return '<div class="header">'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="logo-sm"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div>'
@@ -539,7 +568,7 @@ function bindLogin(){
       WS.user=user;WS.loading=false;
       window.loadWorkerData();
       toast('Welcome, '+user.name);
-      WS.step=isSupervisor()?'sup_home':(isLineHead()||isWorker()||isRoving()||isEndline())?'scan':'dashboard';
+      WS.step=isSupervisor()?'sup_home':(isLineHead()||isWorker()||isRoving()||isEndline()||isThirdParty())?'scan':'dashboard';
       if(isEndline())window.startHourlyReminder();
       renderW();
     }catch(e){
@@ -679,6 +708,7 @@ function bindVerify(){
       }
       else if(isEndline())  WS.step='endline_home';
       else if(isRoving())   WS.step='roving_home';
+      else if(isThirdParty())WS.step='tp_home';
       else                  WS.step='check_home';
       renderW();
     } else {
@@ -1452,7 +1482,7 @@ function renderEndlineHome(){
       :'')
     +'<button class="btn-big btn-primary" onclick="elGoAddDefect()"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'➕ Add Defect</button>'
-    +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
+    +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;WS._elHourRework=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
     +'<button class="btn-big" onclick="WS._elReworkInput=0;WS.step=\'endline_shift_end\';renderW()" style="background:var(--accent);color:#000">🏁 End Shift — Rework Pieces</button>'
     +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
     +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
@@ -1538,7 +1568,9 @@ function renderEndlineHourEnd(){
   const hourDefs=WS.elHourDefects||[];
   const totDef=hourDefs.reduce((a,d)=>a+d.count,0);
   const chk=WS.elCheckedQty||0;
-  const dhu=chk>0?((totDef/chk)*100).toFixed(1):'—';
+  const rework=Math.min(WS._elHourRework||0,totDef);   // can't rework more than this hour's defects
+  const netDef=Math.max(0,totDef-rework);
+  const dhu=chk>0?((netDef/chk)*100).toFixed(1):'—';    // DHU now reflects NET (after this hour's rework)
   const dhuColor=chk>0?(parseFloat(dhu)>5?'var(--red)':parseFloat(dhu)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
   const stepBtn='width:52px;height:52px;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;border:none;';
   const byOp={};
@@ -1570,10 +1602,20 @@ function renderEndlineHourEnd(){
       </div>
     </div>
 
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">Pieces Reworked This Hour <span style="text-transform:none">— fixed on the spot, subtracted from defects</span></div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:14px">
+        <button onclick="elHourReworkStep(-1)" style="${stepBtn}background:var(--bg3);color:var(--text)">−</button>
+        <span style="font-size:48px;font-weight:700;font-family:var(--mono);min-width:80px;text-align:center">${rework}</span>
+        <button onclick="elHourReworkStep(1)" style="${stepBtn}background:var(--accent);color:#000"${totDef===0?' disabled':''}>+</button>
+      </div>
+      ${totDef===0?'<div style="text-align:center;font-size:11px;color:var(--text3);margin-top:8px">No defects this hour — nothing to rework</div>':`<div style="text-align:center;font-size:11px;color:var(--text3);margin-top:8px">Max ${totDef} (this hour's defects)</div>`}
+    </div>
+
     <div style="display:flex;justify-content:space-around;padding:16px;background:rgba(0,0,0,.25);border-radius:12px;margin-bottom:14px">
-      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DEFECTS</div><div style="font-size:34px;font-weight:700;font-family:var(--mono);color:${totDef>0?'var(--red)':'var(--text3)'}">${totDef}</div></div>
-      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">CHECKED</div><div style="font-size:34px;font-weight:700;font-family:var(--mono)">${chk||'—'}</div></div>
-      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DHU</div><div style="font-size:34px;font-weight:700;font-family:var(--mono);color:${dhuColor}">${dhu}${chk>0?'%':''}</div></div>
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DEFECTS</div><div style="font-size:30px;font-weight:700;font-family:var(--mono);color:${totDef>0?'var(--red)':'var(--text3)'}">${totDef}</div>${rework>0?`<div style="font-size:10px;color:var(--accent)">−${rework} reworked</div>`:''}</div>
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">${rework>0?'NET DEF':'CHECKED'}</div><div style="font-size:30px;font-weight:700;font-family:var(--mono);color:${rework>0?'var(--red)':'var(--text)'}">${rework>0?netDef:(chk||'—')}</div></div>
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DHU${rework>0?' (net)':''}</div><div style="font-size:30px;font-weight:700;font-family:var(--mono);color:${dhuColor}">${dhu}${chk>0?'%':''}</div></div>
     </div>
 
     <div style="margin-bottom:12px">
@@ -1628,6 +1670,7 @@ function renderEndlineShiftEnd(){
     +'<button class="btn-big btn-ghost" onclick="WS.step=\'endline_home\';renderW()">← Cancel</button>';
 }
 window.elReworkStep=function(delta){WS._elReworkInput=Math.max(0,(WS._elReworkInput||0)+delta);renderW();};
+window.elHourReworkStep=function(delta){const totDef=(WS.elHourDefects||[]).reduce((a,d)=>a+d.count,0);WS._elHourRework=Math.max(0,Math.min(totDef,(WS._elHourRework||0)+delta));renderW();};
 window.confirmEndShift=async function(){
   const m=WS.scannedModule;if(!m){toast('No module selected','error');return;}
   const date=workDate(),shift=WS.elShift||activeShift();
@@ -1703,18 +1746,285 @@ window.elSubmitHour=async function(){
         i++;
       }
     }
+    // Pieces reworked (fixed) this hour — stored in the SAME elRework node the admin already
+    // reads, keyed per-hour so it neither clobbers other hours nor the shift-end catch-all.
+    // The admin sums every elRework row matching module|date|shift, so hourly + shift-end add up.
+    const hourRework=Math.min(WS._elHourRework||0,totDef);
+    if(hourRework>0){
+      const hourKey=timeStr.slice(0,2);
+      await window._set(window._ref(window._db,'elRework/'+(m?.fbKey||m?.moduleId||'mod')+'_'+workDate()+'_'+(WS.elShift||'A')+'_h'+hourKey),{
+        module:m?.name||'',date:workDate(),shift:WS.elShift||'A',hour:hourKey,reworkedQty:hourRework,source:'hourly',
+        submittedBy:WS.user?.username||'',submittedByName:WS.user?.name||'',submittedAt:new Date().toISOString()});
+    }
     if(totDef>0&&chk>0&&(totDef/chk)*100>5){
       await window.fbAddAlert({
         title:'High DHU '+((totDef/chk)*100).toFixed(1)+'% — '+(m?.name||''),
         message:defs.map(d=>d.code+'×'+d.count+' ('+d.operatorId+')').join(', '),
         level:(totDef/chk)*100>8?'critical':'high',module:m?.name||'',read:false,createdBy:'qc-auto'});
     }
-    WS.elHourDefects=[];WS.elCheckedQty=0;
+    WS.elHourDefects=[];WS.elCheckedQty=0;WS._elHourRework=0;
     if(WS._backdateReqKey){window._markAddReqDone(WS._backdateReqKey);}
     WS._backdateHour=null;WS._backdateReqKey=null;WS._backdateDate=null;
-    toast(backdating?'Backdated hour submitted ✓':'Hour submitted ✓','success');
+    toast(backdating?'Backdated hour submitted ✓':'Hour submitted ✓'+(hourRework>0?' ('+hourRework+' reworked)':''),'success');
     WS.step='endline_home';renderW();
   }catch(e){toast('Failed: '+e.message,'error');if(btn){btn.disabled=false;btn.textContent='✓ Submit Hour';}}
+};
+
+// ====================================================================================
+// 3RD PARTY QUALITY CHECKING FLOW (mirrors the paper "Hourly Audit Report"):
+//   Home (round tally) → Add Defect (defect type + part code + qty) → Round End
+//   (Offer / Checked / Pass pieces → Pass% & Defect% computed, submit)
+// Gated by the Settings switch — thirdPartyOn() — no data is written while it's OFF.
+// ====================================================================================
+
+function renderTpHome(){
+  const m=WS.scannedModule;
+  const today=workDate();
+  const round=WS.tpRoundDefects||[];
+  const totDef=round.reduce((a,d)=>a+d.count,0);
+  const todayRecs=(WS.myTpAudits||[]).filter(a=>a.module===(m?.name||''));
+  const totChkToday=todayRecs.reduce((a,r)=>a+(parseInt(r.checkedPcs)||0),0);
+  const totDefToday=todayRecs.reduce((a,r)=>a+(parseInt(r.totalDefectQty)||0),0);
+  const totPassToday=todayRecs.reduce((a,r)=>a+(parseInt(r.passPcs)||0),0);
+
+  const offBanner=thirdPartyOn()?'':'<div class="card" style="background:rgba(224,85,85,.1);border-color:var(--red);margin-bottom:12px">'
+    +'<div style="font-weight:700;color:var(--red)">⏸ 3rd Party Checking is currently OFF</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:2px">Ask an admin to turn it on in Settings. You can still browse this screen, but new audits can\'t be submitted while it\'s off.</div></div>';
+
+  const tallyList=round.length===0
+    ?'<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">No defects logged yet this round<br><span style="font-size:11px">Tap ADD DEFECT whenever you spot one</span></div>'
+    :round.map((d,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:10px;margin-bottom:6px">
+        <div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--accent)">${d.defect}</div><div style="font-size:11px;color:var(--text2)">${d.part} — ${d.partName}</div></div>
+        <div style="text-align:center;min-width:36px"><div style="font-size:11px;color:var(--text3)">QTY</div><div style="font-size:20px;font-weight:700;color:var(--red)">${d.count}</div></div>
+        <button onclick="tpRemoveDefect(${i})" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
+      </div>`).join('');
+
+  const histSection=todayRecs.length===0?''
+    :'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Submitted Today ('+todayRecs.length+' round'+(todayRecs.length>1?'s':'')+')</div>'
+    +todayRecs.map(r=>{
+      const dp=parseInt(r.checkedPcs)?((parseInt(r.totalDefectQty)||0)/parseInt(r.checkedPcs)*100).toFixed(1):'—';
+      const dpColor=parseFloat(dp)>5?'var(--red)':parseFloat(dp)>3?'var(--yellow)':'var(--green)';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg3);border-radius:8px;margin-bottom:4px">'
+        +'<span style="font-family:var(--mono);font-weight:700">'+(r.time||'')+'</span>'
+        +'<div style="display:flex;gap:14px;font-size:12px">'
+        +'<span>Chk <b>'+(r.checkedPcs||0)+'</b></span>'
+        +'<span>Def <b style="color:var(--red)">'+(r.totalDefectQty||0)+'</b></span>'
+        +'<span>Def% <b style="color:'+dpColor+'">'+dp+(r.checkedPcs?'%':'')+'</b></span>'
+        +'</div></div>';
+    }).join('')
+    +'<div style="display:flex;justify-content:space-between;padding-top:8px;margin-top:6px;border-top:1px solid var(--border);font-size:12px;font-weight:700">'
+    +'<span>Day total</span><span>Chk '+totChkToday+' · Pass '+totPassToday+' · Def '+totDefToday+'</span></div>'
+    +'</div>';
+
+  // Backlog: tag this round to a past date if the auditor missed a day — same mechanism as
+  // End Line (WS._backdateDate, which workDate() reads). null = today.
+  const bd=WS._backdateDate;
+  const realToday=new Date().toISOString().split('T')[0];
+  const y1=new Date(Date.now()-86400000).toISOString().split('T')[0];
+  const y2=new Date(Date.now()-2*86400000).toISOString().split('T')[0];
+  const bdBtn=(label,dv)=>{const act=dv?bd===dv:!bd;return `<button onclick="tpSetBackdate('${dv}')" style="flex:1;min-width:78px;padding:10px 8px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid ${act?'var(--accent);background:rgba(14,169,143,.15);color:var(--accent)':'var(--border);background:var(--bg3);color:var(--text2)'}">${label}</button>`;};
+  const backlogCard=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">`
+    +`<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Audit Date <span style="text-transform:none">— backlog a missed day</span></div>`
+    +`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">${bdBtn('Today','')}${bdBtn('Yesterday',y1)}${bdBtn('2 days ago',y2)}</div>`
+    +`<input type="date" class="form-input" max="${realToday}" value="${bd||''}" onchange="tpSetBackdate(this.value)">`
+    +`</div>`;
+  const bdBanner=bd?`<div class="card" style="background:rgba(212,168,0,.12);border-color:rgba(212,168,0,.5);margin-bottom:12px"><div style="font-weight:700;color:var(--yellow)">⏪ Backlogging — ${bd}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">This round will be saved for <b>${bd}</b>, not today. Tap “Today” to switch back.</div></div>`:'';
+
+  return bdBanner+offBanner
+    +'<div class="card card-accent">'
+    +'<div style="font-size:18px;font-weight:600">'+(m?.name||'')+' — 3rd Party Audit</div>'
+    +'<div style="font-size:12px;color:var(--text2)">Style: <b style="color:#93c5fd">'+(m?.styleName||'—')+'</b>'+(m?.buyer?' • '+m.buyer:'')+'</div>'
+    +'</div>'
+    +backlogCard
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Leader Name</div>'
+    +'<input class="form-input" id="tp-leader" value="'+(WS.tpLeaderName||'').replace(/"/g,'&quot;')+'" placeholder="Line leader\'s name" oninput="WS.tpLeaderName=this.value">'
+    +'</div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +'<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">This Round — Live Tally</div>'
+    +'<span style="background:rgba(224,85,85,.15);color:var(--red);border-radius:20px;padding:3px 12px;font-size:14px;font-weight:700">'+totDef+' def</span>'
+    +'</div>'
+    +tallyList
+    +'</div>'
+    +histSection
+    +'<button class="btn-big btn-primary" onclick="tpGoAddDefect()">➕ Add Defect</button>'
+    +'<button class="btn-big" onclick="tpGoRoundEnd()" style="background:var(--yellow);color:#000'+(!thirdPartyOn()?';opacity:.45;cursor:not-allowed':'')+'"'+(!thirdPartyOn()?' disabled':'')+'>⏰ End Round — Enter Pieces &amp; Submit</button>'
+    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+}
+
+function renderTpAddDefect(){
+  const selDefect=WS.tpAddDefect||null;
+  const selPart=WS.tpAddPart||null;
+  const qty=WS.tpAddQty||1;
+  const canAdd=!!(selDefect&&selPart);
+  const btnT='padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:2px solid ';
+  const stepBtn='width:52px;height:52px;border-radius:10px;font-size:24px;font-weight:700;cursor:pointer;border:none;';
+
+  const defButtons=TP_DEFECTS.map(d=>`<button onclick="tpSelectDefect('${d.replace(/'/g,"\\'")}')" style="${btnT}${selDefect===d?'var(--accent);background:rgba(14,169,143,.15);color:var(--accent)':'var(--border);background:var(--bg3);color:var(--text2)'};width:100%;text-align:left">${d}</button>`).join('');
+  const partButtons=TP_PARTS.map(([code,name])=>`<button onclick="tpSelectPart('${code}','${name.replace(/'/g,"\\'")}')" style="${btnT}${selPart===code?'var(--purple);background:rgba(153,102,255,.15)':'var(--border);background:var(--bg3)'};width:100%;text-align:left">
+      <div style="font-size:13px;font-weight:700;color:${selPart===code?'#c4a5ff':'var(--text)'}">${code}</div>
+      <div style="font-size:10px;color:var(--text3);line-height:1.3">${name}</div>
+    </button>`).join('');
+
+  return `
+    <div style="background:rgba(14,169,143,.06);border:1px solid rgba(14,169,143,.3);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-weight:600;font-size:15px">Add Defect — 3rd Party Audit</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">1 — Defect Type</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:260px;overflow-y:auto">${defButtons}</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">2 — Where on the Garment (Part Code)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:260px;overflow-y:auto">${partButtons}</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">3 — How Many?</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:24px">
+        <button onclick="tpStepQty(-1)" style="${stepBtn}background:var(--bg3);color:var(--text)">−</button>
+        <input type="number" id="tp-qty-direct" min="1" value="${qty}" oninput="WS.tpAddQty=Math.max(1,parseInt(this.value)||1)" style="width:86px;text-align:center;font-size:36px;font-weight:700;background:var(--bg3);border:2px solid var(--border);border-radius:10px;color:var(--text);padding:6px 4px;font-family:var(--font)">
+        <button onclick="tpStepQty(1)" style="${stepBtn}background:var(--accent);color:#000">+</button>
+      </div>
+    </div>
+
+    ${canAdd?`<div style="background:rgba(14,169,143,.06);border:1px solid rgba(14,169,143,.3);border-radius:12px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:11px;color:var(--text3)">DEFECT</div><div style="font-weight:700;color:var(--accent)">${selDefect}</div></div>
+      <div style="text-align:right"><div style="font-size:11px;color:var(--text3)">PART</div><div style="font-weight:700;font-size:18px;color:#c4a5ff">${selPart}</div><div style="font-size:11px;color:var(--text2)">× ${qty}</div></div>
+    </div>`:'<div style="padding:12px;border-radius:12px;border:1px dashed var(--border);margin-bottom:12px;text-align:center;color:var(--text3);font-size:12px">Select defect type ↑ and part code ↑</div>'}
+
+    <button onclick="tpAddConfirm()" ${canAdd?'':'disabled'} style="width:100%;padding:18px;background:${canAdd?'var(--accent)':'rgba(255,255,255,.08)'};color:${canAdd?'#000':'var(--text3)'};border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:${canAdd?'pointer':'default'};margin-bottom:8px">
+      ✓ Add to Tally
+    </button>
+    <button onclick="WS.step='tp_home';renderW()" style="width:100%;padding:14px;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:12px;font-size:14px;cursor:pointer">← Back</button>
+  `;
+}
+
+function renderTpRoundEnd(){
+  const round=WS.tpRoundDefects||[];
+  const totDef=round.reduce((a,d)=>a+d.count,0);
+  const offer=WS.tpOfferPcs||0, chk=WS.tpCheckedPcs||0, pass=WS.tpPassPcs||0;
+  const defPct=chk>0?((totDef/chk)*100).toFixed(1):'—';
+  const passPct=chk>0?((pass/chk)*100).toFixed(1):'—';
+  const defPctColor=chk>0?(parseFloat(defPct)>5?'var(--red)':parseFloat(defPct)>3?'var(--yellow)':'var(--green)'):'var(--text3)';
+  const stepBtn='width:48px;height:48px;border-radius:10px;font-size:20px;font-weight:700;cursor:pointer;border:none;';
+  const numRow=(label,val,setKey,big)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">${label}</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px">
+      <button onclick="tpStepTotal('${setKey}',-10)" style="${stepBtn}background:var(--bg3);color:var(--text2);font-size:12px">−10</button>
+      <button onclick="tpStepTotal('${setKey}',-1)" style="${stepBtn}background:var(--bg3);color:var(--text)">−</button>
+      <span style="font-size:${big?'44':'36'}px;font-weight:700;font-family:var(--mono);min-width:78px;text-align:center">${val}</span>
+      <button onclick="tpStepTotal('${setKey}',1)" style="${stepBtn}background:var(--accent);color:#000">+</button>
+      <button onclick="tpStepTotal('${setKey}',10)" style="${stepBtn}background:var(--accent);color:#000;font-size:12px">+10</button>
+    </div>
+  </div>`;
+
+  const byDefect={};round.forEach(d=>{if(!byDefect[d.defect])byDefect[d.defect]=[];byDefect[d.defect].push(d.part+'×'+d.count);});
+  const summaryRows=Object.entries(byDefect).map(([def,parts])=>`<div style="padding:10px 12px;background:var(--bg3);border-radius:10px;margin-bottom:6px">
+    <div style="font-weight:700;font-size:13px;color:var(--accent)">${def}</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:2px">${parts.join('  ')}</div>
+  </div>`).join('');
+
+  return `
+    <div style="background:rgba(212,168,0,.08);border:1px solid rgba(212,168,0,.3);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-weight:600;font-size:15px">End Round — Submit Audit</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">${(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date())}</div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Defects This Round — ${totDef} total</div>
+      ${summaryRows||'<div style="text-align:center;color:var(--green);padding:12px;font-size:13px">✓ No defects — clean round!</div>'}
+    </div>
+
+    ${numRow('Total Offer Pieces',offer,'offer',false)}
+    ${numRow('Total Checked Pieces',chk,'checked',true)}
+    ${numRow('Total Pass Pieces',pass,'pass',true)}
+
+    <div style="display:flex;justify-content:space-around;padding:16px;background:rgba(0,0,0,.25);border-radius:12px;margin-bottom:14px">
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DEFECTS</div><div style="font-size:30px;font-weight:700;font-family:var(--mono);color:${totDef>0?'var(--red)':'var(--text3)'}">${totDef}</div></div>
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">DEFECT %</div><div style="font-size:30px;font-weight:700;font-family:var(--mono);color:${defPctColor}">${defPct}${chk>0?'%':''}</div></div>
+      <div style="text-align:center"><div style="font-size:11px;color:var(--text3)">PASS %</div><div style="font-size:30px;font-weight:700;font-family:var(--mono);color:var(--green)">${passPct}${chk>0?'%':''}</div></div>
+    </div>
+
+    <button id="tp-sub-btn" onclick="tpSubmitRound()" ${chk<1||!thirdPartyOn()?'disabled':''} style="width:100%;padding:18px;background:${chk>0&&thirdPartyOn()?'var(--accent)':'rgba(255,255,255,.08)'};color:${chk>0&&thirdPartyOn()?'#000':'var(--text3)'};border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:${chk>0&&thirdPartyOn()?'pointer':'default'};margin-bottom:8px">
+      ✓ Submit Audit Round
+    </button>
+    <button onclick="WS.step='tp_home';renderW()" style="width:100%;padding:14px;background:transparent;color:var(--text2);border:1px solid var(--border);border-radius:12px;font-size:14px;cursor:pointer">← Back to Tally</button>
+  `;
+}
+
+// ---- 3rd Party helpers ----
+window.tpSetBackdate=function(d){WS._backdateDate=(d&&d!==new Date().toISOString().split('T')[0])?d:null;renderW();};
+window.tpGoAddDefect=function(){WS.tpAddDefect=null;WS.tpAddPart=null;WS.tpAddQty=1;WS.step='tp_add_defect';renderW();};
+window.tpSelectDefect=function(name){WS.tpAddDefect=name;renderW();};
+window.tpSelectPart=function(code,name){WS.tpAddPart=code;WS.tpAddPartName=name;renderW();};
+window.tpStepQty=function(delta){
+  WS.tpAddQty=Math.max(1,(WS.tpAddQty||1)+delta);
+  const inp=document.getElementById('tp-qty-direct');
+  if(inp){inp.value=WS.tpAddQty;}else{renderW();}
+};
+window.tpAddConfirm=function(){
+  const defect=WS.tpAddDefect,part=WS.tpAddPart,partName=WS.tpAddPartName||tpPartName(part),qty=WS.tpAddQty||1;
+  if(!defect||!part){toast('Pick a defect type and part code','error');return;}
+  const round=WS.tpRoundDefects||[];
+  const existing=round.find(d=>d.defect===defect&&d.part===part);
+  if(existing){existing.count+=qty;}else{round.push({defect,part,partName,count:qty});}
+  WS.tpRoundDefects=[...round];
+  toast(part+'×'+qty+' logged','success');
+  WS.tpAddDefect=null;WS.tpAddPart=null;WS.tpAddQty=1;
+  WS.step='tp_home';renderW();
+};
+window.tpRemoveDefect=function(idx){WS.tpRoundDefects.splice(idx,1);WS.tpRoundDefects=[...WS.tpRoundDefects];renderW();};
+window.tpGoRoundEnd=function(){
+  if(!thirdPartyOn()){toast('3rd Party Checking is OFF — ask an admin to enable it in Settings','error');return;}
+  const totDef=(WS.tpRoundDefects||[]).reduce((a,d)=>a+d.count,0);
+  WS.tpOfferPcs=0;WS.tpCheckedPcs=0;WS.tpPassPcs=0;
+  WS.step='tp_round_end';renderW();
+};
+window.tpStepTotal=function(key,delta){
+  const map={offer:'tpOfferPcs',checked:'tpCheckedPcs',pass:'tpPassPcs'};
+  const k=map[key];if(!k)return;
+  WS[k]=Math.max(0,(WS[k]||0)+delta);renderW();
+};
+window.tpSubmitRound=async function(){
+  if(!thirdPartyOn()){toast('3rd Party Checking is OFF — ask an admin to enable it in Settings','error');return;}
+  const m=WS.scannedModule;if(!m){toast('No module selected','error');return;}
+  const defs=WS.tpRoundDefects||[];
+  const chk=WS.tpCheckedPcs||0,pass=WS.tpPassPcs||0,offer=WS.tpOfferPcs||0;
+  const totDef=defs.reduce((a,d)=>a+d.count,0);
+  if(chk<1){toast('Enter total checked pieces','error');return;}
+  const btn=document.getElementById('tp-sub-btn');
+  if(btn){btn.disabled=true;btn.textContent='Saving...';}
+  try{
+    const sty=verifyStyleFor(m);
+    const timeStr=(d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))(new Date());
+    const defPct=chk?+((totDef/chk)*100).toFixed(2):0;
+    const passPct=chk?+((pass/chk)*100).toFixed(2):0;
+    await window.fbAdd('thirdPartyAudits',{
+      id:'TPA-'+Date.now(),date:workDate(),time:timeStr,shift:activeShift(),
+      module:m.name||'',moduleId:m.moduleId||'',buyer:m.buyer||'',
+      style:m.styleName||'',styleId:m.styleId||'',colour:m?.colors||m?.color||'',
+      leaderName:WS.tpLeaderName||'',checkerName:WS.user?.name||'',
+      defects:defs.map(d=>({type:d.defect,part:d.part,partName:d.partName,qty:d.count})),
+      totalDefectQty:totDef,
+      offerPcs:offer,checkedPcs:chk,passPcs:pass,
+      defectPct:defPct,passPct:passPct,
+      submittedBy:WS.user?.username||WS.user?.name,submittedByName:WS.user?.name||'',submittedAt:new Date().toISOString()
+    });
+    if(totDef>0&&chk>0&&defPct>5){
+      await window.fbAddAlert({
+        title:'3rd Party: High Defect % '+defPct+'% — '+(m.name||''),
+        message:defs.map(d=>d.part+'×'+d.count+' ('+d.defect+')').join(', '),
+        level:defPct>8?'critical':'high',module:m.name||'',read:false,createdBy:'3rdparty-auto'});
+    }
+    WS.tpRoundDefects=[];WS.tpOfferPcs=0;WS.tpCheckedPcs=0;WS.tpPassPcs=0;
+    toast('✅ Audit round submitted'+(WS._backdateDate?' for '+WS._backdateDate:''),'success');
+    WS.step='tp_home';renderW();
+  }catch(e){toast('Failed: '+e.message,'error');if(btn){btn.disabled=false;btn.textContent='✓ Submit Audit Round';}}
 };
 
 // ====================================================================================
@@ -3422,7 +3732,7 @@ function renderDash(){
 }
 
 window.goStartCheck=function(){
-  if(WS.scannedModule){WS.step=isEndline()?'endline_home':isRoving()?'roving_home':'check_home';}
+  if(WS.scannedModule){WS.step=isEndline()?'endline_home':isRoving()?'roving_home':isThirdParty()?'tp_home':'check_home';}
   else WS.step='scan';
   renderW();
 };
