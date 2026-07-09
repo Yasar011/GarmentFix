@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GarmentFix - Apparel Maintenance System</title>
+    <title>APMS - Automatic Problem Management System</title>
     
     <!-- 1. Load Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,6 +19,7 @@
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
         "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
@@ -55,7 +56,7 @@
           Lock, MapPin, Briefcase, UserCheck, UserX, RefreshCw, Hand, Activity, 
           Settings, Package, BarChart2, AlertOctagon, CalendarClock, TrendingUp,
           ShoppingBag, MessageSquare, Camera, HelpCircle, LogIn,
-          FileText, Calendar, Filter, Search, Edit, Zap, BookOpen, DollarSign, ShieldCheck, Timer, Gauge, List, TrendingDown
+          FileText, Calendar, Filter, Search, Edit, Zap, BookOpen, DollarSign, ShieldCheck, Timer, Gauge, List, TrendingDown, ClipboardCheck, ArrowUpRight
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
         import { getAuth, signInAnonymously } from "firebase/auth";
@@ -85,34 +86,32 @@
             if (hours > 0) return `${hours}h ${minutes % 60}m`;
             return `${minutes}m`;
         };
-        
-        // Helper to format hours for KPI
-        const formatKPIHours = (ms) => {
-             if(!ms) return "0h";
-             return (ms / (1000 * 60 * 60)).toFixed(1) + 'h';
-        };
 
         // API Layer
         const api = {
-            // UPDATED: Report Issue ONLY pushes to incoming_tickets for n8n processing. No direct machine updates.
-            reportIssue: async (machineId, issue, priority, opName, opId) => {
+            // Writes straight to machines/{id} — no queue, no n8n. The Kiosk operator picks the
+            // department themselves, and it appears in that dept's hub immediately. The existing
+            // client-side auto-assign (LiveMonitor) picks up unassigned tickets from here same as
+            // any other.
+            reportIssue: async (machineId, issue, priority, opName, opId, department) => {
                 const ticketId = `#TKT-${Math.floor(1000 + Math.random() * 9000)}`;
                 const timestamp = new Date().toISOString();
-                
+
                 try {
-                    // Send the raw data directly to Firebase's incoming_tickets queue ONLY.
-                    // The n8n AI workflow will pick this up, diagnose it, and update the machines database itself.
-                    await set(ref(db, `incoming_tickets/${ticketId.replace('#', '')}`), {
-                        machineId: machineId,
-                        issueDescription: issue,
-                        priority: priority,
+                    await update(ref(db, `machines/${machineId}`), {
+                        department,
+                        status: 'Pending',
+                        issue,
+                        priority,
+                        reportedAt: timestamp,
                         reportedBy: `${opName} (${opId})`,
-                        timestamp: timestamp,
-                        ticketId: ticketId
+                        ticketId
                     });
-                    
-                    console.log("Ticket pushed strictly to Firebase incoming queue for n8n!");
-                    alert("Ticket submitted successfully! AI is routing your issue to the correct department.");
+                    await push(ref(db, 'logs'), {
+                        machineId, action: 'Ticket Raised', department,
+                        details: issue, timestamp
+                    });
+                    alert(`Ticket submitted — now in the ${department} queue.`);
                 } catch (error) {
                     console.error("Firebase Upload Error:", error);
                     alert("Error submitting ticket to database. Please check connection.");
@@ -120,7 +119,7 @@
             },
             startWork: (machineId, userId) => {
                 update(ref(db, `machines/${machineId}`), { status: 'In Progress', startedAt: new Date().toISOString() });
-                update(ref(db, `users/${userId}`), { status: 'Active', currentTask: machineId });
+                update(ref(db, `users/${userId}`), { status: 'Busy', currentTask: machineId });
                 push(ref(db, 'logs'), { machineId, action: 'Started Work', userId, timestamp: new Date().toISOString() });
             },
             completeWork: (machineId, userId, remarks, machine, partsUsedIds, partsList) => {
@@ -129,7 +128,9 @@
                 const reportedAt = machine.reportedAt ? new Date(machine.reportedAt) : startedAt;
                 
                 const repairDurationMs = finishedAt - startedAt;
-                const totalDowntimeMs = finishedAt - reportedAt;
+                // QCM-originated tickets (machine.skipDowntime) are quality-flagged issues, not
+                // actual breakdowns — the machine kept running, so exclude from downtime KPIs.
+                const totalDowntimeMs = machine.skipDowntime ? null : (finishedAt - reportedAt);
 
                 // Calculate Cost
                 let totalCost = 0;
@@ -141,50 +142,64 @@
                     }
                 });
 
-                // --- INTELLIGENT QA TRIGGER ---
-                const issueText = (machine.issue || "").toLowerCase();
-                const remarksText = (remarks || "").toLowerCase();
-                const needsQA = issueText.includes("oil") || issueText.includes("leak") || issueText.includes("feed dog") || 
-                                remarksText.includes("oil") || remarksText.includes("leak") || remarksText.includes("feed dog");
-                
-                const newStatus = needsQA ? "QA Pending" : "Running";
-
-                update(ref(db, `machines/${machineId}`), { 
-                    status: newStatus, 
-                    assignedTo: null, 
-                    issue: needsQA ? machine.issue : null,
-                    priority: needsQA ? machine.priority : null,
-                    ticketId: needsQA ? machine.ticketId : null,
-                    lastMaintenance: finishedAt.toISOString(),
-                    isPM: null,
-                    reportedAt: null, assignedAt: null, startedAt: null
+                // Every completed job goes to Pending Admin Approval instead of closing
+                // outright — this Main Hub gate is the only approval step before it closes.
+                update(ref(db, `machines/${machineId}`), {
+                    status: 'Pending Admin Approval',
+                    assignedTo: null,
+                    completedBy: userId,
+                    completionRemarks: remarks,
+                    lastMaintenance: finishedAt.toISOString()
                 });
                 update(ref(db, `users/${userId}`), { status: 'Available', currentTask: null });
-                
+
                 const usedPartNames = partsUsedIds.map(id => partsList.find(p => p.id === id)?.name).filter(Boolean);
-                push(ref(db, 'logs'), { 
-                    machineId, 
-                    ticketId: machine?.ticketId, 
-                    action: needsQA ? 'Fixed (QA Pending)' : (machine.isPM ? 'PM Completed' : 'Fixed'), 
-                    userId, 
-                    details: remarks, 
-                    partsUsed: usedPartNames, 
+                push(ref(db, 'logs'), {
+                    machineId,
+                    ticketId: machine?.ticketId,
+                    action: machine.isPM ? 'PM Completed (Pending Review)' : 'Fixed (Pending Review)',
+                    userId,
+                    department: machine.department || null,
+                    details: remarks,
+                    partsUsed: usedPartNames,
                     cost: totalCost,
                     timestamp: finishedAt.toISOString(),
                     repairTime: formatDuration(repairDurationMs),
-                    totalDowntime: formatDuration(totalDowntimeMs),
+                    totalDowntime: machine.skipDowntime ? null : formatDuration(totalDowntimeMs),
+                    source: machine.source || null,
+                    skipDowntime: !!machine.skipDowntime,
                     metrics: { repairMs: repairDurationMs, downtimeMs: totalDowntimeMs }
                 });
             },
-            // Supervisor Sign-off
-            qaSignOff: (machineId, userId) => {
-                 update(ref(db, `machines/${machineId}`), { 
-                    status: 'Running', 
-                    issue: null, 
-                    priority: null, 
-                    ticketId: null 
+            // Main Hub final close-out
+            finalApprove: (machineId, userId) => {
+                update(ref(db, `machines/${machineId}`), {
+                    status: 'Running',
+                    issue: null,
+                    priority: null,
+                    ticketId: null,
+                    department: null,
+                    aiDiagnostic: null,
+                    isPM: null,
+                    completedBy: null,
+                    completionRemarks: null,
+                    reportedAt: null, assignedAt: null, startedAt: null
                 });
-                push(ref(db, 'logs'), { machineId, action: 'QA Approved', userId, timestamp: new Date().toISOString() });
+                push(ref(db, 'logs'), { machineId, action: 'Final Approved - Closed', userId, timestamp: new Date().toISOString() });
+            },
+            finalReject: (machineId, userId, machine, reason) => {
+                update(ref(db, `machines/${machineId}`), {
+                    status: 'In Progress',
+                    assignedTo: machine.completedBy,
+                    startedAt: new Date().toISOString(),
+                    completedBy: null,
+                    completionRemarks: null
+                });
+                push(ref(db, 'logs'), { machineId, action: 'Admin Rejected', details: reason, userId, timestamp: new Date().toISOString() });
+            },
+            transferDept: (machineId, userId, newDept) => {
+                update(ref(db, `machines/${machineId}`), { department: newDept, assignedTo: null, assignedAt: null });
+                push(ref(db, 'logs'), { machineId, action: 'Transferred', details: `-> ${newDept}`, department: newDept, userId, timestamp: new Date().toISOString() });
             },
             assignPM: (machineId, techId) => {
                 const ticketId = `#PM-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -206,7 +221,7 @@
                 techName: user.name, techId: user.id, machineId, partName, status: 'Pending', timestamp: new Date().toISOString()
             }),
             resolveRequest: (reqId) => remove(ref(db, `partRequests/${reqId}`)),
-            
+
             // --- ADDED LOGGING FUNCTION ---
             logAccess: (userId, userName, action) => {
                 push(ref(db, 'access_logs'), { 
@@ -220,14 +235,13 @@
 
         // --- 2. CUSTOM HOOKS ---
         const useFactoryData = () => {
-            const [data, setData] = useState({ users: [], buildings: [], floors: [], lines: [], machines: [], logs: [], parts: [], partRequests: [], access_logs: [], incoming_tickets: [] });
+            const [data, setData] = useState({ users: [], buildings: [], floors: [], lines: [], machines: [], logs: [], parts: [], partRequests: [], access_logs: [], serviceRecords: [], machineBookings: [] });
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
 
             useEffect(() => {
                 signInAnonymously(auth).catch(console.error);
-                // ADDED incoming_tickets to endpoints
-                const endpoints = ['users', 'buildings', 'floors', 'lines', 'machines', 'logs', 'parts', 'partRequests', 'access_logs', 'incoming_tickets'];
+                const endpoints = ['users', 'buildings', 'floors', 'lines', 'machines', 'logs', 'parts', 'partRequests', 'access_logs', 'serviceRecords', 'machineBookings'];
                 let loadedCount = 0;
                 const unsubscribers = endpoints.map(endpoint => {
                     return onValue(ref(db, endpoint), (snapshot) => {
@@ -282,7 +296,7 @@
             const variants = {
                 primary: "bg-blue-600 text-white hover:bg-blue-700",
                 secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                danger: "bg-red-50 text-white hover:bg-red-600",
+                danger: "bg-red-600 text-white hover:bg-red-700",
                 success: "bg-green-600 text-white hover:bg-green-700",
                 warning: "bg-yellow-500 text-white hover:bg-yellow-600",
                 outline: "border border-slate-300 text-slate-600 hover:bg-slate-50"
@@ -302,11 +316,12 @@
                 "In Progress": "bg-yellow-100 text-yellow-800 border-yellow-200",
                 Available: "bg-emerald-100 text-emerald-800 border-emerald-200",
                 Active: "bg-orange-100 text-orange-800 border-orange-200",
+                Busy: "bg-orange-100 text-orange-800 border-orange-200",
                 Offline: "bg-slate-100 text-slate-500 border-slate-200",
                 Low: "bg-blue-100 text-blue-800 border-blue-200",
                 Normal: "bg-slate-100 text-slate-800 border-slate-200",
                 Critical: "bg-red-600 text-white border-red-700 animate-pulse font-bold shadow-sm",
-                "QA Pending": "bg-orange-100 text-orange-800 border-orange-200 animate-pulse font-bold",
+                "Pending Admin Approval": "bg-orange-100 text-orange-800 border-orange-200 animate-pulse font-bold",
             };
             return <span className={`px-2 py-1 rounded-full text-xs font-bold border ${styles[status] || styles.Running}`}>{status}</span>;
         };
@@ -387,8 +402,8 @@
                     <Card className="w-full max-w-md p-8 bg-white relative mb-4">
                         <div className="text-center mb-8">
                             <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Factory className="w-8 h-8 text-blue-600" /></div>
-                            <h1 className="text-2xl font-bold text-slate-800">GarmentFix</h1>
-                            <p className="text-slate-500">Industrial Maintenance Platform</p>
+                            <h1 className="text-2xl font-bold text-slate-800">APMS</h1>
+                            <p className="text-slate-500">Automatic Problem Management System</p>
                         </div>
                         {error && <div className="bg-red-50 text-red-600 p-3 rounded mb-4 text-sm font-bold border border-red-200">{error}</div>}
                         <form onSubmit={(e) => { e.preventDefault(); onLogin(creds.username, creds.password); }} className="space-y-4">
@@ -407,8 +422,9 @@
 
         const KioskView = ({ machines, onReport, onClose }) => {
             const [selectedMachine, setSelectedMachine] = useState(null);
-            const [form, setForm] = useState({ issue: "", priority: "Normal", opName: "", opId: "" });
+            const [form, setForm] = useState({ issue: "", priority: "Normal", opName: "", opId: "", department: "Mechanical" });
             const [showScanner, setShowScanner] = useState(false);
+            const DEPARTMENTS = ['Mechanical', 'Technical', 'IE', 'Quality'];
 
             const handleScan = (data) => {
                 const machine = machines.find(m => m.id === data || m.name === data);
@@ -423,8 +439,8 @@
 
             const handleSubmit = () => {
                 if(selectedMachine && form.issue && form.opName && form.opId) {
-                    onReport(selectedMachine.id, form.issue, form.priority, form.opName, form.opId);
-                    setSelectedMachine(null); setForm({ issue: "", priority: "Normal", opName: "", opId: "" });
+                    onReport(selectedMachine.id, form.issue, form.priority, form.opName, form.opId, form.department);
+                    setSelectedMachine(null); setForm({ issue: "", priority: "Normal", opName: "", opId: "", department: "Mechanical" });
                 } else alert("Please fill in all fields.");
             };
 
@@ -464,6 +480,10 @@
                                         <button onClick={() => setSelectedMachine(null)} className="text-sm text-blue-600 hover:underline">Change</button>
                                     </div>
                                     <div className="space-y-4">
+                                        <label className="block text-sm font-bold text-slate-700">Which Department?</label>
+                                        <div className="grid grid-cols-2 gap-2">{DEPARTMENTS.map(d => (
+                                            <button key={d} onClick={() => setForm({...form, department: d})} className={`py-2 rounded text-sm font-bold border ${form.department === d ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 hover:border-slate-400'}`}>{d}</button>
+                                        ))}</div>
                                         <label className="block text-sm font-bold text-slate-700">Problem Description</label>
                                         <textarea className="w-full p-3 border rounded-lg h-24" placeholder="e.g. Needle broken..." value={form.issue} onChange={e => setForm({...form, issue: e.target.value})} />
                                         <label className="block text-sm font-bold text-slate-700">Priority</label>
@@ -484,13 +504,356 @@
             );
         };
 
-        const LiveMonitor = ({ machines, users, onAssign, currentUser }) => {
+        // ============================================================================
+        // EXECUTIVE COMMAND CENTER — the redesigned main landing dashboard.
+        // Pure CSS/SVG visuals (no chart lib). Read-only overview; deep actions live in
+        // the other tabs/hubs. Everything recomputes live from Firebase data.
+        // ============================================================================
+        const Kpi = ({ icon, label, value, sub, ring, onClick, alert }) => (
+            <div onClick={onClick} className={`bg-white rounded-2xl border border-slate-200 p-4 shadow-sm relative overflow-hidden transition-all ${onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 hover:border-slate-300' : ''}`}>
+                <div className={`absolute -right-6 -top-6 w-20 h-20 rounded-full opacity-10 ${ring || 'bg-blue-500'}`}></div>
+                <div className="flex items-center gap-1.5 text-slate-400 text-[11px] font-bold uppercase tracking-wide mb-1">{icon}{label}</div>
+                <div className="text-3xl font-extrabold text-slate-800 leading-none">{value}</div>
+                {sub && <div className={`text-xs mt-1.5 font-medium ${alert ? 'text-red-500' : 'text-slate-400'}`}>{sub}</div>}
+            </div>
+        );
+
+        const CommandCenter = ({ machines = [], users = [], logs = [], parts = [], partRequests = [], serviceRecords = [], machineBookings = [], onNavigate, currentUser }) => {
+            const [clock, setClock] = useState(new Date());
+            useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
+
+            const d = useMemo(() => {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const thisPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+                const sc = {};
+                machines.forEach(x => { const s = x.status || 'Running'; sc[s] = (sc[s] || 0) + 1; });
+                const running = sc['Running'] || 0, pending = sc['Pending'] || 0, inProgress = sc['In Progress'] || 0,
+                    adminApproval = sc['Pending Admin Approval'] || 0,
+                    offline = sc['Offline'] || 0, escalated = sc['Escalated'] || 0;
+                const downNow = pending + inProgress + escalated;
+                const openTickets = pending + inProgress + adminApproval + escalated;
+                const total = machines.length;
+                const uptimePct = total ? Math.round((total - downNow) / total * 100) : 100;
+
+                const techs = users.filter(u => u.role === 'technician');
+                const techOnline = techs.filter(t => t.status && t.status !== 'Offline').length;
+                const techBusy = techs.filter(t => t.status === 'Busy').length;
+                const techAvail = techs.filter(t => t.status === 'Available').length;
+
+                const isDone = a => a === 'Fixed (Pending Review)' || a === 'PM Completed (Pending Review)' || a === 'Final Approved - Closed';
+                const completedToday = logs.filter(l => isDone(l.action) && (l.timestamp || '').slice(0, 10) === todayStr);
+                const repairToday = logs.filter(l => (l.action === 'Fixed (Pending Review)' || l.action === 'PM Completed (Pending Review)') && (l.timestamp || '').slice(0, 10) === todayStr && l.metrics && l.metrics.repairMs);
+                const mttrToday = repairToday.length ? repairToday.reduce((a, l) => a + l.metrics.repairMs, 0) / repairToday.length : 0;
+                const costToday = completedToday.reduce((a, l) => a + (l.cost || 0), 0);
+                const servicesToday = serviceRecords.filter(r => (r.date || '').slice(0, 10) === todayStr).length;
+
+                const monthlyDone = machines.filter(x => (x.lastMonthlyService || '') === thisPeriod).length;
+                const monthlyPct = total ? Math.round(monthlyDone / total * 100) : 0;
+                const sixOverdue = machines.filter(x => !x.lastSixMonthServiceAt || (Date.now() - new Date(x.lastSixMonthServiceAt).getTime()) > 182 * 86400000).length;
+
+                const DEPTS = ['Mechanical', 'Technical', 'IE', 'Quality'];
+                const deptLoad = DEPTS.map(dep => ({ dept: dep, count: machines.filter(x => x.department === dep && ['Pending', 'In Progress', 'Escalated'].includes(x.status)).length }));
+
+                const criticalPending = machines.filter(x => x.priority === 'Critical' && ['Pending', 'In Progress'].includes(x.status));
+                const nameOf = id => (machines.find(x => x.id === id) || {}).name || id;
+
+                // QCM → APMS bridge — this is now the core loop the whole system exists for
+                // (a quality problem comes in, gets routed to the right dept, gets fixed), so it
+                // gets its own visibility instead of being buried inside general ticket counts.
+                const qcmOpenTickets = machines.filter(x => x.source === 'QCM' && ['Pending', 'In Progress', 'Pending Admin Approval'].includes(x.status));
+                const qcmFixedToday = completedToday.filter(l => l.source === 'QCM').length;
+                const qcmByDept = DEPTS.map(dep => ({ dept: dep, count: qcmOpenTickets.filter(x => x.department === dep).length })).filter(d => d.count > 0);
+
+                // Worker capacity — auto-assign now caps everyone at 3 concurrent tickets so work
+                // can't pile onto one person; surface who's actually at that ceiling right now.
+                const MAX_CONCURRENT = 3;
+                const techLoad = {};
+                machines.forEach(m => { if (m.assignedTo && m.status !== 'Running') techLoad[m.assignedTo] = (techLoad[m.assignedTo] || 0) + 1; });
+                const techsAtCapacity = techs.filter(t => (techLoad[t.id] || 0) >= MAX_CONCURRENT).length;
+
+                // Machine Booking board lives in Factory Manager — just a pending-count and a
+                // link here, not a full mirror of that tool.
+                const pendingBookings = (machineBookings || []).filter(b => b.status === 'Pending').length;
+
+                const mt = {};
+                logs.forEach(l => { if (l.machineId && (l.action === 'AI Assigned' || l.action === 'Fixed (Pending Review)')) mt[l.machineId] = (mt[l.machineId] || 0) + 1; });
+                const topProblem = Object.entries(mt).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => ({ name: nameOf(id), n }));
+
+                const tj = {};
+                completedToday.forEach(l => { if (l.userId) tj[l.userId] = (tj[l.userId] || 0) + 1; });
+                const leaderboard = Object.entries(tj).map(([uid, n]) => ({ name: (users.find(u => u.id === uid) || {}).name || uid, n })).sort((a, b) => b.n - a.n).slice(0, 5);
+
+                const recent = logs.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 8);
+                const lowParts = parts.filter(p => (p.stock || 0) <= (p.minStock || 3));
+                const pendingParts = partRequests.filter(r => r.status === 'Pending').length;
+
+                return { running, pending, inProgress, adminApproval, offline, escalated, downNow, openTickets, total, uptimePct,
+                    techs, techOnline, techBusy, techAvail, completedToday, mttrToday, costToday, servicesToday, monthlyDone, monthlyPct, sixOverdue,
+                    deptLoad, criticalPending, topProblem, leaderboard, recent, lowParts, pendingParts,
+                    qcmOpenTickets, qcmFixedToday, qcmByDept, techsAtCapacity, pendingBookings };
+            }, [machines, users, logs, parts, partRequests, serviceRecords, machineBookings]);
+
+            // Donut chart (machine status mix)
+            const donutSrc = [
+                { label: 'Running', n: d.running, color: '#10b981' },
+                { label: 'In Progress', n: d.inProgress, color: '#f59e0b' },
+                { label: 'Pending', n: d.pending, color: '#ef4444' },
+                { label: 'Review', n: d.adminApproval, color: '#a855f7' },
+                { label: 'Offline', n: d.offline + d.escalated, color: '#94a3b8' },
+            ].filter(s => s.n > 0);
+            const donutTotal = donutSrc.reduce((a, s) => a + s.n, 0) || 1;
+            const R = 54, CIRC = 2 * Math.PI * R;
+            let acc = 0;
+            const segs = donutSrc.map(s => { const frac = s.n / donutTotal; const seg = { ...s, dash: frac * CIRC, offset: -acc * CIRC, frac }; acc += frac; return seg; });
+
+            const maxDept = Math.max(1, ...d.deptLoad.map(x => x.count));
+            const maxLb = Math.max(1, ...d.leaderboard.map(x => x.n));
+            const deptColor = { Mechanical: 'bg-red-500', Technical: 'bg-emerald-500', IE: 'bg-blue-500', Quality: 'bg-yellow-500' };
+            const pipeline = [
+                { label: 'Pending', n: d.pending, color: 'bg-red-500' },
+                { label: 'In Progress', n: d.inProgress, color: 'bg-orange-500' },
+                { label: 'Admin Approval', n: d.adminApproval, color: 'bg-purple-500' },
+            ];
+            const actIcon = (a) => {
+                if (/Fixed|Completed|Approved/.test(a)) return <CheckCircle className="w-4 h-4 text-emerald-500" />;
+                if (/Assigned/.test(a)) return <Zap className="w-4 h-4 text-indigo-500" />;
+                if (/Escalat|Reject/.test(a)) return <AlertOctagon className="w-4 h-4 text-red-500" />;
+                if (/Service|Moved/.test(a)) return <ClipboardCheck className="w-4 h-4 text-blue-500" />;
+                return <Activity className="w-4 h-4 text-slate-400" />;
+            };
+            const fmtMins = (ms) => { const mn = Math.round(ms / 60000); return mn >= 60 ? `${Math.floor(mn / 60)}h ${mn % 60}m` : `${mn}m`; };
+
+            return (
+                <div className="space-y-6 max-w-7xl mx-auto pb-10">
+                    {/* HERO */}
+                    <div className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 text-white p-6 md:p-8 shadow-xl relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }}></div>
+                        <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
+                            <div>
+                                <div className="flex items-center gap-2 text-blue-300 text-sm font-bold uppercase tracking-widest mb-1"><Factory className="w-4 h-4" /> APMS Command Center</div>
+                                <h1 className="text-3xl md:text-4xl font-extrabold">Welcome, {currentUser?.name || 'Admin'}</h1>
+                                <div className="text-slate-300 text-sm mt-1">{clock.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · <span className="font-mono">{clock.toLocaleTimeString()}</span></div>
+                            </div>
+                            <div className="flex gap-3">
+                                <div className="bg-white/10 backdrop-blur rounded-2xl px-5 py-3 text-center border border-white/10">
+                                    <div className="text-3xl font-extrabold">{d.uptimePct}%</div>
+                                    <div className="text-[11px] text-blue-200 uppercase font-bold tracking-wide">Fleet Uptime</div>
+                                </div>
+                                <div className="bg-white/10 backdrop-blur rounded-2xl px-5 py-3 text-center border border-white/10">
+                                    <div className="text-3xl font-extrabold">{d.openTickets}</div>
+                                    <div className="text-[11px] text-blue-200 uppercase font-bold tracking-wide">Open Tickets</div>
+                                </div>
+                                <div className="bg-white/10 backdrop-blur rounded-2xl px-5 py-3 text-center border border-white/10">
+                                    <div className="text-3xl font-extrabold">{d.techOnline}<span className="text-lg text-blue-200">/{d.techs.length}</span></div>
+                                    <div className="text-[11px] text-blue-200 uppercase font-bold tracking-wide">Techs Online</div>
+                                </div>
+                            </div>
+                        </div>
+                        {/* Quick actions */}
+                        <div className="relative flex flex-wrap gap-2 mt-6">
+                            <button onClick={() => onNavigate('live_monitor')} className="bg-white text-slate-900 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-50"><Activity className="w-4 h-4" /> Live Monitor</button>
+                            <button onClick={() => onNavigate('analytics')} className="bg-white/10 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-white/20 border border-white/20"><BarChart2 className="w-4 h-4" /> Analytics</button>
+                            <a href="Maintenance.html" target="_blank" className="bg-white/10 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-white/20 border border-white/20 no-underline"><Wrench className="w-4 h-4" /> Mechanical Hub</a>
+                            <button onClick={() => onNavigate('inventory')} className="bg-white/10 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-white/20 border border-white/20"><Package className="w-4 h-4" /> Inventory</button>
+                            <a href="factory_manager.html" target="_blank" className="bg-white/10 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-white/20 border border-white/20 no-underline"><LayoutDashboard className="w-4 h-4" /> Factory Manager</a>
+                        </div>
+                    </div>
+
+                    {/* KPI GRID */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <Kpi icon={<Factory className="w-3.5 h-3.5" />} label="Total Machines" value={d.total} sub={`${d.running} running`} ring="bg-blue-500" />
+                        <Kpi icon={<AlertTriangle className="w-3.5 h-3.5" />} label="Down Now" value={d.downNow} sub={d.downNow ? 'needs attention' : 'all healthy'} ring="bg-red-500" alert={d.downNow > 0} onClick={() => onNavigate('live_monitor')} />
+                        <Kpi icon={<CheckCircle className="w-3.5 h-3.5" />} label="Fixed Today" value={d.completedToday.length} sub={`$${d.costToday.toFixed(0)} parts cost`} ring="bg-emerald-500" />
+                        <Kpi icon={<Timer className="w-3.5 h-3.5" />} label="MTTR Today" value={d.mttrToday ? fmtMins(d.mttrToday) : '—'} sub="avg repair time" ring="bg-indigo-500" />
+                        <Kpi icon={<ShieldCheck className="w-3.5 h-3.5" />} label="QCM Tickets" value={d.qcmOpenTickets.length} sub={`${d.qcmFixedToday} fixed today`} ring="bg-purple-500" onClick={() => onNavigate('live_monitor')} />
+                        <Kpi icon={<UserX className="w-3.5 h-3.5" />} label="Workers At Capacity" value={d.techsAtCapacity} sub={`of ${d.techs.length} techs · cap 3`} ring="bg-amber-500" alert={d.techsAtCapacity > 0} />
+                        <Kpi icon={<BookOpen className="w-3.5 h-3.5" />} label="Booking Requests" value={d.pendingBookings} sub="pending in Factory Manager" ring="bg-teal-500" alert={d.pendingBookings > 0} onClick={() => window.open('factory_manager.html', '_blank')} />
+                        <Kpi icon={<Zap className="w-3.5 h-3.5" />} label="In Pipeline" value={d.openTickets} sub="pending + in progress + review" ring="bg-orange-500" onClick={() => onNavigate('live_monitor')} />
+                        <Kpi icon={<UserCheck className="w-3.5 h-3.5" />} label="Techs Available" value={d.techAvail} sub={`${d.techBusy} busy · ${d.techOnline} online`} ring="bg-cyan-500" />
+                        <Kpi icon={<ClipboardCheck className="w-3.5 h-3.5" />} label="Monthly Service" value={`${d.monthlyPct}%`} sub={`${d.monthlyDone}/${d.total} done`} ring="bg-violet-500" />
+                        <Kpi icon={<CalendarClock className="w-3.5 h-3.5" />} label="6-Month Overdue" value={d.sixOverdue} sub={d.sixOverdue ? 'service overdue' : 'all serviced'} ring="bg-rose-500" alert={d.sixOverdue > 0} />
+                    </div>
+
+                    {/* ROW: status donut + dept workload */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <Card className="p-5">
+                            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><Gauge className="w-4 h-4 text-blue-600" /> Machine Status</h3>
+                            <div className="flex items-center gap-4">
+                                <svg viewBox="0 0 140 140" className="w-36 h-36 shrink-0 -rotate-90">
+                                    <circle cx="70" cy="70" r={R} fill="none" stroke="#f1f5f9" strokeWidth="16" />
+                                    {segs.map((s, i) => (
+                                        <circle key={i} cx="70" cy="70" r={R} fill="none" stroke={s.color} strokeWidth="16"
+                                            strokeDasharray={`${s.dash} ${CIRC - s.dash}`} strokeDashoffset={s.offset} strokeLinecap="butt" />
+                                    ))}
+                                </svg>
+                                <div className="flex-1 space-y-1.5">
+                                    {donutSrc.map((s, i) => (
+                                        <div key={i} className="flex items-center justify-between text-sm">
+                                            <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{ background: s.color }}></span>{s.label}</span>
+                                            <span className="font-bold text-slate-700">{s.n} <span className="text-slate-400 text-xs">({Math.round(s.n / donutTotal * 100)}%)</span></span>
+                                        </div>
+                                    ))}
+                                    {donutSrc.length === 0 && <div className="text-slate-400 text-sm">No machines yet.</div>}
+                                </div>
+                            </div>
+                        </Card>
+
+                        <Card className="p-5 lg:col-span-2">
+                            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><BarChart2 className="w-4 h-4 text-blue-600" /> Open Workload by Department</h3>
+                            <div className="space-y-3">
+                                {d.deptLoad.map(dep => (
+                                    <div key={dep.dept} className="flex items-center gap-3">
+                                        <div className="w-24 text-sm font-medium text-slate-600 shrink-0">{dep.dept}</div>
+                                        <div className="flex-1 bg-slate-100 rounded-full h-6 overflow-hidden">
+                                            <div className={`h-full ${deptColor[dep.dept]} rounded-full flex items-center justify-end px-2 transition-all`} style={{ width: `${Math.max(dep.count / maxDept * 100, dep.count ? 8 : 0)}%` }}>
+                                                {dep.count > 0 && <span className="text-white text-xs font-bold">{dep.count}</span>}
+                                            </div>
+                                        </div>
+                                        {dep.count === 0 && <span className="text-slate-300 text-xs w-6">0</span>}
+                                    </div>
+                                ))}
+                            </div>
+                            {/* Pipeline */}
+                            <h3 className="font-bold text-slate-800 mb-3 mt-6 flex items-center gap-2"><Activity className="w-4 h-4 text-blue-600" /> Ticket Pipeline</h3>
+                            <div className="flex items-stretch gap-1">
+                                {pipeline.map((p, i) => (
+                                    <div key={i} className="flex-1 text-center">
+                                        <div className={`${p.color} text-white rounded-lg py-3 font-extrabold text-xl`}>{p.n}</div>
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-wide">{p.label}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+                    </div>
+
+                    {/* ROW: alerts + top problems + leaderboard */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        {/* Alerts */}
+                        <Card className="p-5 border-l-4 border-l-red-500">
+                            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><AlertOctagon className="w-4 h-4 text-red-600" /> Priority Alerts</h3>
+                            <div className="space-y-2 text-sm">
+                                {d.criticalPending.length > 0 && (
+                                    <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                                        <span className="text-red-700 font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Critical breakdowns</span>
+                                        <span className="font-bold text-red-700">{d.criticalPending.length}</span>
+                                    </div>
+                                )}
+                                {d.qcmOpenTickets.length > 0 && (
+                                    <div className="flex items-center justify-between bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 cursor-pointer" onClick={() => onNavigate('live_monitor')}>
+                                        <span className="text-purple-700 font-medium flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Quality-flagged (QCM) awaiting fix</span>
+                                        <span className="font-bold text-purple-700">{d.qcmOpenTickets.length}</span>
+                                    </div>
+                                )}
+                                {d.techsAtCapacity > 0 && (
+                                    <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                        <span className="text-amber-700 font-medium flex items-center gap-2"><UserX className="w-4 h-4" /> Techs at 3-ticket capacity</span>
+                                        <span className="font-bold text-amber-700">{d.techsAtCapacity}</span>
+                                    </div>
+                                )}
+                                {d.pendingBookings > 0 && (
+                                    <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-lg px-3 py-2 cursor-pointer" onClick={() => window.open('factory_manager.html', '_blank')}>
+                                        <span className="text-teal-700 font-medium flex items-center gap-2"><BookOpen className="w-4 h-4" /> Machine booking requests</span>
+                                        <span className="font-bold text-teal-700">{d.pendingBookings}</span>
+                                    </div>
+                                )}
+                                {d.sixOverdue > 0 && (
+                                    <div className="flex items-center justify-between bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                                        <span className="text-rose-700 font-medium flex items-center gap-2"><CalendarClock className="w-4 h-4" /> 6-month service overdue</span>
+                                        <span className="font-bold text-rose-700">{d.sixOverdue}</span>
+                                    </div>
+                                )}
+                                {d.escalated > 0 && (
+                                    <div className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                                        <span className="text-orange-700 font-medium flex items-center gap-2"><AlertOctagon className="w-4 h-4" /> Escalated tickets</span>
+                                        <span className="font-bold text-orange-700">{d.escalated}</span>
+                                    </div>
+                                )}
+                                {d.pendingParts > 0 && (
+                                    <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 cursor-pointer" onClick={() => onNavigate('inventory')}>
+                                        <span className="text-amber-700 font-medium flex items-center gap-2"><Package className="w-4 h-4" /> Part requests pending</span>
+                                        <span className="font-bold text-amber-700">{d.pendingParts}</span>
+                                    </div>
+                                )}
+                                {d.lowParts.length > 0 && (
+                                    <div className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 cursor-pointer" onClick={() => onNavigate('inventory')}>
+                                        <span className="text-yellow-700 font-medium flex items-center gap-2"><TrendingDown className="w-4 h-4" /> Low-stock parts</span>
+                                        <span className="font-bold text-yellow-700">{d.lowParts.length}</span>
+                                    </div>
+                                )}
+                                {d.criticalPending.length === 0 && d.sixOverdue === 0 && d.escalated === 0 && d.pendingParts === 0 && d.lowParts.length === 0 && d.qcmOpenTickets.length === 0 && d.techsAtCapacity === 0 && d.pendingBookings === 0 && (
+                                    <div className="text-center py-6 text-emerald-600"><CheckCircle className="w-8 h-8 mx-auto mb-1" /><p className="text-sm font-medium">All clear — no alerts.</p></div>
+                                )}
+                            </div>
+                        </Card>
+
+                        {/* Top problem machines */}
+                        <Card className="p-5">
+                            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-red-600" /> Top Problem Machines</h3>
+                            <div className="space-y-2">
+                                {d.topProblem.length === 0 ? <p className="text-slate-400 text-sm py-4 text-center">No history yet.</p> : d.topProblem.map((p, i) => (
+                                    <div key={i} className="flex items-center gap-3">
+                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{i + 1}</div>
+                                        <div className="flex-1 text-sm font-medium text-slate-700 truncate">{p.name}</div>
+                                        <div className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{p.n} tickets</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+
+                        {/* Tech leaderboard */}
+                        <Card className="p-5">
+                            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4 text-emerald-600" /> Top Techs Today</h3>
+                            <div className="space-y-2.5">
+                                {d.leaderboard.length === 0 ? <p className="text-slate-400 text-sm py-4 text-center">No jobs completed yet today.</p> : d.leaderboard.map((t, i) => (
+                                    <div key={i} className="flex items-center gap-3">
+                                        <div className="text-lg w-6 text-center">{['🥇', '🥈', '🥉'][i] || '🔧'}</div>
+                                        <div className="flex-1">
+                                            <div className="text-sm font-medium text-slate-700">{t.name}</div>
+                                            <div className="bg-slate-100 rounded-full h-2 mt-1 overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${t.n / maxLb * 100}%` }}></div></div>
+                                        </div>
+                                        <div className="text-sm font-bold text-emerald-600">{t.n}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+                    </div>
+
+                    {/* Recent activity */}
+                    <Card className="p-5">
+                        <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><History className="w-4 h-4 text-blue-600" /> Live Activity Feed</h3>
+                        <div className="divide-y divide-slate-100">
+                            {d.recent.length === 0 ? <p className="text-slate-400 text-sm py-4 text-center">No activity yet.</p> : d.recent.map((l, i) => (
+                                <div key={i} className="flex items-center gap-3 py-2.5">
+                                    {actIcon(l.action || '')}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm text-slate-700"><span className="font-bold">{l.action}</span>{l.userName ? <span className="text-slate-400"> · {l.userName}</span> : ''}</div>
+                                        {l.details && <div className="text-xs text-slate-400 truncate">{l.details}</div>}
+                                    </div>
+                                    <div className="text-xs text-slate-400 shrink-0 font-mono">{l.timestamp ? new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+                </div>
+            );
+        };
+
+        const LiveMonitor = ({ machines, users, onAssign, currentUser, serviceRecords = [], filters = { q: '', dept: 'all', status: 'all', priority: 'all' }, setFilters = () => {} }) => {
             const pending = machines.filter(m => m.status === "Pending");
-            const qaPending = machines.filter(m => m.status === "QA Pending");
+            const qaPending = machines.filter(m => m.status === "Pending Admin Approval");
+            const DEPARTMENTS = ['Mechanical', 'Technical', 'IE', 'Quality'];
             const [modal, setModal] = useState(null);
             const [selTech, setSelTech] = useState("");
-            const [autoAssign, setAutoAssign] = useState(false);
+            // Defaults ON now that n8n no longer exists to auto-assign new tickets — this is the
+            // only thing that routes an unassigned breakdown to an available worker.
+            const [autoAssign, setAutoAssign] = useState(true);
             const [viewMode, setViewMode] = useState('live'); // 'live' or 'pm'
+
+            // PM SERVICE-CARD COMPLIANCE (monthly + 6-month) — mirrors worker.html/hub logic
+            const thisPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+            const monthlyDueMachines = machines.filter(m => (m.lastMonthlyService || '') !== thisPeriod);
+            const sixMonthOverdueMachines = machines.filter(m => !m.lastSixMonthServiceAt || (Date.now() - new Date(m.lastSixMonthServiceAt).getTime()) > 182*86400000);
+            const servicesToday = serviceRecords.filter(r => (r.date || '').slice(0,10) === new Date().toISOString().slice(0,10));
 
             // PM SCHEDULER LOGIC (30 Days)
             const serviceDueMachines = machines.filter(m => {
@@ -542,11 +905,22 @@
                     return 0;
                 });
 
+                // No technician gets more than MAX_CONCURRENT active tickets at once — without
+                // this, if only one tech in a department is online, every new breakdown kept
+                // piling onto that same person with no limit (the actual bug reported: one
+                // worker ends up holding all the work). Once everyone in the department is at
+                // the cap, remaining tickets are left unassigned for manual claim instead.
+                const MAX_CONCURRENT = 3;
                 sortedBreakdowns.forEach(m => {
-                    const bestTech = techs.reduce((prev, curr) => workload[prev.id] <= workload[curr.id] ? prev : curr);
+                    // Only consider techs in the AI-routed department for this machine; if nobody in
+                    // that department is online yet, leave it unassigned rather than misroute it.
+                    const deptTechs = (m.department ? techs.filter(t => t.department === m.department) : techs)
+                        .filter(t => workload[t.id] < MAX_CONCURRENT);
+                    if (deptTechs.length === 0) return;
+                    const bestTech = deptTechs.reduce((prev, curr) => workload[prev.id] <= workload[curr.id] ? prev : curr);
                     if (bestTech) {
                         api.assignTech(m.id, bestTech.id);
-                        workload[bestTech.id]++; 
+                        workload[bestTech.id]++;
                     }
                 });
 
@@ -574,24 +948,101 @@
                 }
             };
 
+            // --- QMS-STYLE FILTERS (shared with the top-bar search box) ---
+            const DEPT_OPTS = ['Mechanical', 'Technical', 'IE', 'Quality'];
+            const matchF = (m) => {
+                const q = (filters.q || '').trim().toLowerCase();
+                if (q && !(`${m.name || ''} ${m.issue || ''} ${m.id || ''} ${m.ticketId || ''}`.toLowerCase().includes(q))) return false;
+                if (filters.dept !== 'all' && m.department !== filters.dept) return false;
+                if (filters.priority !== 'all' && (m.priority || 'Normal') !== filters.priority) return false;
+                return true;
+            };
+            const fPending = pending.filter(matchF);
+            const fInProgress = machines.filter(m => m.status === 'In Progress').filter(matchF);
+            const fQa = qaPending.filter(matchF);
+            const activeFilterCount = (filters.dept !== 'all' ? 1 : 0) + (filters.priority !== 'all' ? 1 : 0) + (filters.status !== 'all' ? 1 : 0) + (filters.q ? 1 : 0);
+            const showSec = (key) => filters.status === 'all' || filters.status === key;
+            const chips = [
+                { key: 'Pending', label: 'Pending', n: fPending.length, cls: 'text-red-600', icon: <AlertTriangle className="w-4 h-4 text-red-500" /> },
+                { key: 'In Progress', label: 'In Progress', n: fInProgress.length, cls: 'text-yellow-600', icon: <Wrench className="w-4 h-4 text-yellow-500" /> },
+                { key: 'Pending Admin Approval', label: 'Approval', n: fQa.length, cls: 'text-orange-600', icon: <ShieldCheck className="w-4 h-4 text-orange-500" /> },
+            ];
+
             return (
-                <div className="space-y-6">
+                <div className="space-y-5">
+                    {/* ===== FILTER TOOLBAR ===== */}
+                    <Card className="p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2 bg-slate-100 rounded-xl px-3 py-2 flex-1 min-w-[200px]">
+                                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                                <input value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} placeholder="Search machine, issue, ticket…" className="bg-transparent outline-none text-sm w-full text-slate-700" />
+                                {filters.q && <button onClick={() => setFilters({ ...filters, q: '' })}><X className="w-4 h-4 text-slate-400 hover:text-slate-600" /></button>}
+                            </div>
+                            <select value={filters.dept} onChange={e => setFilters({ ...filters, dept: e.target.value })} className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white font-medium text-slate-600">
+                                <option value="all">All Departments</option>
+                                {DEPT_OPTS.map(dp => <option key={dp} value={dp}>{dp}</option>)}
+                            </select>
+                            <select value={filters.priority} onChange={e => setFilters({ ...filters, priority: e.target.value })} className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white font-medium text-slate-600">
+                                <option value="all">All Priority</option>
+                                <option>Critical</option><option>Normal</option><option>Low</option>
+                            </select>
+                            {activeFilterCount > 0 && <button onClick={() => setFilters({ q: '', dept: 'all', status: 'all', priority: 'all' })} className="text-sm text-slate-500 hover:text-slate-800 flex items-center gap-1 px-2 font-medium"><X className="w-4 h-4" />Clear ({activeFilterCount})</button>}
+                            <div className="ml-auto flex items-center gap-2">
+                                <div className="flex rounded-xl overflow-hidden border border-slate-200">
+                                    <button onClick={() => setViewMode('live')} className={`px-3 py-2 text-xs font-bold transition-colors ${viewMode === 'live' ? 'bg-blue-600 text-white' : 'bg-white text-slate-500'}`}>Breakdowns</button>
+                                    <button onClick={() => setViewMode('pm')} className={`px-3 py-2 text-xs font-bold transition-colors ${viewMode === 'pm' ? 'bg-blue-600 text-white' : 'bg-white text-slate-500'}`}>PM Due</button>
+                                </div>
+                                {currentUser.role === 'admin' && <button onClick={() => setAutoAssign(!autoAssign)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${autoAssign ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}><Zap className={`w-3.5 h-3.5 ${autoAssign ? 'fill-current' : ''}`} />{autoAssign ? 'Auto ON' : 'Auto OFF'}</button>}
+                            </div>
+                        </div>
+                    </Card>
+
+                    {/* ===== STATUS QUICK-FILTER CHIPS ===== */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {chips.map(c => (
+                            <button key={c.key} onClick={() => setFilters({ ...filters, status: filters.status === c.key ? 'all' : c.key })}
+                                className={`text-left rounded-2xl border p-3 bg-white transition-all ${filters.status === c.key ? 'ring-2 ring-blue-500 border-blue-300 shadow-sm' : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'}`}>
+                                <div className="flex items-center justify-between">{c.icon}<span className="text-2xl font-extrabold text-slate-800">{c.n}</span></div>
+                                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-1">{c.label}</div>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* ===== PENDING TICKETS — dedicated, separated area ===== */}
+                    {showSec('Pending') && (
+                        <Card className="p-0 overflow-hidden border-l-4 border-l-red-500">
+                            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-red-50/40">
+                                <h3 className="font-bold text-slate-800 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-600" /> Pending Tickets <span className="text-sm font-normal text-slate-400">({fPending.length})</span></h3>
+                                {activeFilterCount > 0 && <span className="text-xs text-slate-400">filtered</span>}
+                            </div>
+                            <div className="divide-y divide-slate-100 max-h-[26rem] overflow-y-auto">
+                                {fPending.length === 0 ? <div className="p-8 text-center text-slate-400 text-sm">No pending tickets match your filters.</div> :
+                                    fPending.map(m => (
+                                        <div key={m.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50 group">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="font-bold text-slate-800">{m.name}</span>
+                                                    {m.priority && <Badge status={m.priority} type="priority" />}
+                                                    {m.department && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1"><Zap className="w-3 h-3" />{m.department.toUpperCase()}</span>}
+                                                    {m.source === 'QCM' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1"><ShieldCheck className="w-3 h-3" />QCM</span>}
+                                                </div>
+                                                <div className="text-xs text-slate-500 mt-0.5 truncate">{m.issue}{m.reportedBy ? ` · ${m.reportedBy}` : ''}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                {!m.assignedTo ? <Button size="sm" onClick={() => setModal(m)}>Assign</Button> : <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">Assigned</span>}
+                                                {currentUser.role === 'admin' && <select className="text-xs border border-slate-200 rounded px-1 py-1 bg-white" defaultValue="" onChange={e => { const v = e.target.value; e.target.value = ""; if (v) api.transferDept(m.id, currentUser.id, v); }} title="Re-route department"><option value="" disabled>Re-route…</option>{DEPARTMENTS.filter(dp => dp !== m.department).map(dp => <option key={dp} value={dp}>{dp}</option>)}</select>}
+                                                {currentUser.role === 'admin' && <button onClick={() => handleForceClear(m.id)} className="text-red-400 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-opacity" title="Force clear ticket"><Trash2 className="w-4 h-4" /></button>}
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        </Card>
+                    )}
+
                     <Card className="p-4 bg-slate-800 text-white border-slate-700">
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="font-bold flex items-center gap-2"><UserCheck className="w-4 h-4 text-emerald-400"/> Technician Status Board</h3>
-                            <div className="flex gap-2">
-                                <button onClick={() => setViewMode('live')} className={`px-3 py-1 rounded text-xs font-bold transition-colors ${viewMode === 'live' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>Live Breakdown</button>
-                                <button onClick={() => setViewMode('pm')} className={`px-3 py-1 rounded text-xs font-bold transition-colors ${viewMode === 'pm' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>PM Schedule</button>
-                                {currentUser.role === 'admin' && (
-                                    <button 
-                                        onClick={() => setAutoAssign(!autoAssign)} 
-                                        className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold transition-colors ${autoAssign ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-400'}`}
-                                    >
-                                        <Zap className={`w-3 h-3 ${autoAssign ? 'fill-current' : ''}`} /> 
-                                        {autoAssign ? 'Auto ON' : 'Auto OFF'}
-                                    </button>
-                                )}
-                            </div>
+                            <span className="text-xs text-slate-400">{users.filter(u => u.role === 'technician' && u.status && u.status !== 'Offline').length} online</span>
                         </div>
                         <div className="flex gap-4 overflow-x-auto pb-2">
                             {users.filter(u => u.role === 'technician').map(tech => {
@@ -604,6 +1055,7 @@
                                         <div className="text-[10px] mt-1 text-slate-400 w-full text-center">
                                             Tasks: {machines.filter(m => m.assignedTo === tech.id && m.status !== 'Running').length}
                                         </div>
+                                        {tech.currentTask && <div className="text-[9px] text-emerald-300 w-full text-center truncate" title={tech.currentTask}>📍 {tech.currentTask}</div>}
                                         <div className="text-[9px] text-indigo-300">PM Goal: {activePMs}/5</div>
                                     </div>
                                 )
@@ -611,68 +1063,80 @@
                         </div>
                     </Card>
 
+                    {/* PM SERVICE-CARD COMPLIANCE — monthly + 6-month service status across all machines */}
+                    {currentUser.role === 'admin' && (
+                        <Card className="p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-bold text-slate-800 flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-indigo-600"/> Service-Card Compliance</h3>
+                                <span className="text-xs text-slate-400">{servicesToday.length} service{servicesToday.length!==1?'s':''} logged today</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 mb-3">
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                                    <div className="text-2xl font-bold text-emerald-700">{machines.length - monthlyDueMachines.length}</div>
+                                    <div className="text-[10px] uppercase font-bold text-emerald-600">Monthly Done</div>
+                                </div>
+                                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-center">
+                                    <div className="text-2xl font-bold text-orange-700">{monthlyDueMachines.length}</div>
+                                    <div className="text-[10px] uppercase font-bold text-orange-600">Monthly Due</div>
+                                </div>
+                                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                                    <div className="text-2xl font-bold text-red-700">{sixMonthOverdueMachines.length}</div>
+                                    <div className="text-[10px] uppercase font-bold text-red-600">6-Month Overdue</div>
+                                </div>
+                            </div>
+                            {sixMonthOverdueMachines.length > 0 && (
+                                <div className="text-xs text-slate-500">
+                                    <span className="font-bold text-red-600">Overdue 6-month service:</span> {sixMonthOverdueMachines.slice(0,12).map(m => m.name || m.id).join(', ')}{sixMonthOverdueMachines.length > 12 ? ` +${sixMonthOverdueMachines.length-12} more` : ''}
+                                </div>
+                            )}
+                            <p className="text-[10px] text-slate-400 mt-2">Mechanics complete these by scanning a machine in the Worker Portal. Full Jan–Dec grid lives in the Mechanical Hub → Service Cards.</p>
+                        </Card>
+                    )}
+
                     {viewMode === 'live' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* QA SIGN-OFF PANEL (VISIBLE TO ADMINS ONLY) */}
-                            {qaPending.length > 0 && currentUser.role === 'admin' && (
+                            {/* FINAL APPROVAL PANEL (VISIBLE TO ADMINS ONLY) - escalated here after the dept Hub already approved */}
+                            {fQa.length > 0 && currentUser.role === 'admin' && showSec('Pending Admin Approval') && (
                                 <Card className="p-4 border-l-4 border-l-orange-500 md:col-span-2 bg-orange-50">
-                                    <h3 className="font-bold text-lg text-orange-700 mb-4 flex items-center gap-2"><ShieldCheck className="w-5 h-5"/> QA Sign-off Required ({qaPending.length})</h3>
+                                    <h3 className="font-bold text-lg text-orange-700 mb-4 flex items-center gap-2"><ShieldCheck className="w-5 h-5"/> Final Approval Required ({fQa.length})</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {qaPending.map(m => (
-                                            <div key={m.id} className="flex justify-between items-center p-3 bg-white rounded border border-orange-200 shadow-sm">
+                                        {fQa.map(m => (
+                                            <div key={m.id} className="flex flex-col gap-2 p-3 bg-white rounded border border-orange-200 shadow-sm">
                                                 <div>
-                                                    <div className="flex items-center gap-2 font-bold text-slate-800">{m.name}</div>
+                                                    <div className="flex items-center gap-2 font-bold text-slate-800">
+                                                        {m.name}
+                                                        {m.source === 'QCM' && (
+                                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 shadow-sm flex items-center gap-1">
+                                                                <ShieldCheck className="w-3 h-3"/> From QCM
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <div className="text-xs text-orange-600 font-bold">Issue: {m.issue}</div>
-                                                    <div className="text-xs text-slate-400">QA pending for oil/feed dog repair.</div>
+                                                    <div className="text-xs text-slate-500 mt-1">Fix: {m.completionRemarks || "No remarks left."}</div>
                                                 </div>
-                                                <Button size="sm" variant="warning" onClick={() => api.qaSignOff(m.id, currentUser.id)}>Approve</Button>
+                                                <div className="flex gap-2">
+                                                    <Button size="sm" variant="warning" onClick={() => api.finalApprove(m.id, currentUser.id)}>Approve & Close</Button>
+                                                    <Button size="sm" variant="danger" onClick={() => { const reason = window.prompt("Why is this being rejected?"); if (reason !== null) api.finalReject(m.id, currentUser.id, m, reason); }}>Reject</Button>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
                                 </Card>
                             )}
 
-                            <Card className="p-4 border-l-4 border-l-red-500">
-                                <h3 className="font-bold text-lg text-red-700 mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5"/> Pending Issues ({pending.length})</h3>
-                                <div className="space-y-2 max-h-60 overflow-y-auto">
-                                    {pending.map(m => (
-                                        <div key={m.id} className="flex justify-between items-center p-3 bg-red-50 rounded border border-red-100 group">
-                                            <div>
-                                                <div className="flex items-center gap-2 font-bold text-slate-800">
-                                                    {m.name} 
-                                                    {m.priority && <Badge status={m.priority} type="priority"/>}
-                                                    {/* NEW: AI Department Badge */}
-                                                    {m.department && (
-                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-sm flex items-center gap-1">
-                                                            <Zap className="w-3 h-3 fill-indigo-500 text-indigo-500"/> AI Routed: {m.department.toUpperCase()}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="text-xs text-red-600 mt-1">{m.issue}</div>
-                                                {m.reportedBy && <div className="text-[10px] text-blue-600 mt-1">Rep: {m.reportedBy}</div>}
+                            <Card className="p-4 border-l-4 border-l-yellow-500 md:col-span-2">
+                                <h3 className="font-bold text-lg text-yellow-700 mb-4 flex items-center gap-2"><Wrench className="w-5 h-5"/> Active Repairs ({fInProgress.length})</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-72 overflow-y-auto">
+                                    {fInProgress.map(m => (
+                                        <div key={m.id} className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg border border-yellow-100">
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-slate-800 truncate">{m.name}</div>
+                                                <div className="text-xs text-slate-500">Tech: {users.find(u => u.id === m.assignedTo)?.name || 'Unknown'}</div>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                {!m.assignedTo && currentUser.role !== 'viewer' ? <Button size="sm" onClick={() => setModal(m)}>Assign</Button> : <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{m.assignedTo ? "Assigned" : "Waiting"}</span>}
-                                                {currentUser.role === 'admin' && (
-                                                    <button onClick={() => handleForceClear(m.id)} className="text-red-400 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-opacity" title="Force Clear Ticket">
-                                                        <Trash2 className="w-4 h-4"/>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {pending.length === 0 && <p className="text-slate-400 italic">No pending issues.</p>}
-                                </div>
-                            </Card>
-                            <Card className="p-4 border-l-4 border-l-yellow-500">
-                                <h3 className="font-bold text-lg text-yellow-700 mb-4 flex items-center gap-2"><Wrench className="w-5 h-5"/> Active Repairs</h3>
-                                <div className="space-y-2 max-h-60 overflow-y-auto">
-                                    {machines.filter(m => m.status === 'In Progress').map(m => (
-                                        <div key={m.id} className="flex justify-between items-center p-3 bg-yellow-50 rounded border border-yellow-100">
-                                            <div><div className="font-bold text-slate-800">{m.name}</div><div className="text-xs text-slate-500">Tech: {users.find(u => u.id === m.assignedTo)?.name || 'Unknown'}</div></div>
                                             <Badge status="In Progress" />
                                         </div>
                                     ))}
+                                    {fInProgress.length === 0 && <p className="text-slate-400 italic text-sm col-span-full py-2">No active repairs.</p>}
                                 </div>
                             </Card>
                         </div>
@@ -720,6 +1184,7 @@
                 </div>
             );
         };
+
 
         const InventoryManager = ({ parts, partRequests, machines, onAddPart, onDeletePart, onUpdateStock, onResolveRequest }) => {
             const [newPart, setNewPart] = useState({ name: "", stock: 0, minStock: 5, price: 0, machineType: "Universal" });
@@ -893,19 +1358,28 @@
 
             // Filter Logs Logic
             const filteredLogs = logs.filter(log => {
-                const logDate = new Date(log.timestamp).toISOString().split('T')[0];
+                // Guard against logs with a missing/invalid timestamp — these would
+                // otherwise throw "Invalid time value" and blank the whole page.
+                const ts = log.timestamp ? new Date(log.timestamp) : null;
+                if (!ts || isNaN(ts.getTime())) return false;
+                const logDate = ts.toISOString().split('T')[0];
                 const machine = machines.find(m => m.id === log.machineId);
-                const machineName = machine ? machine.name.toLowerCase() : "";
-                
+                const machineName = machine && machine.name ? machine.name.toLowerCase() : "";
+
                 let dateMatch = true;
                 if (reportType === 'daily') dateMatch = logDate === startDate;
+                if (reportType === 'weekly') {
+                    const weekEnd = new Date(startDate); weekEnd.setDate(weekEnd.getDate() + 6);
+                    dateMatch = logDate >= startDate && logDate <= weekEnd.toISOString().split('T')[0];
+                }
                 if (reportType === 'monthly') dateMatch = logDate.slice(0, 7) === startDate.slice(0, 7);
                 if (reportType === 'custom') dateMatch = logDate >= startDate && logDate <= endDate;
+                // 'all' leaves dateMatch true — no date filtering.
 
                 let machineMatch = true;
                 if (searchTerm) {
-                    machineMatch = machineName.includes(searchTerm.toLowerCase()) || 
-                                   log.machineId.toLowerCase().includes(searchTerm.toLowerCase());
+                    machineMatch = machineName.includes(searchTerm.toLowerCase()) ||
+                                   String(log.machineId || "").toLowerCase().includes(searchTerm.toLowerCase());
                 }
 
                 return dateMatch && machineMatch;
@@ -924,7 +1398,7 @@
             };
 
             // Selected Machine for Detail View
-            const selectedMachine = searchTerm ? machines.find(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()) || m.id === searchTerm) : null;
+            const selectedMachine = searchTerm ? machines.find(m => (m.name && m.name.toLowerCase().includes(searchTerm.toLowerCase())) || m.id === searchTerm) : null;
             
             const nextMaintenanceDate = (dateStr) => {
                 if(!dateStr) return "Not Scheduled";
@@ -934,43 +1408,72 @@
             };
 
             // KPIS
-            const totalFixes = filteredLogs.filter(l => l.action === 'Fixed').length;
+            const totalFixes = filteredLogs.filter(l => l.action === 'Fixed (Pending Review)').length;
             const partsUsedCount = filteredLogs.filter(l => l.partsUsed).reduce((acc, curr) => acc + curr.partsUsed.length, 0);
             const totalCost = filteredLogs.reduce((acc, curr) => acc + (curr.cost || 0), 0);
-            
-            // Reliability Engineering Metrics
-            const failureCount = filteredLogs.filter(l => l.action === 'Fixed' || l.action === 'PM Completed').length;
-            
+
+            // Reliability Engineering Metrics — APMS tracks QCM quality problems through to a fix,
+            // not machine downtime (QCM tickets are always skipDowntime, so a downtime-duration
+            // metric would be meaningless here). Only response time and repair time are tracked.
+            const failureCount = filteredLogs.filter(l => l.action === 'Fixed (Pending Review)' || l.action === 'PM Completed (Pending Review)').length;
+
+            // MTTA (Response): Average responseMs
+            const totalResponseMs = filteredLogs.reduce((acc, l) => acc + (l.metrics?.responseMs || 0), 0);
+            const mttaMs = failureCount ? totalResponseMs / failureCount : 0;
+
             // MTTR (Repair): Average repairMs
             const totalRepairMs = filteredLogs.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
             const mttrRepairMs = failureCount ? totalRepairMs / failureCount : 0;
 
-            // MTTR (Recovery/Restore): Average downtimeMs
-            const totalDowntimeMs = filteredLogs.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
-            const mttrRecoveryMs = failureCount ? totalDowntimeMs / failureCount : 0;
-
-            // MTTA (Alert/Acknowledge): Average (Downtime - Repair)
-            const totalWaitMs = totalDowntimeMs - totalRepairMs;
-            const mttaMs = failureCount ? totalWaitMs / failureCount : 0;
-
-            // MTBF (Mean Time Between Failures)
-            // 1. Determine period duration
-            const start = new Date(startDate);
-            const end = reportType === 'custom' ? new Date(endDate) : new Date(); // default to now if not custom
-            if (reportType === 'daily') end.setDate(start.getDate() + 1);
-            if (reportType === 'monthly') end.setMonth(start.getMonth() + 1);
-            const durationMs = Math.max(0, end - start);
-            
-            // 2. Total Operational Time = (Duration * MachineCount) - TotalDowntime
-            // If filtering by specific machine, count is 1. If all, count is total machines.
-            const targetMachineCount = searchTerm ? 1 : machines.length; 
-            const totalOperationalTimeMs = (durationMs * targetMachineCount) - totalDowntimeMs;
-            const mtbfMs = failureCount ? totalOperationalTimeMs / failureCount : (durationMs * targetMachineCount); // Fallback to full duration if no failures
-
             // Callback Rate Calculation (Same machine reported within 24h of fixed)
             const calculateCallbackRate = () => {
                 // Simplified demo logic: 3.2% static for now, real logic requires complex previous-log lookup
-                return "3.2%"; 
+                return "3.2%";
+            };
+
+            // --- 3M MODEL (Machine / Method / Man) DISTRIBUTION ---
+            // Maps each department onto the industrial 3M category used on the floor.
+            const classify3M = (dept) => {
+                const d = String(dept || '').toLowerCase();
+                if (d.includes('mech') || d.includes('maint') || d.includes('machine') || d.includes('elect')) return 'Machine';
+                if (d.includes('tech') || d.includes('method') || d.includes('qual')) return 'Method';
+                if (d === 'ie' || d.includes('industrial') || d.includes('man') || d.includes('effic')) return 'Man';
+                return 'Other';
+            };
+            const threeM = { Machine: { count: 0 }, Method: { count: 0 }, Man: { count: 0 }, Other: { count: 0 } };
+            filteredLogs.forEach(l => {
+                if (l.action !== 'Fixed (Pending Review)' && l.action !== 'PM Completed (Pending Review)') return;
+                const cat = classify3M(l.department);
+                threeM[cat].count += 1;
+            });
+
+            // Open (live) vs Closed (fixed in period) tickets
+            const openTickets = machines.filter(m => ['Pending', 'In Progress', 'Escalated', 'Pending Admin Approval'].includes(m.status)).length;
+            const closedTickets = totalFixes;
+
+            // Export the currently-filtered log rows as a CSV/Excel-friendly file.
+            const handleExportCSV = () => {
+                if (filteredLogs.length === 0) return alert("No log data to export for the selected filters.");
+                const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+                const header = ['Date', 'Time', 'Machine', 'Location', 'Department', 'Worker', 'Action', 'Repair Time', 'Cost', 'Notes'];
+                const rows = filteredLogs.map(l => {
+                    const d = new Date(l.timestamp);
+                    return [
+                        d.toLocaleDateString(), d.toLocaleTimeString(),
+                        getMachineName(l.machineId), getMachineLocation(l.machineId),
+                        l.department || '-', l.userName || getUserName(l.userId),
+                        l.action || '-', l.repairTime || '-',
+                        l.cost ? '$' + l.cost : '-', l.details || '-'
+                    ].map(esc).join(',');
+                });
+                const csv = [header.map(esc).join(','), ...rows].join('\r\n');
+                const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `APMS_analytics_${startDate}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
             };
 
             return (
@@ -983,14 +1486,18 @@
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Report Type</label>
                                 <select className="p-2 border rounded w-32" value={reportType} onChange={e => setReportType(e.target.value)}>
                                     <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
                                     <option value="monthly">Monthly</option>
                                     <option value="custom">Custom Range</option>
+                                    <option value="all">All Time</option>
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">Start Date</label>
-                                <input type={reportType === 'monthly' ? 'month' : 'date'} className="p-2 border rounded" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                            </div>
+                            {reportType !== 'all' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">{reportType === 'weekly' ? 'Week Of' : 'Start Date'}</label>
+                                    <input type={reportType === 'monthly' ? 'month' : 'date'} className="p-2 border rounded" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                                </div>
+                            )}
                             {reportType === 'custom' && (
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">End Date</label>
@@ -1004,7 +1511,8 @@
                                     <input className="w-full pl-8 p-2 border rounded" placeholder="Search Machine..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                                 </div>
                             </div>
-                            <div className="ml-auto">
+                            <div className="ml-auto flex gap-2">
+                                <Button variant="success" onClick={handleExportCSV}>Export CSV / Excel</Button>
                                 <Button onClick={() => window.print()}>Print / Save PDF</Button>
                             </div>
                         </div>
@@ -1028,16 +1536,9 @@
                         </div>
                     )}
 
-                    {/* Reliability Engineering Metrics (New Section) */}
+                    {/* Reliability Engineering Metrics */}
                     <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Gauge className="w-5 h-5 text-indigo-600"/> Reliability & Timing</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                         {/* MTBF - Higher is Better (Green) */}
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                             <div className="text-xs font-bold text-slate-500 uppercase mb-1">MTBF (Reliability)</div>
-                             <div className="text-2xl font-bold text-emerald-600">{formatKPIHours(mtbfMs)}</div>
-                             <div className="text-[10px] text-slate-400">Mean Time Between Failures</div>
-                        </div>
-
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                          {/* MTTA - Lower is Better (Red/Orange) */}
                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                              <div className="text-xs font-bold text-slate-500 uppercase mb-1">MTTA (Response)</div>
@@ -1051,14 +1552,48 @@
                              <div className="text-2xl font-bold text-blue-600">{formatDuration(mttrRepairMs)}</div>
                              <div className="text-[10px] text-slate-400">Avg Fix Time (Wrench Time)</div>
                         </div>
-
-                         {/* MTTR (Recovery) - Lower is Better */}
-                         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                             <div className="text-xs font-bold text-slate-500 uppercase mb-1">MTTR (Recovery)</div>
-                             <div className="text-2xl font-bold text-indigo-600">{formatDuration(mttrRecoveryMs)}</div>
-                             <div className="text-[10px] text-slate-400">Total Downtime / Restore</div>
-                        </div>
                     </div>
+
+                    {/* 3M Model Distribution (factory-wide) */}
+                    {!searchTerm && (
+                        <>
+                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Factory className="w-5 h-5 text-indigo-600"/> 3M Issue Distribution — Machine · Method · Man</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {[
+                                    { key: 'Machine', dept: 'Maintenance', color: 'red', desc: 'Breakdowns, motor, electrical, PM' },
+                                    { key: 'Method', dept: 'Technical', color: 'blue', desc: 'Stitch, tension, attachment, process' },
+                                    { key: 'Man', dept: 'IE', color: 'amber', desc: 'Efficiency, line balancing, bottleneck' }
+                                ].map(c => {
+                                    const total3M = threeM.Machine.count + threeM.Method.count + threeM.Man.count;
+                                    const pct = total3M ? Math.round((threeM[c.key].count / total3M) * 100) : 0;
+                                    return (
+                                        <div key={c.key} className={`bg-white p-5 rounded-xl border-l-4 border-l-${c.color}-500 border border-slate-200 shadow-sm`}>
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <div className="text-xs font-bold text-slate-400 uppercase">{c.key}</div>
+                                                    <div className="text-sm font-bold text-slate-700">{c.dept} Dept</div>
+                                                </div>
+                                                <div className={`text-3xl font-bold text-${c.color}-600`}>{threeM[c.key].count}</div>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-2 mb-2">
+                                                <div className={`bg-${c.color}-500 h-2 rounded-full`} style={{ width: pct + '%' }}></div>
+                                            </div>
+                                            <div className="flex justify-between text-xs text-slate-500">
+                                                <span>{pct}% of issues</span>
+                                            </div>
+                                            <div className="text-[10px] text-slate-400 mt-1">{c.desc}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm max-w-xs">
+                                <div className="text-xs font-bold text-slate-500 uppercase mb-1">Open / Closed Tickets</div>
+                                <div className="text-2xl font-bold"><span className="text-red-600">{openTickets}</span> <span className="text-slate-300">/</span> <span className="text-emerald-600">{closedTickets}</span></div>
+                                <div className="text-[10px] text-slate-400">Live open vs fixed in period</div>
+                            </div>
+                        </>
+                    )}
 
                     {/* Machine Specific Profile (Shown only when searching) */}
                     {selectedMachine && (
@@ -1116,7 +1651,7 @@
                                             <td className="p-2 text-xs">{new Date(log.timestamp).toLocaleString()}</td>
                                             <td className="p-2 font-mono text-xs">{log.ticketId || '-'}</td>
                                             {!searchTerm && <td className="p-2 font-bold">{getMachineName(log.machineId)}</td>}
-                                            <td className="p-2"><span className={`px-2 py-1 rounded text-xs ${log.action === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{log.action}</span></td>
+                                            <td className="p-2"><span className={`px-2 py-1 rounded text-xs ${log.action?.startsWith('Fixed') ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{log.action}</span></td>
                                             <td className="p-2 font-mono text-xs font-bold text-slate-700">{log.cost ? `$${log.cost}` : '-'}</td>
                                             <td className="p-2 text-xs">
                                                 {log.details && <div>{log.details}</div>}
@@ -1155,14 +1690,14 @@
                 else setSelectedParts([...selectedParts, partId]);
             };
 
-            const myHistory = logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed').slice().reverse();
-            
+            const myHistory = logs.filter(l => l.userId === currentUser.id && l.action === 'Fixed (Pending Review)').slice().reverse();
+
             // Filter logs for the currently active machine to show history
-            const activeMachineHistory = activeTask ? logs.filter(l => l.machineId === activeTask.id && l.action === 'Fixed').reverse() : [];
+            const activeMachineHistory = activeTask ? logs.filter(l => l.machineId === activeTask.id && l.action === 'Fixed (Pending Review)').reverse() : [];
 
             // Knowledge Base: Find logs with same machine type or ID
-            const knowledgeBase = activeTask ? logs.filter(l => 
-                l.action === 'Fixed' && 
+            const knowledgeBase = activeTask ? logs.filter(l =>
+                l.action === 'Fixed (Pending Review)' &&
                 (l.machineId === activeTask.id || machines.find(m => m.id === l.machineId)?.type === activeTask.type)
             ).slice(0, 5) : [];
 
@@ -1278,7 +1813,6 @@
                                             
                                             {/* TIME AND COST DISPLAY */}
                                             <div className="flex gap-4 text-xs text-slate-600 bg-slate-50 p-1 rounded my-1">
-                                                <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> Downtime: {log.totalDowntime || "N/A"}</span>
                                                 <span className="flex items-center gap-1"><Wrench className="w-3 h-3"/> Repair: {log.repairTime || "N/A"}</span>
                                             </div>
 
@@ -1332,7 +1866,7 @@
         };
 
         const UserSetupView = ({ users, onAddUser, onUpdateUser, onDeleteUser }) => {
-            const [form, setForm] = useState({ name: "", username: "", password: "", role: "technician", mobile: "" });
+            const [form, setForm] = useState({ name: "", username: "", password: "", role: "technician", department: "Mechanical", mobile: "" });
             const [editingId, setEditingId] = useState(null);
 
             const handleSubmit = () => {
@@ -1344,7 +1878,7 @@
                 } else {
                     onAddUser(form);
                 }
-                setForm({ name: "", username: "", password: "", role: "technician", mobile: "" });
+                setForm({ name: "", username: "", password: "", role: "technician", department: "Mechanical", mobile: "" });
             };
 
             const handleEdit = (user) => {
@@ -1352,8 +1886,9 @@
                     name: user.name, 
                     username: user.username, 
                     password: user.password, 
-                    role: user.role || "technician", 
-                    mobile: user.mobile || "" 
+                    role: user.role || "technician",
+                    department: user.department || "Mechanical",
+                    mobile: user.mobile || ""
                 });
                 setEditingId(user.id);
             };
@@ -1390,15 +1925,28 @@
                             </div>
                             
                             {form.role === 'technician' && (
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 mb-1">Mobile Number</label>
-                                    <input className="w-full border p-2 rounded" placeholder="e.g. +1 234 567 890" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Department</label>
+                                        <select className="w-full border p-2 rounded" value={form.department} onChange={e => setForm({...form, department: e.target.value})}>
+                                            <option value="Mechanical">Mechanical</option>
+                                            <option value="Technical">Technical / Method</option>
+                                            <option value="IE">Industrial Engineering (IE)</option>
+                                            <option value="Quality">Quality</option>
+                                            <option value="Material">Raw Materials / Stores</option>
+                                        </select>
+                                        <p className="text-[10px] text-slate-400 mt-1">Determines which department Hub this user logs into.</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Mobile Number</label>
+                                        <input className="w-full border p-2 rounded" placeholder="e.g. +1 234 567 890" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+                                    </div>
                                 </div>
                             )}
 
                             <div className="flex gap-2">
                                 <Button fullWidth onClick={handleSubmit}>{editingId ? "Update User" : "Create User"}</Button>
-                                {editingId && <Button variant="secondary" onClick={() => { setEditingId(null); setForm({ name: "", username: "", password: "", role: "technician", mobile: "" }); }}>Cancel</Button>}
+                                {editingId && <Button variant="secondary" onClick={() => { setEditingId(null); setForm({ name: "", username: "", password: "", role: "technician", department: "Mechanical", mobile: "" }); }}>Cancel</Button>}
                             </div>
                         </div>
                     </Card>
@@ -1429,9 +1977,10 @@
                                                 </span>
                                             </td>
                                             <td className="p-3">
-                                                {user.role === 'technician' && user.mobile ? (
-                                                    <div className="flex items-center gap-1 text-slate-600">
-                                                        <span>📱 {user.mobile}</span>
+                                                {user.role === 'technician' ? (
+                                                    <div className="flex flex-col gap-1 text-slate-600">
+                                                        <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded w-fit font-bold">{user.department || 'Mechanical'}</span>
+                                                        {user.mobile && <span className="text-xs">📱 {user.mobile}</span>}
                                                     </div>
                                                 ) : <span className="text-slate-400">-</span>}
                                             </td>
@@ -1517,7 +2066,7 @@
         };
 
         // --- NEW: GOD MODE / DB ADMIN DASHBOARD ---
-        const DatabaseAdminView = ({ machines, logs, incoming_tickets }) => {
+        const DatabaseAdminView = ({ machines, logs }) => {
             const [view, setView] = useState('tickets');
 
             const handleResetMachine = (id) => {
@@ -1534,10 +2083,6 @@
                 if(confirm("Permanently delete this repair log? (This affects analytics)")) {
                     remove(ref(db, `logs/${id}`));
                 }
-            };
-
-            const handleDeleteIncoming = (id) => {
-                remove(ref(db, `incoming_tickets/${id}`));
             };
 
             const handleNukeLogs = () => {
@@ -1559,7 +2104,6 @@
                         </div>
                         <div className="flex gap-2">
                             <button onClick={() => setView('tickets')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'tickets' ? 'bg-white text-red-900' : 'bg-red-800 text-red-100 hover:bg-red-700'}`}>Active Tickets</button>
-                            <button onClick={() => setView('queue')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'queue' ? 'bg-white text-red-900' : 'bg-red-800 text-red-100 hover:bg-red-700'}`}>Incoming Queue</button>
                             <button onClick={() => setView('logs')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'logs' ? 'bg-white text-red-900' : 'bg-red-800 text-red-100 hover:bg-red-700'}`}>Repair Logs</button>
                         </div>
                     </div>
@@ -1579,25 +2123,6 @@
                                     </div>
                                 ))}
                                 {activeIssues.length === 0 && <p className="text-slate-400 italic">No active floor issues.</p>}
-                            </div>
-                        </Card>
-                    )}
-
-                    {view === 'queue' && (
-                        <Card className="p-6 border-t-4 border-t-orange-500">
-                            <h3 className="font-bold text-lg mb-4 text-slate-800">Raw n8n Queue ({incoming_tickets.length})</h3>
-                            <p className="text-sm text-slate-500 mb-4">Tickets waiting for the AI to process them. If n8n is offline, they will get stuck here. Delete them manually if needed.</p>
-                            <div className="space-y-3">
-                                {incoming_tickets.map(t => (
-                                    <div key={t.id} className="flex justify-between items-center p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                                        <div>
-                                            <div className="font-bold text-orange-900">{t.machineId} <span className="font-mono text-xs text-orange-700 ml-2">{t.id}</span></div>
-                                            <div className="text-sm text-orange-800">{t.issueDescription}</div>
-                                        </div>
-                                        <Button variant="outline" size="sm" className="text-red-500 border-red-200 hover:bg-red-50" onClick={() => handleDeleteIncoming(t.id)}><X className="w-4 h-4"/> Delete</Button>
-                                    </div>
-                                ))}
-                                {incoming_tickets.length === 0 && <p className="text-slate-400 italic">Queue is currently empty.</p>}
                             </div>
                         </Card>
                     )}
@@ -1644,12 +2169,14 @@
         // --- 5. MAIN APP CONTROLLER ---
 
         const App = () => {
-            const { users, buildings, floorsMap, linesMap, machinesMap, machines, logs, parts, partRequests, floors, lines, loading, access_logs, incoming_tickets, error: apiError } = useFactoryData();
+            const { users, buildings, floorsMap, linesMap, machinesMap, machines, logs, parts, partRequests, floors, lines, loading, access_logs, serviceRecords, machineBookings, error: apiError } = useFactoryData();
             
             // --- UPDATED AUTH STATE: DEFAULT TO NULL (SHOW LOGIN) ---
             const [currentUser, setCurrentUser] = useState(null);
             const [activeTab, setActiveTab] = useState('login'); // Default is now 'login'
             const [error, setError] = useState(null);
+            const [navOpen, setNavOpen] = useState(false); // mobile sidebar drawer
+            const [monitorFilters, setMonitorFilters] = useState({ q: '', dept: 'all', status: 'all', priority: 'all' });
 
             // Auth handlers
             const handleLogin = (u, p) => {
@@ -1663,15 +2190,15 @@
                         update(ref(db, `users/${user.id}`), { status: 'Available' });
                         setActiveTab('my_tasks');
                     } else {
-                        setActiveTab('live_monitor');
+                        setActiveTab('command_center');
                     }
                 } else if(u === 'admin' && p === '123') {
                     const tempAdmin = { id: 'temp_admin', name: 'Super Admin', role: 'admin', username: 'admin' };
                     setCurrentUser(tempAdmin); setError(null);
                     // --- FIXED: ADDED LOGGING CALL HERE ---
                     api.logAccess(tempAdmin.id, tempAdmin.name, 'Login');
-                    
-                    setActiveTab('live_monitor');
+
+                    setActiveTab('command_center');
                 } else setError("Invalid credentials");
             };
 
@@ -1699,53 +2226,130 @@
                 );
             }
 
-            // --- LOGGED IN VIEW ---
+            // --- LOGGED IN VIEW (redesigned shell) ---
+            const PAGE_META = {
+                command_center: { title: 'Command Center', sub: 'Factory-wide overview' },
+                live_monitor: { title: 'Live Monitor', sub: 'Breakdowns, repairs & assignments' },
+                analytics: { title: 'Analytics', sub: 'Reliability & performance metrics' },
+                inventory: { title: 'Inventory', sub: 'Spare parts & requisitions' },
+                access_logs: { title: 'HR & Staffing', sub: 'Users & access logs' },
+                db_admin: { title: 'Data Management', sub: 'Database administration' },
+                my_tasks: { title: 'My Tasks', sub: 'Your assigned work' },
+            };
+            const pageMeta = PAGE_META[activeTab] || { title: 'Dashboard', sub: '' };
+
+            const navMain = [
+                currentUser.role === 'admin' && { tab: 'command_center', icon: <LayoutDashboard className="w-5 h-5"/>, label: 'Command Center' },
+                { tab: 'live_monitor', icon: <Activity className="w-5 h-5"/>, label: 'Live Monitor' },
+                { tab: 'analytics', icon: <BarChart2 className="w-5 h-5"/>, label: 'Analytics' },
+                currentUser.role === 'technician' && { tab: 'my_tasks', icon: <ClipboardList className="w-5 h-5"/>, label: 'My Tasks' },
+            ].filter(Boolean);
+            const navAdmin = [
+                { tab: 'inventory', icon: <Package className="w-5 h-5"/>, label: 'Inventory' },
+                { tab: 'access_logs', icon: <History className="w-5 h-5"/>, label: 'HR & Staffing' },
+                { tab: 'db_admin', icon: <Database className="w-5 h-5"/>, label: 'Data Management', danger: true },
+            ];
+            const hubs = [
+                { href: 'Maintenance.html', icon: <Wrench className="w-5 h-5"/>, label: 'Mechanical', color: 'text-red-400' },
+                { href: 'Technical.html', icon: <Settings className="w-5 h-5"/>, label: 'Technical', color: 'text-emerald-400' },
+                { href: 'IE.html', icon: <Gauge className="w-5 h-5"/>, label: 'IE', color: 'text-blue-400' },
+                { href: 'Quality.html', icon: <ShieldCheck className="w-5 h-5"/>, label: 'Quality', color: 'text-yellow-400' },
+            ];
+            const navBtn = (item) => (
+                <button key={item.tab} onClick={() => { setActiveTab(item.tab); setNavOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeTab === item.tab
+                        ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-900/30'
+                        : item.danger ? 'text-red-300 hover:bg-red-500/10 hover:text-red-200' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                    {item.icon}<span>{item.label}</span>
+                    {!!item.badge && <span className="ml-auto bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{item.badge}</span>}
+                </button>
+            );
+            const initials = (currentUser.name || 'A').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
             return (
-                <div className="min-h-screen bg-slate-100 font-sans text-slate-900 flex flex-col md:flex-row">
-                    {/* Sidebar */}
-                    <div className="w-full md:w-64 bg-slate-900 text-white p-4 flex flex-col shrink-0 no-print">
-                        <div className="mb-6"><h1 className="text-xl font-bold flex items-center gap-2"><Factory className="text-blue-400" /> GarmentFix</h1></div>
-                        
-                        <div className="mb-6 p-3 bg-slate-800 rounded-lg">
-                            <div className="text-xs text-slate-400 uppercase font-bold">Logged in as</div>
-                            <div className="font-bold truncate">{currentUser.name}</div>
-                            {currentUser.role === 'technician' && <button onClick={() => update(ref(db, `users/${currentUser.id}`), { status: currentUser.status === 'Available' ? 'Offline' : 'Available' })} className="mt-2 text-xs px-2 py-1 rounded bg-emerald-500 text-white w-full">{currentUser.status || 'Available'}</button>}
+                <div className="h-screen bg-slate-100 font-sans text-slate-900 flex overflow-hidden">
+                    {/* Mobile overlay */}
+                    {navOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setNavOpen(false)}></div>}
+
+                    {/* SIDEBAR */}
+                    <aside className={`fixed md:static inset-y-0 left-0 z-40 w-[260px] bg-slate-900 text-white flex flex-col shrink-0 no-print transition-transform duration-200 ${navOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+                        {/* Brand */}
+                        <div className="px-5 py-5 flex items-center gap-3 border-b border-white/5">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg"><Factory className="w-5 h-5 text-white"/></div>
+                            <div>
+                                <div className="font-extrabold text-lg leading-none">APMS</div>
+                                <div className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Problem Management OS</div>
+                            </div>
                         </div>
 
-                        <nav className="space-y-2 flex-1">
-                            {/* SHARED TABS */}
-                            <button onClick={() => setActiveTab('live_monitor')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'live_monitor' ? 'bg-slate-800' : ''}`}><Activity className="w-5 h-5"/> Live Monitor</button>
-                            <button onClick={() => setActiveTab('analytics')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'analytics' ? 'bg-slate-800' : ''}`}><BarChart2 className="w-5 h-5"/> Analytics</button>
+                        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+                            <div className="px-3 text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Overview</div>
+                            {navMain.map(navBtn)}
 
-                            {/* ADMIN TABS */}
                             {currentUser.role === 'admin' && (
                                 <>
-                                    {/* Link to External Tool */}
-                                    <a href="factory_manager.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center text-white no-underline transition-colors"><LayoutDashboard className="w-5 h-5"/> Factory Manager (Tool)</a>
-                                    
-                                    <button onClick={() => setActiveTab('inventory')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'inventory' ? 'bg-slate-800' : ''}`}><Package className="w-5 h-5"/> Inventory</button>
-                                    <button onClick={() => setActiveTab('access_logs')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'access_logs' ? 'bg-slate-800' : ''}`}><History className="w-5 h-5"/> HR & Staffing Logs</button>
-                                    <button onClick={() => setActiveTab('db_admin')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'db_admin' ? 'bg-slate-800' : ''} text-red-300 hover:text-red-200`}><Database className="w-5 h-5"/> Data Management</button>
+                                    <div className="px-3 text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1 mt-5">Department Hubs</div>
+                                    {hubs.map(h => (
+                                        <a key={h.href} href={h.href} target="_blank" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition-all no-underline">
+                                            <span className={h.color}>{h.icon}</span><span>{h.label} Hub</span>
+                                            <ArrowUpRight className="w-3.5 h-3.5 ml-auto opacity-40"/>
+                                        </a>
+                                    ))}
+                                    <a href="factory_manager.html" target="_blank" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition-all no-underline">
+                                        <LayoutDashboard className="w-5 h-5"/><span>Factory Manager</span><ArrowUpRight className="w-3.5 h-3.5 ml-auto opacity-40"/>
+                                    </a>
+
+                                    <div className="px-3 text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1 mt-5">Administration</div>
+                                    {navAdmin.map(navBtn)}
                                 </>
                             )}
-
-                            {/* TECHNICIAN TABS */}
-                            {currentUser.role === 'technician' && (
-                                <button onClick={() => setActiveTab('my_tasks')} className={`w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 ${activeTab === 'my_tasks' ? 'bg-slate-800' : ''}`}><ClipboardList className="w-5 h-5"/> My Tasks</button>
-                            )}
-                            
-                            <a href="help.html" target="_blank" className="w-full text-left p-3 rounded hover:bg-slate-800 flex gap-2 items-center"><HelpCircle className="w-5 h-5"/> Help</a>
                         </nav>
 
-                        <button onClick={handleLogout} className="mt-auto flex items-center gap-2 text-slate-400 hover:text-white p-2"><LogOut className="w-4 h-4"/> Logout</button>
-                    </div>
+                        {/* User card */}
+                        <div className="p-3 border-t border-white/5">
+                            <div className="flex items-center gap-3 px-2 py-2 rounded-xl bg-white/5">
+                                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-sm shrink-0">{initials}</div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="font-bold text-sm truncate">{currentUser.name}</div>
+                                    <div className="text-[10px] text-slate-400 uppercase tracking-wide">{currentUser.role}</div>
+                                </div>
+                                <button onClick={handleLogout} title="Logout" className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"><LogOut className="w-4 h-4"/></button>
+                            </div>
+                            {currentUser.role === 'technician' && <button onClick={() => update(ref(db, `users/${currentUser.id}`), { status: currentUser.status === 'Available' ? 'Offline' : 'Available' })} className="mt-2 text-xs px-2 py-1.5 rounded-lg bg-emerald-500 text-white w-full font-bold">{currentUser.status || 'Available'}</button>}
+                        </div>
+                    </aside>
 
-                    {/* Content Area */}
-                    <div className="flex-1 overflow-y-auto h-screen p-4 md:p-8 w-full">
-                        {activeTab === 'live_monitor' && <LiveMonitor machines={machines} users={users} onAssign={api.assignTech} currentUser={currentUser} />}
+                    {/* MAIN COLUMN */}
+                    <div className="flex-1 flex flex-col min-w-0">
+                        {/* TOP BAR */}
+                        <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-3 flex items-center gap-4 shrink-0 no-print z-20">
+                            <button onClick={() => setNavOpen(true)} className="md:hidden p-2 rounded-lg hover:bg-slate-100"><List className="w-5 h-5"/></button>
+                            <div className="min-w-0">
+                                <h2 className="font-extrabold text-lg text-slate-800 leading-none truncate">{pageMeta.title}</h2>
+                                <div className="text-xs text-slate-400 mt-0.5 truncate">{pageMeta.sub}</div>
+                            </div>
+                            <div className="ml-auto flex items-center gap-3">
+                                <div className="hidden sm:flex items-center gap-2 bg-slate-100 rounded-xl px-3 py-2 w-56 md:w-72">
+                                    <Search className="w-4 h-4 text-slate-400 shrink-0"/>
+                                    <input value={monitorFilters.q}
+                                        onChange={e => { setMonitorFilters({ ...monitorFilters, q: e.target.value }); if (e.target.value && activeTab !== 'live_monitor' && currentUser.role === 'admin') setActiveTab('live_monitor'); }}
+                                        placeholder="Search machines, tickets..." className="bg-transparent outline-none text-sm w-full text-slate-700 placeholder:text-slate-400"/>
+                                </div>
+                                <div className="hidden md:flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-full border border-emerald-200">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> LIVE
+                                </div>
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-sm text-white">{initials}</div>
+                            </div>
+                        </header>
+
+                        {/* CONTENT */}
+                        <main className="flex-1 overflow-y-auto p-4 md:p-8 w-full">
+                        {activeTab === 'command_center' && <CommandCenter machines={machines} users={users} logs={logs} parts={parts} partRequests={partRequests} serviceRecords={serviceRecords} machineBookings={machineBookings} currentUser={currentUser} onNavigate={setActiveTab} />}
+                        {activeTab === 'live_monitor' && <LiveMonitor machines={machines} users={users} onAssign={api.assignTech} currentUser={currentUser} serviceRecords={serviceRecords} filters={monitorFilters} setFilters={setMonitorFilters} />}
                         
                         {/* Only Admin Features */}
                         {currentUser.role === 'admin' && activeTab === 'inventory' && <InventoryManager parts={parts} partRequests={partRequests} machines={machines} onAddPart={(p) => push(ref(db, 'parts'), p)} onDeletePart={(id) => remove(ref(db, `parts/${id}`))} onUpdateStock={api.updateStock} onResolveRequest={api.resolveRequest} />}
+
                         
                         {/* Access & User Management */}
                         {currentUser.role === 'admin' && activeTab === 'access_logs' && <AccessManager 
@@ -1757,13 +2361,14 @@
                         />}
 
                         {/* Database God Mode */}
-                        {currentUser.role === 'admin' && activeTab === 'db_admin' && <DatabaseAdminView machines={machines} logs={logs} incoming_tickets={incoming_tickets} />}
+                        {currentUser.role === 'admin' && activeTab === 'db_admin' && <DatabaseAdminView machines={machines} logs={logs} />}
                         
                         {/* Shared Features */}
                         {activeTab === 'analytics' && <AnalyticsDashboard logs={logs} machines={machines} parts={parts} floors={floors} lines={lines} users={users} buildings={buildings} />}
                         
                         {/* Technician Features */}
                         {currentUser.role === 'technician' && activeTab === 'my_tasks' && <TechnicianTaskBoard currentUser={users.find(u => u.id === currentUser.id) || currentUser} machines={machines} parts={parts} logs={logs} onScanStart={(id) => api.startWork(id, currentUser.id)} onComplete={(mid, uid, rem, mach, partsIds) => api.completeWork(mid, currentUser.id, rem, mach, partsIds, parts)} onSelfAssign={(id) => api.selfAssign(id, currentUser.id)} onRequestPart={api.requestPart} />}
+                        </main>
                     </div>
                 </div>
             );
