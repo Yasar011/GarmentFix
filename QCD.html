@@ -233,6 +233,15 @@ function elResolveCode(defectType){
   if(m)return m[1].toUpperCase()+m[2];
   return EL_CODE_BY_NAME[elNorm(t)]||'';
 }
+// Looks up the REAL, admin-configured defect code (D.defects, same list the worker's
+// dropdown shows as "code - name") — NOT the hardcoded EL_DEFECTS taxonomy above, which is
+// a fixed categorization scheme unrelated to what codes the factory actually assigned.
+function resolveDefectCodeLive(defectType){
+  if(!defectType)return '';
+  const n=elNorm(defectType);
+  const match=(D.defects||[]).find(d=>elNorm(d.name)===n);
+  return match?.defectId||'';
+}
 function elCategory(code,name){
   const c=(code||'').toUpperCase();const n=(name||'').toLowerCase();
   if(c==='S2'||n.includes('cut damage'))return 'CUT HOLE';
@@ -331,20 +340,21 @@ function bindLogin(){
 }
 
 // NAV
-const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'analytics',ic:'chart',l:'Defect Analytics'},{id:'operator-analysis',ic:'users',l:'Operator Analysis'},{id:'third-party',ic:'check',l:'3rd Party QC',tpOnly:true},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'},{id:'approvals',ic:'check',l:'Approvals',apBadge:1},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Reports',items:[{id:'module-report',ic:'layout',l:'Module Report'},{id:'style-report',ic:'tag',l:'Style Report'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'All Reports'}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
+const NAV=[{t:'Overview',items:[{id:'dashboard',ic:'grid',l:'Dashboard'},{id:'qms-bot',ic:'cpu',l:'QMS Bot',qmsBadge:1},{id:'analytics',ic:'chart',l:'Defect Analytics'},{id:'operator-analysis',ic:'users',l:'Operator Analysis'},{id:'third-party',ic:'check',l:'3rd Party QC',tpOnly:true},{id:'amms-tickets',ic:'wrench',l:'AMMS Tickets'},{id:'approvals',ic:'check',l:'Approvals',apBadge:1},{id:'modules',ic:'layout',l:'Modules'},{id:'alerts',ic:'bell',l:'Alerts',badge:1}]},{t:'Reports',items:[{id:'module-report',ic:'layout',l:'Module Report'},{id:'style-report',ic:'tag',l:'Style Report'},{id:'shift-summary',ic:'chart',l:'Shift Summary'},{id:'defect-category',ic:'alert',l:'Defect Category'},{id:'reports',ic:'file',l:'All Reports'}]},{t:'Data',items:[{id:'inspections',ic:'list',l:'Inspections'},{id:'endline',ic:'check',l:'End Line'},{id:'roving',ic:'eye',l:'Roving'},{id:'roster',ic:'users',l:'Rosters'},{id:'machines',ic:'machine',l:'Machines'},{id:'cap',ic:'wrench',l:'Corrective Actions'},{id:'ai-analysis',ic:'cpu',l:'AI Analysis'}]},{t:'Config',items:[{id:'styles',ic:'tag',l:'Styles'},{id:'operations',ic:'wrench',l:'Operations'},{id:'defects',ic:'alert',l:'Defects'},{id:'users',ic:'users',l:'Users'},{id:'settings',ic:'settings',l:'Settings'}]}];
 
 function renderSB(){
-  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.filter(i=>!i.tpOnly||thirdPartyOn()).map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}${i.apBadge&&pendApprovalCount()>0?`<span class="nav-badge hide-c" style="background:var(--yellow);color:#fff">${pendApprovalCount()}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
+  return`<div class="sidebar${D.collapsed?' collapsed':''}" id="sb"><div class="logo"><div class="logo-icon"><img src="gfix-logo.png" alt="G-Fix" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;display:block"></div><div class="hide-c" style="white-space:nowrap;overflow:hidden"><div style="font-size:14px;font-weight:600">GarmentFix <span style="color:var(--accent)">QMS</span></div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">Admin</div></div></div><nav class="nav">${NAV.map(s=>`<div class="nav-sec hide-c">${s.t}</div>${s.items.filter(i=>!i.tpOnly||thirdPartyOn()).map(i=>`<div class="nav-item${D.page===i.id?' active':''}" onclick="nav('${i.id}')"><span class="nav-icon">${I[i.ic]||''}</span><span class="hide-c" style="overflow:hidden;text-overflow:ellipsis">${i.l}</span>${i.badge&&D.notifs>0?`<span class="nav-badge hide-c">${D.notifs}</span>`:''}${i.apBadge&&pendApprovalCount()>0?`<span class="nav-badge hide-c" style="background:var(--yellow);color:#fff">${pendApprovalCount()}</span>`:''}${i.qmsBadge&&D.aiConfig?.apiKey&&qmsBotAlertCount()>0?`<span class="nav-badge hide-c" style="background:var(--purple)">${qmsBotAlertCount()}</span>`:''}</div>`).join('')}`).join('')}</nav><div class="sidebar-footer"><div class="user-pill"><div class="avatar">${ini(D.user?.name)}</div><div class="hide-c" style="overflow:hidden"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${D.user?.name||''}</div><div style="font-size:10px;color:var(--text2);font-family:var(--mono)">${D.user?.role||''}</div></div></div></div></div>`;
 }
 
 function renderTB(){
-  const t={dashboard:'Dashboard',analytics:'Defect Analytics','operator-analysis':'Operator Analysis','third-party':'3rd Party Quality Checking',approvals:'Approvals & Requests',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis','amms-tickets':'AMMS Tickets',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
+  const t={dashboard:'Dashboard','qms-bot':'QMS Bot',analytics:'Defect Analytics','operator-analysis':'Operator Analysis','third-party':'3rd Party Quality Checking',approvals:'Approvals & Requests',modules:'Modules & QR',alerts:'Alerts',inspections:'Inspections',machines:'Machines',supervisor:'Supervisor','ai-analysis':'AI Analysis','amms-tickets':'AMMS Tickets',endline:'End Line Inspections',roving:'Roving Inspections',cap:'Corrective Action Plan',roster:'Line Rosters','shift-summary':'Shift End Summary','style-report':'Style Report','module-report':'Module Report','defect-category':'Defect Category Report',reports:'Reports',styles:'Styles',operations:'Operations',defects:'Defects',users:'Users',settings:'Settings'};
   return`<div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn-icon" onclick="toggleSB()">${ic('menu',18)}</button><h1 class="page-title">${t[D.page]||''}</h1></div><div style="display:flex;align-items:center;gap:12px"><span class="fb">🔥 Live</span><button class="notif-btn" onclick="nav('alerts')">${ic('bell',18)}${D.notifs>0?'<span class="notif-dot"></span>':''}</button><button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout',14)} Logout</button></div></div>`;
 }
 
 function renderPg(){
   const p=D.page;
   if(p==='dashboard')return pgDash();
+  if(p==='qms-bot')return pgQmsBot();
   if(p==='analytics')return pgAnalytics();
   if(p==='operator-analysis')return pgOperatorAnalysis();
   if(p==='third-party')return pgThirdParty();
@@ -537,7 +547,9 @@ function pgDash(){
   const tpBlock=tpCompareBlock((D.thirdPartyAudits||[]).filter(inRange),dhu,'End Line (Own QC)');
 
   // ---- chart card with plain title + a "what am I looking at" subtitle ----
-  const chCard=(title,desc,id,emptyMsg,h)=>`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">${title}</div><div style="font-size:11px;color:var(--text2)">${desc}</div></div><div class="chart-wrap"${h?` style="height:${h}px"`:''}>${noData?`<div style="text-align:center;padding:60px 0;color:var(--text3)">${emptyMsg||'No data for '+rangeLabel.toLowerCase()}</div>`:`<canvas id="${id}"></canvas>`}</div></div>`;
+  // Optional explainQ: a question handed to the QMS Bot via a small "Explain" button, so a
+  // chart the GM doesn't understand can be answered in plain English on the spot.
+  const chCard=(title,desc,id,emptyMsg,h,explainQ)=>`<div class="card"><div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div style="font-size:14px;font-weight:700;color:var(--text)">${title}</div><div style="font-size:11px;color:var(--text2)">${desc}</div></div>${explainQ?`<button class="btn btn-ghost btn-sm" style="flex-shrink:0" onclick="qmsBotJumpAsk('${explainQ.replace(/'/g,"\\'")}')">💬 Explain</button>`:''}</div><div class="chart-wrap"${h?` style="height:${h}px"`:''}>${noData?`<div style="text-align:center;padding:60px 0;color:var(--text3)">${emptyMsg||'No data for '+rangeLabel.toLowerCase()}</div>`:`<canvas id="${id}"></canvas>`}</div></div>`;
 
   // ---- "Output by Line" horizontal-bar panel (volume bar + defect-rate %) ----
   const byLine={};el.forEach(i=>{const m=i.module||'—';if(!byLine[m])byLine[m]={chk:0,def:0};byLine[m].chk+=parseInt(i.checkedQty)||0;byLine[m].def+=parseInt(i.defectQty)||0;});
@@ -547,8 +559,8 @@ function pgDash(){
   // ---- donut with a center total, like the reference ----
   const donutCard=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Where Checks Happened</div><div style="font-size:11px;color:var(--text2)">Final end-of-line checks vs spot-checks during production</div></div><div class="chart-wrap" style="position:relative">${noData?'<div style="text-align:center;padding:60px 0;color:var(--text3)">No data</div>':`<canvas id="chType"></canvas><div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none"><div style="font-size:24px;font-weight:800;color:var(--text)">${el.length+rov.length}</div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">checks</div></div>`}</div></div>`;
   const latest=`<div class="card"><div style="margin-bottom:8px"><div style="font-size:14px;font-weight:700;color:var(--text)">Latest Checks</div><div style="font-size:11px;color:var(--text2)">The most recent inspections sent in from the floor</div></div>${noData?'<div style="text-align:center;padding:32px;color:var(--text3)">No data for '+rangeLabel.toLowerCase()+'</div>':`<div class="table-wrap"><table><thead><tr><th>Check Type</th><th>Line</th><th>Defects</th><th>When</th></tr></thead><tbody>${recent.slice(-6).reverse().map(i=>`<tr><td><span class="badge badge-${i.type==='inline'?'blue':'purple'}">${i.type==='endline'?'End line':i.type==='inline'?'Spot-check':(i.type||'')}</span></td><td>${i.module||''}</td><td style="font-family:var(--mono);color:${(parseInt(i.defectQty)||0)>0?'var(--red)':'var(--green)'}">${i.defectQty||0}</td><td style="font-size:11px;color:var(--text3)">${ta(i.createdAt)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
-  const charts=`<div class="grid-2">${chCard(range==='today'?'Pieces Checked by Hour':'Pieces Checked by Day','How busy the lines were — taller bars mean more garments inspected','ch1')}${chCard('Defect Rate Over Time','Each point is the defect rate. Keep the green line below the red target line (2.5%)','chDhu')}</div>
-  <div class="grid-2">${chCard('Most Common Problems','Which types of defect happen most often — focus fixes on the biggest slices','ch2','No defects 🎉')}${chCard('Defect Rate by Line','Which production line has the most defects — <b style="color:var(--red)">red</b> needs attention, <b style="color:var(--green)">green</b> is healthy','chMod')}</div>
+  const charts=`<div class="grid-2">${chCard(range==='today'?'Pieces Checked by Hour':'Pieces Checked by Day','How busy the lines were — taller bars mean more garments inspected','ch1')}${chCard('Defect Rate Over Time','Each point is the defect rate. Keep the green line below the red target line (2.5%)','chDhu',null,null,'Explain our DHU trend this week — is it improving or getting worse, and why?')}</div>
+  <div class="grid-2">${chCard('Most Common Problems','Which types of defect happen most often — focus fixes on the biggest slices','ch2','No defects 🎉')}${chCard('Defect Rate by Line','Which production line has the most defects — <b style="color:var(--red)">red</b> needs attention, <b style="color:var(--green)">green</b> is healthy','chMod',null,null,'Which module has the highest defect rate right now, and what should we do about it?')}</div>
   <div class="grid-2">${donutCard}${lineBars}</div>`;
 
   // ---- alerts + a plain-language glossary for first-time viewers ----
@@ -650,14 +662,14 @@ function pgAnalytics(){
   const catRows=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<tr><td style="font-weight:500">${c}</td><td style="font-family:var(--mono);text-align:right">${n.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right;color:var(--text2)">${insp?((n/insp)*100).toFixed(2):'0.00'}%</td></tr>`).join('');
   const catTable=`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border)">Defects by Category</div><div class="table-wrap"><table><thead><tr><th>Defect</th><th style="text-align:right">No of Defects</th><th style="text-align:right">Defect %</th></tr></thead><tbody>${catRows||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}<tr style="background:var(--bg3);font-weight:700"><td>Total</td><td style="font-family:var(--mono);text-align:right">${defTot.toLocaleString()}</td><td style="font-family:var(--mono);text-align:right">${defPct.toFixed(2)}%</td></tr></tbody></table></div></div>`;
   // --- chart cards ---
-  const cc=(title,id,h)=>`<div class="card"><div style="font-size:14px;font-weight:700;margin-bottom:8px">${title}</div><div class="chart-wrap" style="height:${h||260}px">${noData?'<div style="text-align:center;padding:70px 0;color:var(--text3)">No data for the current filters</div>':`<canvas id="${id}"></canvas>`}</div></div>`;
+  const cc=(title,id,h,explainQ)=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px"><div style="font-size:14px;font-weight:700">${title}</div>${explainQ?`<button class="btn btn-ghost btn-sm" style="flex-shrink:0" onclick="qmsBotJumpAsk('${explainQ.replace(/'/g,"\\'")}')">💬 Explain</button>`:''}</div><div class="chart-wrap" style="height:${h||260}px">${noData?'<div style="text-align:center;padding:70px 0;color:var(--text3)">No data for the current filters</div>':`<canvas id="${id}"></canvas>`}</div></div>`;
 
   return`<div style="display:flex;flex-direction:column;gap:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div style="font-size:20px;font-weight:800">Defect Analytics</div><div style="font-size:12px;color:var(--text2)">Power BI–style view — slice by line, buyer, style, operation, defect. All charts update together.</div></div><div style="display:flex;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:4px;box-shadow:var(--shadow)">${topTog}</div></div>
     ${filterBar}
     ${comboCard}
     ${kpis}
-    <div class="grid-2">${cc('Top Defects','chTopDef')}${cc('Top Defective Operations','chTopOp')}</div>
+    <div class="grid-2">${cc('Top Defects','chTopDef',null,'What\'s causing our top defect right now, and how do we fix it?')}${cc('Top Defective Operations','chTopOp')}</div>
     ${eff.isToday?cc('Hourly Defect Trend — Today','chDy',260):`<div class="grid-2">${cc('Weekly Defect Trend','chWk',240)}${cc('Daily Defect Trend','chDy',240)}</div>`}
     ${catTable}
     ${tpBlock}
@@ -704,6 +716,25 @@ function computeRedOperators(rovRows){
   const byOpr={};
   repeats.forEach(r=>{if(!byOpr[r.o]||byOpr[r.o].visits<r.visits)byOpr[r.o]=r;});
   return Object.values(byOpr).sort((a,b)=>b.visits-a.visits);
+}
+// Shared "Biggest Risk Right Now" sentence-builder — used by pgAI() (scoped to whatever D.pbi
+// filter is active) and pgQmsBot() (always all-time) so the two pages never disagree on wording.
+function riskPartsFrom(modStats,topOps,topDef,totDef){
+  const worstMod=modStats.filter(m=>m.chk>=20)[0]||null;
+  const worstOp=topOps.filter(([,d])=>d.n>=3).sort((a,b)=>(b[1].d/b[1].n)-(a[1].d/a[1].n))[0]||null;
+  const topProblem=topDef[0]||null;
+  const parts=[];
+  if(worstMod&&parseFloat(worstMod.dhu)>2.5)parts.push(`<b>${worstMod.n}</b> is running at <b style="color:var(--red)">${worstMod.dhu}%</b> defect rate — the worst line right now`);
+  if(worstOp)parts.push(`operator <b>${worstOp[0]}</b> is averaging <b style="color:var(--red)">${(worstOp[1].d/worstOp[1].n).toFixed(1)}</b> defects per check`);
+  if(topProblem)parts.push(`<b>${topProblem[0]}</b> is the most common defect (${topProblem[1]} found, ${totDef?((topProblem[1]/totDef)*100).toFixed(0):0}% of all defects)`);
+  return parts;
+}
+function riskCardHtml(parts,subtitle){
+  if(!parts.length)return '';
+  return `<div class="card" style="border-color:var(--red);border-width:2px;background:rgba(229,72,77,.04)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:20px">🎯</span><span style="font-size:15px;font-weight:800">Biggest Risk Right Now</span><span style="font-size:10px;color:var(--text3);margin-left:auto">${subtitle||'computed live — no external AI needed'}</span></div>
+    <div style="font-size:14px;line-height:1.7;color:var(--text)">${parts.join('. ')}.</div>
+  </div>`;
 }
 function oprTops(arr,n){
   return {
@@ -2166,8 +2197,8 @@ function rovingStyleBlock(rows,team,style,dateLabel,multi){
                     :`<td style="${bl}">${vi.trim==='pass'?'<span class="badge badge-green" style="font-size:10px;padding:1px 5px">✓</span>':'<span class="badge badge-red" style="font-size:10px;padding:1px 5px">✗</span>'}</td>
                     <td style="font-family:var(--mono);font-size:12px">${vi.sp||''}</td>
                     <td style="font-family:var(--mono);font-size:12px;color:${(parseInt(vi.dc)||0)>0?'var(--red)':'var(--green)'}" title="${vi.defectType||''}">${vi.dc||0}${(parseInt(vi.dc)||0)>0&&vi.defectType?`<div style="font-size:9px;font-weight:400;color:var(--text3);white-space:nowrap">${vi.defectType.length>10?vi.defectType.slice(0,10)+'…':vi.defectType}</div>`:''}</td>
-                    <td style="font-size:11px">${vi.capRequired?`<span style="color:var(--red);font-weight:700">⚠</span>`:`<span style="color:var(--text3)">—</span>`}</td>
-                    <td style="font-size:11px;color:${(vi.ab||vi.cpa)?'var(--yellow)':'var(--text2)'};font-weight:${(vi.ab||vi.cpa)?'700':'400'}">${vi.absent?`<span style="color:var(--text3);font-weight:400">Abs</span>`:vi.ab||vi.cpa||'—'}</td>`)
+                    <td style="font-size:11px">${vi.absent?`<span style="color:var(--text3);font-weight:400">Abs</span>`:`<div style="display:flex;align-items:center;justify-content:center;gap:3px">${vi.capRequired?'<span style="color:var(--red)" title="CPA required">⚠</span>':''}<select onchange="setRovingCapRule('${vi.fbKey}',this.value)" style="font-size:11px;font-weight:${vi.capRule?'700':'400'};color:${vi.capRule?'var(--red)':'var(--text2)'};background:transparent;border:1px solid var(--border);border-radius:5px;padding:2px 3px;cursor:pointer">${['',...('abcd')].map(o=>`<option value="${o}" ${(vi.capRule||'')===o?'selected':''}>${o||'—'}</option>`).join('')}</select></div>`}</td>
+                    <td style="font-size:11px">${vi.absent?`<span style="color:var(--text3);font-weight:400">Abs</span>`:`<select onchange="setRovingAB('${vi.fbKey}',this.value)" style="font-size:11px;font-weight:${(vi.ab||vi.cpa)?'700':'400'};color:${(vi.ab||vi.cpa)?'var(--yellow)':'var(--text2)'};background:transparent;border:1px solid var(--border);border-radius:5px;padding:2px 3px;cursor:pointer">${['',...('ABCD')].map(o=>`<option value="${o}" ${(vi.ab||vi.cpa||'')===o?'selected':''}>${o||'—'}</option>`).join('')}</select>`}</td>`)
                   :`<td style="${bl}"></td><td></td><td></td><td></td><td></td>`;
               }).join('')}
               <td style="font-family:var(--mono);font-weight:600;border-left:2px solid var(--border2)">${totalOpSP}</td>
@@ -2198,10 +2229,25 @@ function rovingStyleBlock(rows,team,style,dateLabel,multi){
     </div>`;
 }
 
+window.setRovingRangeFilter=function(v){
+  D.rovingRangeQuick=v;
+  // Jump the date picker straight to the most relevant date in that window so the admin
+  // doesn't have to also pick a date after narrowing the range — this report always shows
+  // ONE day's paper-format sheet, the toggle just narrows which date to jump to.
+  const rovIns=D.rovingInspections||[];
+  const allDates=[...new Set(rovIns.map(i=>i.date||'').filter(Boolean))].sort().reverse();
+  const r=presetRange(v);
+  const inWindow=allDates.filter(d=>(!r.from||d>=r.from)&&(!r.to||d<=r.to));
+  if(inWindow.length)D.rovingDate=inWindow[0];
+  render();
+};
 function pgRoving(){
   const rovIns=D.rovingInspections||[];
-  const dates=[...new Set(rovIns.map(i=>i.date||'').filter(Boolean))].sort().reverse();
-  const curDate=D.rovingDate||dates[0]||new Date().toISOString().split('T')[0];
+  const allDates=[...new Set(rovIns.map(i=>i.date||'').filter(Boolean))].sort().reverse();
+  const rangeQuick=D.rovingRangeQuick||'all';
+  const rr=presetRange(rangeQuick==='all'?'':rangeQuick);
+  const dates=rangeQuick==='all'?allDates:allDates.filter(d=>(!rr.from||d>=rr.from)&&(!rr.to||d<=rr.to));
+  const curDate=D.rovingDate||dates[0]||allDates[0]||new Date().toISOString().split('T')[0];
   const mods=[...new Set(rovIns.map(i=>i.module).filter(Boolean))];
   const shiftsForDate=[...new Set(rovIns.filter(i=>i.date===curDate).map(i=>i.shift||'').filter(Boolean))].sort();
   let rows=rovIns.filter(i=>i.date===curDate);
@@ -2216,9 +2262,12 @@ function pgRoving(){
   return`<div style="display:flex;flex-direction:column;gap:20px">
     <div class="card" style="border-color:var(--red)">
       <div class="card-header"><span class="card-title" style="color:var(--red)">🏃 Roving Inspection Report — standard paper format</span><span class="fb">🔥 ${rovIns.length} records</span></div>
+      <div style="margin-bottom:12px"><div class="form-label" style="margin-bottom:4px">Quick jump <span style="text-transform:none;font-weight:400;color:var(--text3)">— narrows the Date list below, report still shows one day at a time</span></div>
+        <div style="display:flex;gap:4px;background:var(--bg3);border-radius:10px;padding:4px;width:fit-content;flex-wrap:wrap">${['today','week','month','all'].map(v=>`<button class="btn btn-sm ${rangeQuick===v?'btn-primary':'btn-ghost'}" style="border:none" onclick="setRovingRangeFilter('${v}')">${v==='today'?'Today':v==='week'?'This Week':v==='month'?'This Month':'All Time'}</button>`).join('')}</div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
         <div class="form-group" style="margin:0"><label class="form-label">Date</label>
-          <select class="form-input" onchange="D.rovingDate=this.value;D.rovingShift='__all';render()">${dates.length?dates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No data yet</option>'}</select></div>
+          <select class="form-input" onchange="D.rovingDate=this.value;D.rovingShift='__all';render()">${dates.length?dates.map(d=>`<option value="${d}" ${d===curDate?'selected':''}>${fd(d)}</option>`).join(''):'<option>No data in this range</option>'}</select></div>
         <div class="form-group" style="margin:0"><label class="form-label">Team</label>
           <select class="form-input" onchange="D.rovingShift=this.value;render()">
             <option value="__all" ${(!D.rovingShift||D.rovingShift==='__all')?'selected':''}>All teams</option>
@@ -2421,9 +2470,9 @@ function rovingPDF(rows,date){
         row.push(vi?(vi.trim==='pass'?'P':'F'):'');           // jsPDF default font can't render ✓/✗ — use ASCII P/F
         row.push(vi?vi.sp||'':'');
         const dcN=vi?(parseInt(vi.dc)||0):0;
-        const code=vi&&dcN>0?elResolveCode(vi.defectType):'';
-        row.push(vi?(code?dcN+' '+code:String(dcN)):'');        // defect code next to the count, e.g. "2 S29"
-        row.push(vi?(vi.capRequired?'!':'-'):'');               // ⚠ -> ASCII !
+        const code=vi&&dcN>0?resolveDefectCodeLive(vi.defectType):'';
+        row.push(vi?(code?dcN+' '+code:String(dcN)):'');        // real admin-configured code next to the count, e.g. "2 S18"
+        row.push(vi?(vi.capRule||(vi.capRequired?'!':'-')):''); // manually-chosen rule letter, else ⚠->ASCII !
         row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'-'):'');
       });
       const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
@@ -2495,7 +2544,7 @@ function rovingExcel(rows,date){
       const row=[op.operatorId,op.operation];
       [1,2,3,4].forEach(v=>{const vi=op.visits[v];
         if(vi&&vi.skipped){row.push('SKIPPED','(not critical)','','','');return;}
-        row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?(vi.capRequired?'YES':'—'):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');
+        row.push(vi?vi.trim==='pass'?'PASS':'FAIL':'');row.push(vi?parseInt(vi.sp)||0:'');row.push(vi?parseInt(vi.dc)||0:'');row.push(vi?(vi.capRule||(vi.capRequired?'YES':'—')):'');row.push(vi?(vi.absent?'Abs':vi.ab||vi.cpa||'—'):'');
       });
       const tSP=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.sp)||0),0);
       const tDC=[1,2,3,4].reduce((a,v)=>a+(parseInt(op.visits[v]?.dc)||0),0);
@@ -3384,27 +3433,31 @@ window.syncMachines = async function(){
 };
 
 // ======================== QCM → AMMS CROSS-SYSTEM TICKET BRIDGE ========================
-// Writes directly into the apparel-maintenance ("AMMS") Firebase project's incoming_tickets
-// queue — the SAME queue the AMMS Main Hub uses for manually-reported tickets — so the
-// existing n8n AI router picks it up, assigns a worker in the right dept hub, with no
-// changes needed on the AMMS side. department is pre-set here (n8n's AI Master Triage is
-// instructed to keep a pre-set department unchanged). skipDowntime:true tells AMMS not to
-// count this against machine downtime KPIs — the machine kept running while QC flagged it,
-// this isn't an actual breakdown.
+// AMMS retired n8n entirely — there's no more AI router watching incoming_tickets, so a
+// ticket left there would now sit forever and never reach a dept hub. This writes straight
+// into the machine record instead (the same direct-write shape AMMS's own Kiosk/worker/hub
+// "raise ticket" flows use), with department pre-set by the QCM defect-category mapping
+// below. skipDowntime:true tells AMMS not to count this against machine downtime KPIs — the
+// machine kept running while QC flagged it, this isn't an actual breakdown.
 window.pushAMMSTicket = async function(opts){
   const {refId,machineId,machineName,department,issueDescription,priority,reportedBy,raisedBy,operatorId} = opts;
   if(!machineId||!window._fmDb) return false;
   try{
     const machSnap = await window._get(window._ref(window._fmDb,'machines/'+machineId));
     const mach = machSnap.exists()?machSnap.val():null;
-    const OPEN_STATUSES=['Pending','In Progress','Hub Review','Pending Admin Approval','Waiting_For_Worker'];
+    const OPEN_STATUSES=['Pending','In Progress','Escalated','Pending Admin Approval'];
     if(mach && OPEN_STATUSES.includes(mach.status)) return false; // already has an open ticket — don't duplicate
     const ticketId = '#TKT-QCM-'+refId.replace(/[^a-zA-Z0-9]/g,'').slice(-10);
-    await window._set(window._ref(window._fmDb,'incoming_tickets/'+ticketId.replace('#','')), {
-      machineId, operatorId: operatorId||'', issueDescription, priority: priority||'Normal',
-      reportedBy: reportedBy||'QCM AI', timestamp: new Date().toISOString(), ticketId,
-      department, source: 'QCM', skipDowntime: true
+    const timestamp = new Date().toISOString();
+    await window._update(window._ref(window._fmDb,'machines/'+machineId), {
+      department, status: 'Pending', issue: issueDescription, priority: priority||'Normal',
+      reportedAt: timestamp, reportedBy: reportedBy||'QCM AI', ticketId,
+      operatorId: operatorId||null, source: 'QCM', skipDowntime: true
     });
+    await window._push(window._ref(window._fmDb,'logs'), {
+      machineId, action: 'Ticket Raised', department, details: issueDescription,
+      source: 'QCM', skipDowntime: true, timestamp
+    }).catch(()=>{});
     // Local tracking record so QCM admin + the reporting Roving QC can follow this
     // ticket's progress through AMMS without leaving QCM. raisedBy is set only for
     // tickets tied to a specific Roving QC submission (Oil Mark / Sewing pattern) —
@@ -3414,7 +3467,7 @@ window.pushAMMSTicket = async function(opts){
       refId, ticketId, machineId, machineName: machineName||machineId, department, operatorId: operatorId||'',
       issueDescription, priority: priority||'Normal', reportedBy: reportedBy||'QCM AI',
       raisedBy: raisedBy||null, qcVerified:false, qcVerifiedBy:null, qcVerifiedAt:null,
-      createdAt: new Date().toISOString()
+      createdAt: timestamp
     }).catch(()=>{});
     return true;
   }catch(e){ console.warn('AMMS bridge error',e); return false; }
@@ -3446,7 +3499,12 @@ window.generateAIReport=async function(){
   const btn=document.getElementById('ai-report-btn');
   if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Generating...';}
   try{
-    const ins=D.inspections||[];
+    // Scoped to the SAME shared filter (D.pbi) the on-screen page and Defect Analytics use —
+    // whatever is filtered when this is clicked is exactly what the report analyzes.
+    const {f,eff,F}=aiFilteredInspections();
+    const scope=aiScopeLabel(f,eff);
+    const ins=F;
+    if(!ins.length){throw new Error('No inspections match the current filter — widen it and try again');}
     const totChk=ins.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
     const totDef=ins.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
     const dhu=totChk?((totDef/totChk)*100).toFixed(2):'0.00';
@@ -3456,13 +3514,11 @@ window.generateAIReport=async function(){
     const modStats=Object.entries(modMap).map(([n,s])=>({n,dhu:s.chk?((s.def/s.chk)*100).toFixed(1):'0.0',chk:s.chk,def:s.def})).sort((a,b)=>parseFloat(b.dhu)-parseFloat(a.dhu)).slice(0,10);
     const om={};ins.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});
     const topOps=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,8);
-    const openAiTickets=(D.aiTickets||[]).filter(t=>t.status==='Open').slice(0,15).map(t=>t.title);
 
-    const dataSummary=`Overall DHU: ${dhu}% (target ≤2.5%). Total inspected: ${totChk}, total defects: ${totDef}.
+    const dataSummary=`Scope: ${scope}. Overall DHU: ${dhu}% (target ≤2.5%). Total inspected: ${totChk}, total defects: ${totDef}.
 Top defect types (name: count): ${topDef.map(([n,c])=>`${n}: ${c}`).join(', ')||'none'}.
 Module DHU (worst first): ${modStats.map(m=>`${m.n}: ${m.dhu}% (${m.chk} checked, ${m.def} defects)`).join('; ')||'none'}.
-Operators with most defects: ${topOps.map(([o,d])=>`${o}: ${d.d} defects over ${d.n} checks`).join('; ')||'none'}.
-Already-open auto-detected alerts: ${openAiTickets.join('; ')||'none'}.`;
+Operators with most defects: ${topOps.map(([o,d])=>`${o}: ${d.d} defects over ${d.n} checks`).join('; ')||'none'}.`;
 
     const sys='You are a garment factory quality analyst. Given live inspection metrics, respond with ONLY a JSON object (no markdown, no code fences) matching exactly this shape: '
       +'{"overallStatus":"Critical|High|Medium|Low","trend":"improving|stable|declining","summary":"2-3 sentence plain-English summary a factory manager would understand","findings":[{"title":"short title","module":"module name or empty","detail":"1-2 sentences","level":"Critical|High|Medium|Low"}],"rootCauses":[{"cause":"short cause","evidence":"1 sentence citing the numbers"}],"recommendations":[{"action":"concrete action","target":"who/what it targets","priority":"immediate|soon|planned"}]}. '
@@ -3496,17 +3552,80 @@ Already-open auto-detected alerts: ${openAiTickets.join('; ')||'none'}.`;
       trend:parsed.trend||'stable',
       summary:parsed.summary||'',
       dhu:parseFloat(dhu),totalInsp:totChk,totalDef:totDef,
+      scope, // e.g. "This Week · Module 3 · H&M" — the filter that was active when generated
       findings:Array.isArray(parsed.findings)?parsed.findings.slice(0,8):[],
       rootCauses:Array.isArray(parsed.rootCauses)?parsed.rootCauses.slice(0,5):[],
       recommendations:Array.isArray(parsed.recommendations)?parsed.recommendations.slice(0,8):[],
       analysisDate:new Date().toLocaleString(),
       generatedAt:now,createdAt:now,provider:'groq',
-      status:'Report' // distinct from 'Open' pattern-ticket status so it doesn't show up in the Auto-Detected Issues list
+      status:'Report' // distinct from 'Open' pattern-ticket status
     });
-    toast('✅ AI report generated');
+    toast('✅ AI report generated for '+scope);
     if(D.page==='ai-analysis')render();
   }catch(e){toast('AI report failed: '+e.message,'error');}
   if(btn){btn.disabled=false;btn.innerHTML='✨ Generate AI Report';}
+};
+function latestAIReport(){
+  return (D.aiTickets||[]).filter(t=>t.status==='Report').sort((a,b)=>(b.generatedAt||b.createdAt||'').localeCompare(a.generatedAt||a.createdAt||''))[0]||null;
+}
+window.aiReportExportPDF=function(){
+  const r=latestAIReport();
+  if(!r){toast('No AI report to download yet — generate one first','error');return;}
+  const{jsPDF}=window.jspdf;const doc=new jsPDF();
+  pdfHeader(doc,'AI Quality Report',`Scope: ${r.scope||'All Time'}  |  Status: ${r.overallStatus||'—'}  |  Trend: ${(r.trend||'—').toUpperCase()}`,`Generated: ${r.analysisDate||new Date().toLocaleString()}`);
+  doc.setFontSize(9);doc.setTextColor(40,40,40);
+  const summaryLines=doc.splitTextToSize(r.summary||'No summary.',180);
+  doc.text(summaryLines,14,40);
+  let y=40+summaryLines.length*5+6;
+  doc.setFontSize(10);doc.setTextColor(0,150,120);
+  doc.text(`DHU: ${r.dhu||0}%     Inspected: ${r.totalInsp||0}     Defects: ${r.totalDef||0}`,14,y);
+  y+=8;
+  if((r.findings||[]).length){
+    doc.autoTable({startY:y,head:[['Finding','Module','Level','Detail']],body:r.findings.map(f=>[f.title||'',f.module||'—',f.level||'',f.detail||'']),styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[229,72,77],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',margin:{left:14,right:14}});
+    y=doc.lastAutoTable.finalY+8;
+  }
+  if((r.rootCauses||[]).length){
+    if(y>250){doc.addPage();y=20;}
+    doc.setFontSize(10);doc.setTextColor(153,102,255);doc.text('Root Causes',14,y);y+=3;
+    doc.autoTable({startY:y,head:[['Cause','Evidence']],body:r.rootCauses.map(c=>[c.cause||'',c.evidence||'']),styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[153,102,255],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',margin:{left:14,right:14}});
+    y=doc.lastAutoTable.finalY+8;
+  }
+  if((r.recommendations||[]).length){
+    if(y>250){doc.addPage();y=20;}
+    doc.setFontSize(10);doc.setTextColor(0,150,120);doc.text('Recommendations',14,y);y+=3;
+    doc.autoTable({startY:y,head:[['Priority','Action','Target']],body:r.recommendations.map(rec=>[(rec.priority||'planned').toUpperCase(),rec.action||'',rec.target||'—']),styles:{fontSize:8,cellPadding:2,textColor:[40,40,40]},headStyles:{fillColor:[14,169,143],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[245,245,245]},theme:'grid',margin:{left:14,right:14}});
+  }
+  pdfStamp(doc);
+  doc.save(`AI_Quality_Report_${new Date().toISOString().slice(0,10)}.pdf`);
+  toast('AI Report PDF downloaded');
+};
+window.aiReportExportExcel=function(){
+  const r=latestAIReport();
+  if(!r){toast('No AI report to download yet — generate one first','error');return;}
+  const aoa=[];
+  aoa.push([factoryName()+' — AI QUALITY REPORT']);
+  aoa.push([`Scope: ${r.scope||'All Time'}`,`Status: ${r.overallStatus||'—'}`,`Trend: ${r.trend||'—'}`,`Generated: ${r.analysisDate||''}`]);
+  aoa.push([`DHU: ${r.dhu||0}%`,`Inspected: ${r.totalInsp||0}`,`Defects: ${r.totalDef||0}`]);
+  aoa.push([]);
+  aoa.push(['SUMMARY']);
+  aoa.push([r.summary||'']);
+  aoa.push([]);
+  aoa.push(['FINDINGS']);
+  aoa.push(['Title','Module','Level','Detail']);
+  (r.findings||[]).forEach(f=>aoa.push([f.title||'',f.module||'',f.level||'',f.detail||'']));
+  aoa.push([]);
+  aoa.push(['ROOT CAUSES']);
+  aoa.push(['Cause','Evidence']);
+  (r.rootCauses||[]).forEach(c=>aoa.push([c.cause||'',c.evidence||'']));
+  aoa.push([]);
+  aoa.push(['RECOMMENDATIONS']);
+  aoa.push(['Priority','Action','Target']);
+  (r.recommendations||[]).forEach(rec=>aoa.push([rec.priority||'',rec.action||'',rec.target||'']));
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:24},{wch:16},{wch:14},{wch:40}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'AI Quality Report');
+  XLSX.writeFile(wb,`AI_Quality_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('AI Report Excel downloaded');
 };
 window.runAIAnalysis = async function(){
   const ins = D.inspections;
@@ -3636,14 +3755,20 @@ window.resolveTicket = async function(k){
 function pgAmmsTickets(){
   const items=(D.qcmAmmsTickets||[]).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   const fm=D.fmMachines||{};
-  const STATUS_COLOR={'Pending':'badge-yellow','In Progress':'badge-blue','Hub Review':'badge-purple','Pending Admin Approval':'badge-purple','Waiting_For_Worker':'badge-red','Running':'badge-green'};
+  const STATUS_COLOR={'Pending':'badge-yellow','In Progress':'badge-blue','Pending Admin Approval':'badge-purple','Running':'badge-green'};
   const rows=items.map(t=>{
     const live=fm[t.machineId]||{};
     const sameTicket=live.lastTicketId===t.ticketId;
     const liveStatus=sameTicket?(live.status||'Unknown'):(t.qcVerified?'Closed':'Closed (new ticket since)');
     const badgeClass=STATUS_COLOR[liveStatus]||'badge-gray';
     const assignedTo=sameTicket?(live.assignedTo||'—'):'—';
-    const readyToVerify=sameTicket&&['Hub Review','Pending Admin Approval','Running'].includes(live.status)&&!t.qcVerified;
+    const readyToVerify=sameTicket&&['Pending Admin Approval','Running'].includes(live.status)&&!t.qcVerified;
+    // Once a tech signs off, AMMS puts the actual fix notes onto the machine
+    // (completionRemarks/completedByName) — that's already live-mirrored here via fmDb, it just
+    // wasn't being shown. Once Main Hub gives final approval the machine resets to a blank
+    // Running state and these are wiped, so show them for as long as they're available.
+    const resolutionNote = sameTicket ? (live.completionRemarks || '') : '';
+    const resolutionBy = sameTicket ? (live.completedByName || live.completedBy || '') : '';
     return `<tr>
       <td style="padding:10px 12px;font-size:12px;color:var(--text3)">${ft(t.createdAt)}</td>
       <td style="padding:10px 12px;font-size:12px;font-weight:600">${t.machineName||t.machineId}</td>
@@ -3653,6 +3778,7 @@ function pgAmmsTickets(){
       <td style="padding:10px 12px;font-size:12px">${t.raisedBy||'<span style="color:var(--text3)">AI (pattern)</span>'}</td>
       <td style="padding:10px 12px;font-size:12px"><span class="badge ${badgeClass}">${liveStatus}</span></td>
       <td style="padding:10px 12px;font-size:12px">${assignedTo}</td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text2);max-width:240px">${resolutionNote?`${resolutionNote}${resolutionBy?`<div style="color:var(--text3);font-size:11px;margin-top:2px">— ${resolutionBy}</div>`:''}`:'<span style="color:var(--text3)">—</span>'}</td>
       <td style="padding:10px 12px;font-size:12px">${t.qcVerified?`<span class="badge badge-green">✓ Verified by ${t.qcVerifiedBy||''}</span>`:readyToVerify?`<span class="badge badge-yellow">Awaiting QC verify${t.raisedBy?` (${t.raisedBy})`:''}</span>`:'<span class="badge badge-gray">In progress</span>'}</td>
     </tr>`;
   }).join('');
@@ -3670,16 +3796,303 @@ function pgAmmsTickets(){
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Raised By</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">AMMS Status</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Assigned Worker</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">Resolution</th>
         <th style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:uppercase">QC Verification</th>
       </tr></thead>
-      <tbody>${rows||`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No QCM → AMMS tickets yet.</td></tr>`}</tbody>
+      <tbody>${rows||`<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No QCM → AMMS tickets yet.</td></tr>`}</tbody>
     </table>
     </div>
   </div>`;
 }
 
+// Shared by pgAI() and generateAIReport() so the on-screen page and the report it generates
+// are ALWAYS scoped to the exact same filtered data — same shared D.pbi state that Defect
+// Analytics / Operator Analysis use, so switching between those pages keeps the same context.
+function aiFilteredInspections(){
+  const f=D.pbi||(D.pbi={from:'',to:'',range:'week',line:'__all',buyer:'__all',style:'__all',operation:'__all',cat:'__all',defect:'__all',topN:15});
+  const eff=pbiEffRange(f);
+  const styleBuyer={};(D.styles||[]).forEach(s=>{if(s.name)styleBuyer[s.name]=s.buyer||'';if(s.styleId)styleBuyer[s.styleId]=s.buyer||'';});
+  const enrich=i=>{const code=elResolveCode(i.defectType);return {...i,_cat:i.defectType?elCategory(code,i.defectType):'',_buyer:styleBuyer[i.style]||styleBuyer[i.styleId]||'',_date:(i.date||(i.createdAt||'').split('T')[0])||''};};
+  const all=(D.inspections||[]).map(enrich);
+  const F=all.filter(i=>{
+    if(eff.from&&i._date<eff.from)return false;
+    if(eff.to&&i._date>eff.to)return false;
+    if(f.line!=='__all'&&i.module!==f.line)return false;
+    if(f.buyer!=='__all'&&i._buyer!==f.buyer)return false;
+    if(f.style!=='__all'&&i.style!==f.style)return false;
+    if(f.operation!=='__all'&&i.operation!==f.operation)return false;
+    if(f.cat!=='__all'&&i._cat!==f.cat)return false;
+    if(f.defect!=='__all'&&i.defectType!==f.defect)return false;
+    return true;
+  });
+  return {f,eff,all,F};
+}
+function aiScopeLabel(f,eff){
+  const rangeLabel=eff.range==='today'?'Today':eff.range==='week'?'This Week':eff.range==='month'?'This Month':(eff.from||eff.to)?`${eff.from||'…'} → ${eff.to||'…'}`:'All Time';
+  const bits=[rangeLabel];
+  if(f.line&&f.line!=='__all')bits.push(f.line);
+  if(f.buyer&&f.buyer!=='__all')bits.push(f.buyer);
+  if(f.style&&f.style!=='__all')bits.push(f.style);
+  if(f.operation&&f.operation!=='__all')bits.push(f.operation);
+  if(f.defect&&f.defect!=='__all')bits.push(f.defect);
+  return bits.join(' · ');
+}
+
+// ==================== QMS BOT — free-form Q&A grounded in live data ====================
+// Unlike generateAIReport (one fixed shape, saved permanently as a "Report" ticket), this is
+// an ephemeral, session-only chat: D.qmsBotMessages is never written to Firebase, it just
+// holds the conversation while this admin is looking at the page.
+// Deliberately NOT scoped to D.pbi (the Defect Analytics/AI Analysis shared filter) — the Bot
+// now lives on its own page, so "what's today's data" must always be answerable without the
+// admin first having to go set a filter on a different page. Always computes Today/This
+// Week/All-Time straight from D.inspections.
+function qmsBotStatsOf(rows){
+  const chk=rows.reduce((a,i)=>a+(parseInt(i.checkedQty)||0),0);
+  const def=rows.reduce((a,i)=>a+(parseInt(i.defectQty)||0),0);
+  return {chk,def,dhu:chk?((def/chk)*100).toFixed(2):'0.00',records:rows.length};
+}
+function qmsBotTopDefects(rows,n){
+  const dm={};rows.forEach(i=>{if(i.defectType&&parseInt(i.defectQty)>0)dm[i.defectType]=(dm[i.defectType]||0)+(parseInt(i.defectQty)||0);});
+  return Object.entries(dm).sort((a,b)=>b[1]-a[1]).slice(0,n);
+}
+function qmsBotComputeAll(){
+  const all=D.inspections||[];
+  const dOf=i=>(i.date||(i.createdAt||'').split('T')[0])||'';
+  const todayStr=new Date().toISOString().split('T')[0];
+  const weekAgoStr=new Date(Date.now()-6*86400000).toISOString().split('T')[0];
+  const prevWeekStartStr=new Date(Date.now()-13*86400000).toISOString().split('T')[0];
+  const todayIns=all.filter(i=>dOf(i)===todayStr);
+  const weekIns=all.filter(i=>dOf(i)>=weekAgoStr);
+  const prevWeekIns=all.filter(i=>dOf(i)>=prevWeekStartStr&&dOf(i)<weekAgoStr);
+
+  const allStats=qmsBotStatsOf(all), todayStats=qmsBotStatsOf(todayIns), weekStats=qmsBotStatsOf(weekIns), prevWeekStats=qmsBotStatsOf(prevWeekIns);
+  const weekTrend=(weekStats.chk===0||prevWeekStats.chk===0)?null:(parseFloat(weekStats.dhu)<parseFloat(prevWeekStats.dhu)-0.3?'improving':parseFloat(weekStats.dhu)>parseFloat(prevWeekStats.dhu)+0.3?'declining':'stable');
+  const topDefAll=qmsBotTopDefects(all,10), topDefToday=qmsBotTopDefects(todayIns,6);
+
+  const modMap={};all.forEach(i=>{const m=i.module||'—';if(!modMap[m])modMap[m]={chk:0,def:0};modMap[m].chk+=parseInt(i.checkedQty)||0;modMap[m].def+=parseInt(i.defectQty)||0;});
+  const modStats=Object.entries(modMap).map(([n,s])=>({n,dhu:s.chk?((s.def/s.chk)*100).toFixed(1):'0.0',chk:s.chk,def:s.def})).sort((a,b)=>parseFloat(b.dhu)-parseFloat(a.dhu)).slice(0,12);
+
+  // Which style each operator was most recently seen working, so "which style is OP1 on" is answerable.
+  const opLastStyle={};all.forEach(i=>{if(i.operatorId&&i.style){const t=i.createdAt||i.date||'';if(!opLastStyle[i.operatorId]||t>opLastStyle[i.operatorId]._t){opLastStyle[i.operatorId]={style:i.style,_t:t};}}});
+  const om={};all.forEach(i=>{if(i.operatorId){if(!om[i.operatorId])om[i.operatorId]={d:0,n:0};om[i.operatorId].d+=parseInt(i.defectQty)||0;om[i.operatorId].n++;}});
+  const topOps=Object.entries(om).sort((a,b)=>b[1].d-a[1].d).slice(0,10);
+  const redOps=computeRedOperators(D.rovingInspections||[]).slice(0,10);
+
+  // Styles currently assigned to each module — the live "what's running now" answer, sourced
+  // from the Modules collection (current assignment), not from historical inspection records.
+  const runningStyles=(D.modules||[]).filter(m=>m.styleName).map(m=>`${m.name||m.moduleId||'—'}: ${m.styleName}${m.buyer?' ('+m.buyer+')':''}`);
+
+  // Style-wise DHU, same shape as the module breakdown above, so style-level quality questions
+  // ("which style has the worst defect rate") are answerable, not just module-level ones.
+  const styMap={};all.forEach(i=>{const s=i.style||'—';if(s==='—')return;if(!styMap[s])styMap[s]={chk:0,def:0};styMap[s].chk+=parseInt(i.checkedQty)||0;styMap[s].def+=parseInt(i.defectQty)||0;});
+  const styStats=Object.entries(styMap).map(([n,s])=>({n,dhu:s.chk?((s.def/s.chk)*100).toFixed(1):'0.0',chk:s.chk,def:s.def})).sort((a,b)=>parseFloat(b.dhu)-parseFloat(a.dhu)).slice(0,12);
+
+  let tpText='';
+  if(thirdPartyOn()){
+    const tpRows=D.thirdPartyAudits||[];
+    const tOffer=tpRows.reduce((a,r)=>a+(parseInt(r.offerQty)||0),0);
+    const tChk=tpRows.reduce((a,r)=>a+(parseInt(r.checkedQty)||0),0);
+    const tDef=tpRows.reduce((a,r)=>a+(parseInt(r.defects)||[]).reduce((s,d)=>s+(parseInt(d.qty)||0),0),0);
+    tpText=`\n3rd Party audits (all time): ${tpRows.length} rounds, ${tOffer} offered, ${tChk} checked, ${tDef} defects found.`;
+  }
+
+  return {todayStr,allStats,todayStats,weekStats,prevWeekStats,weekTrend,topDefAll,topDefToday,modStats,opLastStyle,topOps,redOps,runningStyles,styStats,tpText};
+}
+function qmsBotContext(){
+  const c=qmsBotComputeAll();
+  return `TODAY (${c.todayStr}): DHU ${c.todayStats.dhu}% (target ≤2.5%), inspected ${c.todayStats.chk}, defects ${c.todayStats.def}, records ${c.todayStats.records}. Today's top defects: ${c.topDefToday.map(([n,x])=>`${n}: ${x}`).join(', ')||'none logged yet today'}.
+THIS WEEK (last 7 days): DHU ${c.weekStats.dhu}%, inspected ${c.weekStats.chk}, defects ${c.weekStats.def}, records ${c.weekStats.records}.
+ALL TIME: DHU ${c.allStats.dhu}%, inspected ${c.allStats.chk}, defects ${c.allStats.def}, records ${c.allStats.records}.
+Top defect types all-time (name: qty): ${c.topDefAll.map(([n,x])=>`${n}: ${x}`).join(', ')||'none'}.
+Styles currently running (module: style, buyer): ${c.runningStyles.join('; ')||'no module currently has a style assigned'}.
+Style DHU all-time, worst first (style: dhu%, checked, defects): ${c.styStats.map(s=>`${s.n}: ${s.dhu}% (${s.chk} chk, ${s.def} def)`).join('; ')||'none'}.
+Module/line DHU all-time, worst first (module: dhu%, checked, defects): ${c.modStats.map(m=>`${m.n}: ${m.dhu}% (${m.chk} chk, ${m.def} def)`).join('; ')||'none'}.
+Operators with most defects all-time (operatorId: total defects over N checks, current/last style): ${c.topOps.map(([o,d])=>`${o}: ${d.d} over ${d.n}${c.opLastStyle[o]?' ('+c.opLastStyle[o].style+')':''}`).join('; ')||'none'}.
+Red Operators — repeating the SAME defect type across 2+ Roving visits (operatorId: defect type, times repeated, line): ${c.redOps.map(r=>`${r.o}: ${r.defectType} x${r.visits} (${r.line})`).join('; ')||'none flagged'}.${c.tpText}`;
+}
+// Count of "things worth a glance" — feeds the QMS Bot nav badge, same pattern as D.notifs/pendApprovalCount().
+function qmsBotAlertCount(){
+  const c=qmsBotComputeAll();
+  let n=(c.redOps||[]).length;
+  if(parseFloat(c.todayStats.dhu)>2.5)n++;
+  return n;
+}
+window.qmsBotClear=function(){ D.qmsBotMessages=[]; render(); };
+window.qmsBotKeydown=function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); window.qmsBotAsk(); } };
+async function qmsBotSubmit(question){
+  const key=D.aiConfig?.apiKey;
+  if(!key){toast('Add a Groq API key in Settings first','error');return;}
+  question=(question||'').trim();
+  if(!question)return;
+  D.qmsBotMessages=[...(D.qmsBotMessages||[]),{role:'user',content:question}];
+  D._qmsBotThinking=true;
+  render();
+  try{
+    const sys='You are the QMS Bot, a helpful quality-analysis assistant embedded in a garment factory\'s admin dashboard. '
+      +'Answer ONLY using the live data context given to you below — never invent modules, operators, or defect numbers that aren\'t in it. '
+      +'If the data context doesn\'t contain enough information to answer, say so plainly and suggest widening the filters at the top of the page. '
+      +'Keep answers short and direct (2-6 sentences, or a short list) — this is a factory manager on a live dashboard, not a report reader. '
+      +'Live data context:\n'+qmsBotContext();
+    const history=(D.qmsBotMessages||[]).slice(-10).map(m=>({role:m.role,content:m.content}));
+    const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        temperature:0.3,
+        messages:[{role:'system',content:sys},...history]
+      })
+    });
+    if(!resp.ok){
+      const errBody=await resp.text().catch(()=>'');
+      if(resp.status===401)throw new Error('Groq rejected the API key — check it in Settings');
+      if(resp.status===429)throw new Error('Groq rate limit hit — wait a moment and try again');
+      throw new Error('Groq API error '+resp.status+(errBody?': '+errBody.slice(0,150):''));
+    }
+    const payload=await resp.json();
+    const answer=payload?.choices?.[0]?.message?.content?.trim()||'(no answer returned)';
+    D.qmsBotMessages=[...(D.qmsBotMessages||[]),{role:'assistant',content:answer}];
+  }catch(e){
+    D.qmsBotMessages=[...(D.qmsBotMessages||[]),{role:'assistant',content:'⚠ '+e.message,error:true}];
+  }
+  D._qmsBotThinking=false;
+  render();
+}
+window.qmsBotAsk=async function(){
+  const inp=document.getElementById('qms-bot-input');
+  const question=(inp?.value||'').trim();
+  if(!question)return;
+  if(inp)inp.value='';
+  await qmsBotSubmit(question);
+};
+window.qmsBotQuick=function(q){ qmsBotSubmit(q); };
+// Jumps to the QMS Bot page and immediately asks a pre-set question — used by "Explain this"
+// buttons on existing charts (Dashboard/Defect Analytics) so they feed straight into the bot.
+window.qmsBotJumpAsk=function(q){ D.page='qms-bot'; render(); qmsBotSubmit(q); };
+window.qmsBotExport=function(){
+  const msgs=D.qmsBotMessages||[];
+  if(!msgs.length){toast('No conversation to export yet','error');return;}
+  const lines=msgs.map(m=>(m.role==='user'?'YOU: ':'QMS BOT: ')+(m.content||''));
+  const text=`GarmentFix QMS Bot — Conversation Export\n${new Date().toLocaleString()}\n\n${lines.join('\n\n')}`;
+  const blob=new Blob([text],{type:'text/plain'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`QMS_Bot_Chat_${new Date().toISOString().slice(0,10)}.txt`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Chat exported');
+};
+const QMS_BOT_FOLLOWUP_POOL=['What is our DHU trend this week?','Which module needs attention first?','Which operator needs coaching?','What are the top 3 defects right now?','Are there any Red Operators to flag?','What styles are currently running?','Summarize today\'s inspections in one paragraph','What needs to be solved first?'];
+function pgQmsBot(){
+  if(!D.aiConfig?.apiKey){
+    return `<div style="display:flex;flex-direction:column;gap:20px">
+      <div class="card" style="text-align:center;padding:60px 20px;border-style:dashed">
+        <div style="font-size:36px;margin-bottom:14px">💬</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px">Connect Groq to use the QMS Bot</div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:18px;max-width:420px;margin-left:auto;margin-right:auto">The QMS Bot answers any question about your quality data in plain English — connect a Groq API key in Settings to turn it on.</div>
+        <button class="btn btn-primary btn-sm" onclick="nav('settings')">Go to Settings →</button>
+      </div>
+    </div>`;
+  }
+
+  const c=qmsBotComputeAll();
+  const tDhu=c.todayStats.dhu, tDhuColor=parseFloat(tDhu)>5?'var(--red)':parseFloat(tDhu)>2.5?'var(--yellow)':'var(--green)';
+  const wDhuColor=parseFloat(c.weekStats.dhu)>5?'var(--red)':parseFloat(c.weekStats.dhu)>2.5?'var(--yellow)':'var(--green)';
+  const trendIcon={'improving':'↑','stable':'→','declining':'↓'}[c.weekTrend]||'';
+  const trendColor={'improving':'var(--green)','stable':'var(--yellow)','declining':'var(--red)'}[c.weekTrend]||'var(--text3)';
+  const redOpCount=c.redOps.length;
+
+  const riskParts=riskPartsFrom(c.modStats,c.topOps,c.topDefAll,c.allStats.def);
+  const riskCard=riskCardHtml(riskParts,'computed all-time — no external AI needed');
+
+  const botMsgs=D.qmsBotMessages||[];
+  const quickPrompts=['What\'s today\'s data look like?','Which module has the highest defect rate right now?','Which operator needs coaching?','What needs to be solved first?'];
+  const bubble=m=>`<div style="display:flex;justify-content:${m.role==='user'?'flex-end':'flex-start'};margin-bottom:12px">
+    <div style="max-width:75%;padding:12px 16px;border-radius:14px;font-size:14px;line-height:1.65;white-space:pre-wrap;
+      background:${m.role==='user'?'var(--purple)':m.error?'rgba(229,72,77,.1)':'var(--bg3)'};
+      color:${m.role==='user'?'#fff':m.error?'var(--red)':'var(--text)'};
+      border:${m.error?'1px solid rgba(229,72,77,.3)':'1px solid var(--border)'}">${(m.content||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+  </div>`;
+
+  // Suggested follow-ups — shown only right after the latest assistant reply, filtered to
+  // questions not already asked this session (cheap: no second AI call needed for this).
+  const showFollowUps=botMsgs.length>0&&botMsgs[botMsgs.length-1].role==='assistant'&&!D._qmsBotThinking;
+  const askedLower=botMsgs.filter(m=>m.role==='user').map(m=>(m.content||'').toLowerCase());
+  const followUps=showFollowUps?QMS_BOT_FOLLOWUP_POOL.filter(q=>!askedLower.includes(q.toLowerCase())).slice(0,3):[];
+
+  return `<div style="display:flex;flex-direction:column;gap:20px">
+  <div class="card" style="background:linear-gradient(135deg,rgba(153,102,255,.12),rgba(0,212,168,.08));border-color:rgba(153,102,255,.3)">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:4px">💬 QMS Bot</div>
+        <div style="font-size:12px;color:var(--text2)">Ask anything about your quality data — today's numbers, trends, risks, whatever you need.</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span class="ai-chip">${ic('cpu',12)} Groq (Llama 3.3)</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);border-radius:20px;font-size:11px;color:var(--red)">🔥 Live data</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Snapshot — Today + This Week trend + Red Operators, always visible so common questions
+       have a visual answer too, not just a chat reply -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+    <div class="card" style="padding:14px;border-color:${tDhuColor}">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">TODAY'S DHU</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:${tDhuColor}">${tDhu}%</div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">CHECKED TODAY</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono)">${c.todayStats.chk.toLocaleString()}</div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">DEFECTS TODAY</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:var(--red)">${c.todayStats.def}</div>
+    </div>
+    <div class="card" style="padding:14px;border-color:${wDhuColor}">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">THIS WEEK'S DHU</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:${wDhuColor}">${c.weekStats.dhu}%</div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">7-DAY TREND</div>
+      <div style="font-size:22px;font-weight:700;color:${trendColor}">${c.weekTrend?trendIcon+' '+c.weekTrend.toUpperCase():'—'}</div>
+      ${c.weekTrend?`<div style="font-size:10px;color:var(--text3)">${c.weekStats.dhu}% vs ${c.prevWeekStats.dhu}% last week</div>`:`<div style="font-size:10px;color:var(--text3)">Not enough history yet</div>`}
+    </div>
+    <div class="card" style="padding:14px;border-color:${redOpCount>0?'var(--red)':'var(--border)'}">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">RED OPERATORS</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:${redOpCount>0?'var(--red)':'var(--green)'}">${redOpCount}</div>
+      <div style="font-size:10px;color:var(--text3)">repeating the same mistake</div>
+    </div>
+  </div>
+
+  <!-- Biggest Risk — same shared logic as AI Analysis, but scoped all-time since this page has no filter bar -->
+  ${riskCard}
+
+  <div class="card" style="border-color:var(--purple);border-width:2px">
+    <div class="card-header" style="flex-wrap:wrap;gap:8px">
+      <span class="card-title">Conversation</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        ${botMsgs.length?`<button class="btn btn-ghost btn-sm" onclick="qmsBotExport()">${ic('download',12)} Export</button>`:''}
+        ${botMsgs.length?`<button class="btn btn-ghost btn-sm" onclick="qmsBotClear()">${ic('trash',12)} Clear chat</button>`:''}
+      </div>
+    </div>
+    <div id="qms-bot-thread" style="min-height:420px;max-height:560px;overflow-y:auto;padding:8px 4px;margin-bottom:14px">
+      ${botMsgs.length?botMsgs.map(bubble).join(''):`
+      <div style="text-align:center;padding:30px 10px;color:var(--text3);font-size:13px">Try asking:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">${quickPrompts.map(q=>`<button class="btn btn-ghost btn-sm" onclick="qmsBotQuick('${q.replace(/'/g,"\\'")}')" style="text-align:left">${q}</button>`).join('')}</div>`}
+      ${followUps.length?`<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"><span style="font-size:11px;color:var(--text3);width:100%">You might also ask:</span>${followUps.map(q=>`<button class="btn btn-ghost btn-sm" onclick="qmsBotQuick('${q.replace(/'/g,"\\'")}')" style="text-align:left">${q}</button>`).join('')}</div>`:''}
+      ${D._qmsBotThinking?`<div style="display:flex;justify-content:flex-start;margin-bottom:10px"><div style="padding:12px 16px;border-radius:14px;font-size:14px;background:var(--bg3);border:1px solid var(--border);color:var(--text2)"><span class="spinner" style="width:12px;height:12px;vertical-align:middle;margin-right:6px"></span>Thinking…</div></div>`:''}
+    </div>
+    <div style="display:flex;gap:8px">
+      <input class="form-input" id="qms-bot-input" placeholder="Ask anything — e.g. What's today's data look like?" style="flex:1;padding:14px" onkeydown="qmsBotKeydown(event)" ${D._qmsBotThinking?'disabled':''}>
+      <button class="btn btn-primary" onclick="qmsBotAsk()" ${D._qmsBotThinking?'disabled':''}>${D._qmsBotThinking?'…':'Send'}</button>
+    </div>
+  </div>
+  </div>`;
+}
 function pgAI(){
-  const ins=D.inspections||[];
+  const {f,eff,all,F}=aiFilteredInspections();
+  const ins=F;
   const rovIns=D.rovingInspections||[];
   // Only real narrative reports (status:'Report', written by generateAIReport) qualify as
   // "latest" — pattern-detection tickets (status:'Open', from runAIAnalysis) share the same
@@ -3687,6 +4100,13 @@ function pgAI(){
   // in latestCard if picked up here by mistake.
   const tickets=(D.aiTickets||[]).filter(t=>t.status==='Report').sort((a,b)=>(b.generatedAt||b.createdAt||'').localeCompare(a.generatedAt||a.createdAt||''));
   const latest=tickets[0]||null;
+
+  // --- filter bar (same pattern as Defect Analytics — shared D.pbi state) ---
+  const uniq=k=>[...new Set(all.map(x=>x[k]).filter(Boolean))].sort();
+  const linesOpt=uniq('module'),stylesOpt=uniq('style'),opsOpt=uniq('operation'),buyersOpt=uniq('_buyer'),defectsOpt=uniq('defectType');
+  const slicer=(label,key,opts,cur)=>`<div style="min-width:0"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div><select class="form-input" style="padding:7px 9px;font-size:12px" onchange="setPbi('${key}',this.value)"><option value="__all" ${cur==='__all'?'selected':''}>All</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+  const {rangeTog,dateSection}=pbiRangeBar(f,eff);
+  const filterBar=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div style="font-size:15px;font-weight:700">🔎 Filters</div><button class="btn btn-ghost btn-sm" onclick="resetPbi()">${ic('refresh',12)} Reset all</button></div><div style="margin-bottom:12px">${rangeTog}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${dateSection}${slicer('Section / Line','line',linesOpt,f.line)}${slicer('Buyer','buyer',buyersOpt,f.buyer)}${slicer('Style','style',stylesOpt,f.style)}${slicer('Operation','operation',opsOpt,f.operation)}${slicer('Defect Name','defect',defectsOpt,f.defect)}</div></div>`;
 
   // Live computed metrics
   const today=new Date().toISOString().split('T')[0];
@@ -3728,26 +4148,8 @@ function pgAI(){
   const trend=(dhuThisWk==null||dhuPrevWk==null)?null:(dhuThisWk<dhuPrevWk-0.3?'improving':dhuThisWk>dhuPrevWk+0.3?'declining':'stable');
   const trendCard=trend?`<div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:3px">7-DAY TREND</div><div style="font-size:18px;font-weight:700;color:${trendColor[trend]}">${trendIcon[trend]} ${trend.toUpperCase()}</div><div style="font-size:10px;color:var(--text3)">${dhuThisWk.toFixed(1)}% vs ${dhuPrevWk.toFixed(1)}% last week</div></div>`:'';
 
-  const worstMod=modStats.filter(m=>m.chk>=20)[0]||null;
-  const worstOp=topOps.filter(([,d])=>d.n>=3).sort((a,b)=>(b[1].d/b[1].n)-(a[1].d/a[1].n))[0]||null;
-  const topProblem=topDef[0]||null;
-  const riskParts=[];
-  if(worstMod&&parseFloat(worstMod.dhu)>2.5)riskParts.push(`<b>${worstMod.n}</b> is running at <b style="color:var(--red)">${worstMod.dhu}%</b> defect rate — the worst line right now`);
-  if(worstOp)riskParts.push(`operator <b>${worstOp[0]}</b> is averaging <b style="color:var(--red)">${(worstOp[1].d/worstOp[1].n).toFixed(1)}</b> defects per check`);
-  if(topProblem)riskParts.push(`<b>${topProblem[0]}</b> is the most common defect (${topProblem[1]} found, ${totDef?((topProblem[1]/totDef)*100).toFixed(0):0}% of all defects)`);
-  const riskCard=riskParts.length===0?'':`<div class="card" style="border-color:var(--red);border-width:2px;background:rgba(229,72,77,.04)">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:20px">🎯</span><span style="font-size:15px;font-weight:800">Biggest Risk Right Now</span><span style="font-size:10px;color:var(--text3);margin-left:auto">computed live — no external AI needed</span></div>
-    <div style="font-size:14px;line-height:1.7;color:var(--text)">${riskParts.join('. ')}.</div>
-  </div>`;
-
-  // ---- The auto-detection engine (runAIAnalysis) actually runs client-side and generates
-  // these tickets — give them a real, actionable home here instead of just a count. ----
-  const openTickets=(D.aiTickets||[]).filter(t=>t.status==='Open').sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-  const ticketLevelColor={critical:'var(--red)',high:'var(--red)',medium:'var(--yellow)',low:'var(--green)'};
-  const ticketsCard=`<div class="card">
-    <div class="card-header"><span class="card-title">🔔 Auto-Detected Issues (${openTickets.length})</span><span style="font-size:11px;color:var(--text3)">from live inspection patterns — Operator Risk, Machine Risk, Frequent Swaps, Defect Patterns</span></div>
-    ${openTickets.length===0?'<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px">✓ Nothing flagged right now</div>':`<div style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto">${openTickets.map(t=>{const c=ticketLevelColor[(t.level||'').toLowerCase()]||'var(--text3)';return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-left:3px solid ${c};border-radius:8px"><div style="min-width:0"><div style="font-size:13px;font-weight:600">${t.title||''}</div><div style="font-size:11px;color:var(--text2);margin-top:2px">${t.description||''}</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn btn-ghost btn-sm" onclick="ackTicket('${t.fbKey}')">Acknowledge</button><button class="btn btn-ghost btn-sm" style="color:var(--green)" onclick="resolveTicket('${t.fbKey}')">✓ Resolve</button></div></div>`;}).join('')}</div>`}
-  </div>`;
+  const riskParts=riskPartsFrom(modStats,topOps,topDef,totDef);
+  const riskCard=riskCardHtml(riskParts);
 
   const latestCard=latest?`
   <div class="card" style="border-color:${statusColor[latest.overallStatus]||'var(--border)'};border-width:2px">
@@ -3756,12 +4158,15 @@ function pgAI(){
         <div class="ai-chip">${ic('cpu',12)} Groq</div>
         <span class="card-title">Latest Analysis</span>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--text3)">${latest.analysisDate||fd(latest.generatedAt||latest.createdAt)||'—'}</span>
         <span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${statusColor[latest.overallStatus]||'var(--border)'};color:#fff">${latest.overallStatus||'—'}</span>
         <span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;color:${trendColor[latest.trend]||'var(--text2)'};">${trendIcon[latest.trend]||''}  ${(latest.trend||'').toUpperCase()}</span>
+        <button class="btn btn-ghost btn-sm" onclick="aiReportExportExcel()">${ic('excel',12)} Excel</button>
+        <button class="btn btn-ghost btn-sm" onclick="aiReportExportPDF()">${ic('pdf',12)} PDF</button>
       </div>
     </div>
+    ${latest.scope?`<div style="font-size:11px;color:var(--text3);padding:8px 0 0">Scope: <b style="color:var(--text2)">${latest.scope}</b></div>`:''}
     <div style="padding:12px 0 16px;font-size:13px;color:var(--text2);line-height:1.7;border-bottom:1px solid var(--border);margin-bottom:14px">${latest.summary||'No summary.'}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
       <div style="padding:10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--border);text-align:center">
@@ -3819,16 +4224,19 @@ function pgAI(){
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <div>
         <div style="font-size:18px;font-weight:700;margin-bottom:4px">🤖 AI Quality Analysis</div>
-        <div style="font-size:12px;color:var(--text2)">Live metrics run automatically below. Root-cause narrative reports are generated on demand via Groq.</div>
+        <div style="font-size:12px;color:var(--text2)">Live metrics run automatically below. Generate a fixed-shape written report on demand, or head to the <b>QMS Bot</b> page for open-ended Q&amp;A.</div>
       </div>
       <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-ghost btn-sm" onclick="nav('qms-bot')">💬 QMS Bot →</button>
         ${D.aiConfig?.apiKey?`<button class="btn btn-primary btn-sm" id="ai-report-btn" onclick="generateAIReport()">✨ Generate AI Report</button>`:`<button class="btn btn-ghost btn-sm" onclick="nav('settings')">➕ Connect Groq to enable reports</button>`}
         <span class="ai-chip">${ic('cpu',12)} Groq (Llama 3.3)</span>
         <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);border-radius:20px;font-size:11px;color:var(--red)">🔥 Firebase</span>
       </div>
     </div>
-    ${latest?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:var(--text3)">Last report: ${latest.analysisDate||fd(latest.generatedAt||latest.createdAt)||'—'} &nbsp;•&nbsp; ${tickets.length} report${tickets.length!==1?'s':''} in database</div>`:''}
+    ${latest?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:var(--text3)">Last report: ${latest.analysisDate||fd(latest.generatedAt||latest.createdAt)||'—'}${latest.scope?' · scope: '+latest.scope:''} &nbsp;•&nbsp; ${tickets.length} report${tickets.length!==1?'s':''} in database</div>`:''}
   </div>
+
+  ${filterBar}
 
   <!-- Live KPI row -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
@@ -3850,11 +4258,10 @@ function pgAI(){
     ${trendCard||`<div class="card" style="padding:14px"><div style="font-size:10px;color:var(--text3);margin-bottom:4px">7-DAY TREND</div><div style="font-size:14px;color:var(--text3)">Not enough history yet</div></div>`}
   </div>
 
-  <!-- Real, always-on: biggest risk headline + the tickets the auto-detection engine found -->
+  <!-- Real, always-on: biggest risk headline computed from the currently filtered data -->
   ${riskCard}
-  ${ticketsCard}
 
-  <!-- Real narrative report via Groq, once generated (or the empty-state prompting for one) -->
+  <!-- Fixed-shape narrative report via Groq, once generated (or the empty-state prompting for one) -->
   ${latestCard}
 
   <!-- Live Defect Distribution -->
@@ -4454,6 +4861,23 @@ window.endShiftRoving=async function(){
   rptRoving('pdf');
   toast(`Shift ${shift} ended — PDF downloaded. Data kept for records. ✓`,'success');
 };
+// Admin can now set/correct the "Action By" (AB) escalation level directly from the Roving
+// report table — the worker app already lets the QC pick it at entry time, but it's marked
+// optional there ("can update later"), so this is where that gets filled in or fixed.
+window.setRovingAB=async function(fbKey,val){
+  if(!fbKey){toast('Missing record reference — refresh and try again','error');return;}
+  try{
+    await window.fbUpd('rovingInspections',fbKey,{ab:val,cpa:val,abUpdatedBy:D.user?.username||'',abUpdatedAt:new Date().toISOString()});
+    toast(val?`Action By set to ${val}`:'Action By cleared');
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
+window.setRovingCapRule=async function(fbKey,val){
+  if(!fbKey){toast('Missing record reference — refresh and try again','error');return;}
+  try{
+    await window.fbUpd('rovingInspections',fbKey,{capRule:val,capRuleUpdatedBy:D.user?.username||'',capRuleUpdatedAt:new Date().toISOString()});
+    toast(val?`CPA rule set to (${val})`:'CPA rule cleared');
+  }catch(e){toast('Failed: '+e.message,'error');}
+};
 window.printQR=function(){
   const el=document.getElementById('qr-el');if(!el)return;
   // Printed sticker is permanent — deliberately no style/buyer line, since that
@@ -4617,16 +5041,21 @@ function renderCharts(){
       datasets:[
         {label:'End Line Output',data:cb.elOut,borderColor:'#0ea98f',backgroundColor:'rgba(14,169,143,.08)',yAxisID:'y',tension:.3,pointRadius:2,fill:false},
         {label:'End Line Defects',data:cb.elDef,borderColor:'#e5484d',backgroundColor:'rgba(229,72,77,.08)',yAxisID:'y1',tension:.3,pointRadius:2,fill:false},
-        {label:'3rd Party Offer',data:cb.tpOffer,borderColor:'#3b7ff5',backgroundColor:'rgba(59,127,245,.08)',yAxisID:'y',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]},
-        {label:'3rd Party Pass',data:cb.tpPass,borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,.08)',yAxisID:'y',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]},
-        {label:'3rd Party Reject',data:cb.tpRej,borderColor:'#e2a200',backgroundColor:'rgba(226,162,0,.08)',yAxisID:'y1',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]}
+        {label:'3rd Party Offer',data:cb.tpOffer,borderColor:'#3b7ff5',backgroundColor:'rgba(59,127,245,.08)',yAxisID:'y2',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]},
+        {label:'3rd Party Pass',data:cb.tpPass,borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,.08)',yAxisID:'y2',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]},
+        {label:'3rd Party Reject',data:cb.tpRej,borderColor:'#e2a200',backgroundColor:'rgba(226,162,0,.08)',yAxisID:'y2',tension:.3,pointRadius:2,fill:false,borderDash:[4,2]}
       ]},options:{
       responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
       plugins:{legend:{position:'bottom',labels:{color:TICK,boxWidth:12,font:{size:10}}}},
       scales:{
-        y:{position:'left',grid:{color:GRID},ticks:{color:TICK},title:{display:true,text:'Pieces',color:TICK,font:{size:10}},beginAtZero:true},
-        y1:{position:'right',grid:{display:false},ticks:{color:TICK},title:{display:true,text:'Defects',color:TICK,font:{size:10}},beginAtZero:true},
+        y:{position:'left',grid:{color:GRID},ticks:{color:TICK},title:{display:true,text:'End Line Pieces',color:TICK,font:{size:10}},beginAtZero:true},
+        y1:{position:'right',grid:{display:false},ticks:{color:TICK},title:{display:true,text:'End Line Defects',color:TICK,font:{size:10}},beginAtZero:true},
+        // 3rd Party's own scale — Offer/Pass/Reject counts are usually much smaller than End
+        // Line's (hundreds-to-thousands checked), so sharing an axis squashed them flat near
+        // zero even when real data existed. Hidden (no ticks drawn) to avoid a 3rd visible
+        // axis cluttering the chart, but it still gives 3rd Party its own full-height scale.
+        y2:{display:false,beginAtZero:true},
         x:{grid:{display:false},ticks:{color:TICK,font:{size:9}}}
       }}});
   }
