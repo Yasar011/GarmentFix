@@ -1,0 +1,2157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APMS - Technical Hub</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/database": "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js"
+      }
+    }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .sticky-col {
+            position: sticky;
+            left: 0;
+            background-color: #f8fafc;
+            z-index: 10;
+            border-right: 2px solid #e2e8f0;
+        }
+
+        @media print {
+            .print\:hidden { display: none !important; }
+            .print\:block { display: block !important; }
+            body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .print\:bg-white { background: white !important; }
+            .print\:border-none { border: none !important; }
+            .print\:shadow-none { box-shadow: none !important; }
+            .print\:p-0 { padding: 0 !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            Users, Wrench, AlertTriangle, History, Zap, CheckCircle,
+            Clock, PlusCircle, Trash2, Factory, LogOut, Activity, BarChart2,
+            Lock, LogIn, User, Edit, ScanLine, Camera, CheckSquare, X, ClipboardList, Timer,
+            Calendar, Search, Package, MessageSquare, ShieldAlert, Check, FileText, Printer, UserCheck, ClipboardCheck, MapPin, LayoutDashboard, ArrowRight
+        } from 'lucide-react';
+        import { initializeApp } from "firebase/app";
+        import { getDatabase, ref, onValue, push, update, remove, onDisconnect } from "firebase/database";
+
+        const firebaseConfig = { databaseURL: "https://apparel-maintenance-default-rtdb.firebaseio.com" };
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // --- TOAST NOTIFICATIONS (replaces blocking alert popups) ---
+        const _toastListeners = new Set();
+        let _toastSeq = 0;
+        const toast = (message, type) => {
+            const t = { id: ++_toastSeq, message: String(message), type: type || 'info' };
+            _toastListeners.forEach(fn => fn(t));
+        };
+        const alert = (message) => {
+            const m = String(message);
+            let type = 'info';
+            if (/error|invalid|wrong|required|fail|denied|not found|unable|must|please/i.test(m)) type = 'error';
+            else if (/success|submitted|saved|approved|complete|added|sent|done/i.test(m)) type = 'success';
+            toast(m, type);
+        };
+        const ToastHost = () => {
+            const [items, setItems] = useState([]);
+            useEffect(() => {
+                const add = (t) => {
+                    setItems(prev => [...prev, t]);
+                    setTimeout(() => setItems(prev => prev.filter(x => x.id !== t.id)), 4000);
+                };
+                _toastListeners.add(add);
+                return () => _toastListeners.delete(add);
+            }, []);
+            const colors = { info: 'bg-slate-800', success: 'bg-emerald-600', error: 'bg-red-600', warning: 'bg-orange-500' };
+            return (
+                <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 items-end pointer-events-none">
+                    {items.map(t => (
+                        <div key={t.id} className={`${colors[t.type] || colors.info} text-white px-4 py-3 rounded-xl shadow-lg text-sm font-medium max-w-xs`}>
+                            {t.message}
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        // ============================================================
+        //  DEPARTMENT CONFIG — to clone this hub for another team,
+        //  copy this file and change ONLY these three values.
+        //   NAME       : must match the `department` value written onto machines (by worker
+        //                report flows, the Kiosk, or this hub's own Raise Ticket form)
+        //   TITLE      : label shown in the sidebar and login screen
+        //   INCLUDE_PM : true only for the team that owns Preventive Maintenance
+        // ============================================================
+        const DEPT = {
+            NAME: "Technical",
+            TITLE: "Technical Hub",
+            INCLUDE_PM: false,
+            // APMS tracks QCM-raised quality problems through to a fix — not machine downtime
+            // (QCM tickets are always skipDowntime, so the number would be meaningless anyway).
+            // Every downtime KPI/table/export is hidden; response time + repair time still show.
+            SHOW_DOWNTIME: false
+        };
+
+        // Other department hubs a worker can hand an issue off to when it's not actually theirs.
+        const OTHER_DEPTS = ['Mechanical', 'Technical', 'IE', 'Quality'].filter(d => d !== DEPT.NAME);
+
+        const MACHINE_TYPES = ['Flatlock', 'Zigzag', 'Flatseam', 'Single needle', 'Overlock', 'Bartack'];
+
+        const KPIBox = ({ title, value, unit, color }) => (
+            <div className={`bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between`}>
+                <div className="text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-2">{title}</div>
+                <div className="flex items-baseline gap-1">
+                    <div className={`text-4xl font-bold text-${color}-600`}>{value}</div>
+                    <span className="text-sm font-medium text-slate-400">{unit}</span>
+                </div>
+            </div>
+        );
+
+        const Button = ({ onClick, children, variant = "primary", className = "", disabled = false, size = "md", fullWidth = false }) => {
+            const variants = {
+                primary: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
+                secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                danger: "bg-red-50 text-red-600 hover:bg-red-100",
+                success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
+                outline: "border border-slate-300 text-slate-700 hover:bg-slate-50"
+            };
+            const sizes = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-3 text-base" };
+            return (
+                <button onClick={onClick} disabled={disabled} className={`rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${variants[variant]} ${sizes[size]} ${fullWidth ? 'w-full' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
+                    {children}
+                </button>
+            );
+        };
+
+        const Badge = ({ status }) => {
+            const styles = {
+                "Pending": "bg-red-100 text-red-800 border-red-200 animate-pulse",
+                "In Progress": "bg-yellow-100 text-yellow-800 border-yellow-200",
+                "Available": "bg-emerald-100 text-emerald-800 border-emerald-200",
+                "Busy": "bg-orange-100 text-orange-800 border-orange-200",
+                "Offline": "bg-slate-100 text-slate-500 border-slate-200",
+                "Critical": "bg-red-600 text-white font-bold shadow-sm"
+            };
+            return <span className={`px-2 py-1 rounded text-[10px] font-bold border uppercase tracking-wide ${styles[status] || 'bg-slate-100 text-slate-800'}`}>{status}</span>;
+        };
+
+        const Card = ({ children, className = "" }) => (
+            <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>
+                {children}
+            </div>
+        );
+
+        const QRScanner = ({ onScan, onClose, title }) => {
+            useEffect(() => {
+                const onScanSuccess = (decodedText) => {
+                    html5QrcodeScanner.clear().then(() => {
+                        onScan(decodedText);
+                    }).catch(err => console.error("Failed to clear scanner", err));
+                };
+
+                const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
+                html5QrcodeScanner.render(onScanSuccess, (error) => {});
+
+                return () => { try { html5QrcodeScanner.clear(); } catch(e) {} };
+            }, [onScan]);
+
+            return (
+                <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col items-center justify-center p-4">
+                    <div className="bg-white rounded-xl w-full max-w-md overflow-hidden relative">
+                        <div className="p-3 bg-slate-900 text-white flex justify-between items-center">
+                            <h3 className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5"/> {title || "Scan QR Code"}</h3>
+                            <button onClick={onClose}><X className="w-5 h-5"/></button>
+                        </div>
+                        <div className="p-4 bg-black"><div id="reader" className="w-full"></div></div>
+                        <div className="p-4 text-center text-sm text-slate-500">Point camera at machine QR code</div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                            <h3 className="font-bold text-lg">{title}</h3>
+                            <button onClick={onClose}><X className="w-5 h-5 text-slate-500" /></button>
+                        </div>
+                        <div className="p-4 overflow-y-auto">{children}</div>
+                    </div>
+                </div>
+            );
+        };
+
+        const MaintenanceDashboard = () => {
+            const [currentUser, setCurrentUser] = useState(null);
+            const [loginError, setLoginError] = useState("");
+            const [creds, setCreds] = useState({ username: "", password: "" });
+
+            const [activeTab, setActiveTab] = useState('tickets');
+            const [allUsers, setAllUsers] = useState([]);
+            const [logs, setLogs] = useState([]);
+            const [lines, setLines] = useState([]);
+            const [machines, setMachines] = useState({});
+            // Factory Manager's real Building > Section > Module hierarchy — used to show
+            // "where is this machine right now" on every ticket card, and to filter the
+            // ticket queue by line/module/yard.
+            const [buildings, setBuildings] = useState([]);
+            const [sections, setSections] = useState([]);
+            const [modules, setModules] = useState([]);
+            const [ticketSearch, setTicketSearch] = useState("");
+            const [ticketLocationFilter, setTicketLocationFilter] = useState("");
+            
+            const [showScanner, setShowScanner] = useState(false);
+            const [scanTargetTicket, setScanTargetTicket] = useState(null);
+            const [signOffTicket, setSignOffTicket] = useState(null);
+            const [signOffData, setSignOffData] = useState({ operatorId: "", remarks: "" });
+
+            const [editingWorkerId, setEditingWorkerId] = useState(null);
+            const [newWorker, setNewWorker] = useState({ 
+                name: "", username: "", password: "", department: DEPT.NAME, role: "technician", 
+                status: "Offline", mechanicType: "Jr Mechanic", section: "Section A", assignedLines: "", idNumber: "", shift: "Shift 1",
+                skills: { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
+            });
+
+            const [partRequests, setPartRequests] = useState([]);
+            const [shiftNotes, setShiftNotes] = useState([]);
+            const [serviceRecords, setServiceRecords] = useState([]);
+            const [serviceIssues, setServiceIssues] = useState([]);
+            const [closingIssue, setClosingIssue] = useState(null); // issue object mid close-comment
+            const [closeComment, setCloseComment] = useState("");
+            const [serviceRequests, setServiceRequests] = useState([]);
+            const [serviceYear, setServiceYear] = useState(new Date().getFullYear());
+            const [serviceTypeView, setServiceTypeView] = useState('monthly'); // 'monthly' | 'sixmonth'
+            const [openServiceMachine, setOpenServiceMachine] = useState(null); // drill-down machine id
+            // PDF export filters
+            const [pdfMachine, setPdfMachine] = useState('all');
+            const [pdfFrom, setPdfFrom] = useState('');
+            const [pdfTo, setPdfTo] = useState('');
+            const [healthSearch, setHealthSearch] = useState("");
+            const [selectedHealthMachine, setSelectedHealthMachine] = useState(null);
+            const [newShiftNote, setNewShiftNote] = useState("");
+
+            // RAISE TICKET — supervisor/admin creates a ticket directly in this dept queue,
+            // for problems that don't come from a QR scan (e.g. supervisor notices a pattern
+            // or a post-service issue).
+            const [showRaiseTicket, setShowRaiseTicket] = useState(false);
+            const [rtMachineId, setRtMachineId] = useState("");
+            const [rtIssue, setRtIssue] = useState("");
+            const [rtPriority, setRtPriority] = useState("Normal");
+
+            // REPORTING STATE
+            const [reportType, setReportType] = useState('daily');
+            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+            const [reportMachine, setReportMachine] = useState("");
+            const [reportShift, setReportShift] = useState("all");
+
+            const mechanicalWorkers = allUsers.filter(u => u.department === DEPT.NAME || u.role === 'admin');
+            const isSupervisor = currentUser && (currentUser.role === 'admin' || currentUser.mechanicType === 'Supervisor');
+
+            // Machines arrive from Firebase as a keyed object; build a list that carries
+            // each record's DB key as `id` so Claim/Scan/Sign-off/PM all target the right node.
+            const machineList = useMemo(() => Object.entries(machines).map(([id, m]) => ({ id, ...m })), [machines]);
+
+            // --- PM SERVICE CARD TRACKING (mirrors worker.html's due/overdue logic) ---
+            const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const SIX_MONTH_DAYS = 182;
+            // Machine names repeat a lot on the floor (many identical units) — Model + Serial
+            // No. is what actually identifies one machine, so that's the label used throughout
+            // Service Cards instead of the (ambiguous) name.
+            const machineLabel = (m) => `${(m && (m.model || m.type)) || '—'} · SN ${(m && (m.serial || m.id)) || '—'}`;
+            const thisPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+            const serviceStatus = useMemo(() => machineList.map(m => {
+                const monthlyDone = (m.lastMonthlyService || '') === thisPeriod;
+                const sixOverdue = !m.lastSixMonthServiceAt || (Date.now() - new Date(m.lastSixMonthServiceAt).getTime()) > SIX_MONTH_DAYS*86400000;
+                return { ...m, monthlyDone, sixOverdue };
+            }), [machineList]);
+            const monthlyDueList = serviceStatus.filter(m => !m.monthlyDone);
+            const sixOverdueList = serviceStatus.filter(m => m.sixOverdue);
+            // Records grouped by machine for the yearly grid + drill-down.
+            const recordsByMachine = useMemo(() => {
+                const map = {};
+                serviceRecords.forEach(r => { (map[r.machineId] = map[r.machineId] || []).push(r); });
+                return map;
+            }, [serviceRecords]);
+            const pendingServiceRequests = serviceRequests.filter(r => r.status === 'Pending');
+            const openServiceIssues = serviceIssues.filter(i => i.status === 'Open').slice().sort((a,b) => new Date(b.raisedAt) - new Date(a.raisedAt));
+            const closeServiceIssue = () => {
+                if (!closingIssue) return;
+                if (!closeComment.trim()) return alert("A comment is required (e.g. \"Changed/Repaired - replaced screw\").");
+                update(ref(db, `serviceIssues/${closingIssue.id}`), {
+                    status: 'Closed', closedBy: currentUser.id, closedByName: currentUser.name,
+                    closedAt: new Date().toISOString(), resolutionComment: closeComment.trim()
+                });
+                setClosingIssue(null); setCloseComment("");
+            };
+
+            const approveServiceRequest = (id) => update(ref(db, `serviceRequests/${id}`), { status: 'Approved', approvedBy: currentUser?.name, approvedAt: new Date().toISOString() });
+            const rejectServiceRequest = (id) => update(ref(db, `serviceRequests/${id}`), { status: 'Rejected', approvedBy: currentUser?.name, approvedAt: new Date().toISOString() });
+
+            const handleRaiseTicket = () => {
+                if (!rtMachineId || !rtIssue.trim()) { alert("Select a machine and describe the problem."); return; }
+                const ticketId = `#MAINT-${Math.floor(1000 + Math.random() * 9000)}`;
+                update(ref(db, `machines/${rtMachineId}`), {
+                    department: DEPT.NAME, status: 'Pending',
+                    issue: rtIssue.trim(), priority: rtPriority,
+                    reportedAt: new Date().toISOString(),
+                    reportedBy: currentUser.name, ticketId
+                });
+                push(ref(db, 'logs'), { machineId: rtMachineId, action: 'Ticket Raised', department: DEPT.NAME, userId: currentUser.id, userName: currentUser.name, details: rtIssue.trim(), timestamp: new Date().toISOString() });
+                setShowRaiseTicket(false); setRtMachineId(""); setRtIssue(""); setRtPriority("Normal");
+                alert(`Ticket ${ticketId} raised — it will appear in the queue immediately.`);
+            };
+
+            // Convert an open service-card issue into a trackable maintenance work order.
+            // The service issue stays Open (supervisor still closes it with a resolution
+            // comment); the work order is a separate queue ticket for the repair job.
+            const handleCreateWorkOrder = (iss) => {
+                const ticketId = `#SVC-${Math.floor(1000 + Math.random() * 9000)}`;
+                update(ref(db, `machines/${iss.machineId}`), {
+                    department: DEPT.NAME, status: 'Pending',
+                    issue: `Service Issue: ${iss.item}${iss.note ? ` — ${iss.note}` : ''}`,
+                    priority: 'Normal', reportedAt: new Date().toISOString(),
+                    reportedBy: `Service Card (${iss.raisedByName})`, ticketId,
+                    serviceIssueId: iss.id
+                });
+                push(ref(db, 'logs'), { machineId: iss.machineId, action: 'Work Order from Service Issue', department: DEPT.NAME, userId: currentUser.id, userName: currentUser.name, details: `${iss.item}${iss.note ? ': ' + iss.note : ''}`, timestamp: new Date().toISOString() });
+                alert(`Work order ${ticketId} raised — appears in the ${DEPT.NAME} ticket queue.`);
+            };
+
+            // PDF export of service records — filter by machine + date range. Prints the full
+            // checklist in WORDS for every record (Machine Cleaning, Oil Changing, ...) with a
+            // ✓/✗/— symbol each, the same way the physical card and the on-screen drill-down
+            // show it — not just an issue count.
+            const itemsOf = (r) => Array.isArray(r.items) ? r.items.map(x => [x.name, x.state]) : Object.entries(r.items || {});
+            const exportServicePDF = () => {
+                const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+                if (!jsPDFCtor) return alert("PDF library is still loading — try again in a moment.");
+                let rows = serviceRecords.slice();
+                if (pdfMachine !== 'all') rows = rows.filter(r => r.machineId === pdfMachine);
+                if (pdfFrom) rows = rows.filter(r => (r.date || '').slice(0, 10) >= pdfFrom);
+                if (pdfTo) rows = rows.filter(r => (r.date || '').slice(0, 10) <= pdfTo);
+                rows.sort((a, b) => new Date(a.date) - new Date(b.date));
+                if (rows.length === 0) return alert("No service records match those filters.");
+                const doc = new jsPDFCtor();
+                const singleMachine = pdfMachine !== 'all' ? machineList.find(x => x.id === pdfMachine) : null;
+                const machName = pdfMachine === 'all' ? 'All Machines' : machineLabel(singleMachine || { id: pdfMachine });
+                const period = (pdfFrom || pdfTo) ? `${pdfFrom || '…'} to ${pdfTo || '…'}` : `Year ${serviceYear}`;
+                doc.setFontSize(16); doc.text(`${DEPT.TITLE} — Service Card Report`, 14, 18);
+                doc.setFontSize(10); doc.setTextColor(100);
+                doc.text(`Machine: ${machName}    Period: ${period}    Records: ${rows.length}`, 14, 25);
+                // Summary table — one row per record, full checklist spelled out in words.
+                // NOTE: jsPDF's built-in fonts only support WinAnsi/Latin-1 — the ✓/✗/— symbols
+                // used on-screen fall outside that range and render as garbled repeating
+                // characters in the PDF, so plain ASCII (OK/X/N-A) is used here instead.
+                doc.autoTable({
+                    startY: 31,
+                    head: [['Date', 'Machine (Model · SN)', 'Type', 'By', 'Checklist (OK / X / N-A)', 'Result']],
+                    body: rows.map(r => [
+                        new Date(r.date).toLocaleDateString(),
+                        r.machineModel || r.machineSerial ? `${r.machineModel || '-'} · SN ${r.machineSerial || r.machineId}` : machineLabel(machineList.find(x => x.id === r.machineId) || { id: r.machineId }),
+                        r.serviceType === 'monthly' ? 'Monthly' : '6-Month',
+                        r.performedByName || '-',
+                        itemsOf(r).map(([name, val]) => `${name}: ${val === 'ok' ? 'OK' : val === 'issue' ? 'X' : 'N/A'}`).join('   '),
+                        (r.issuesFound && r.issuesFound.length) ? `${r.issuesFound.length} issue(s)` : 'All passed'
+                    ]),
+                    styles: { fontSize: 7, cellPadding: 2 },
+                    headStyles: { fillColor: [79, 70, 229] },
+                    columnStyles: { 4: { cellWidth: 90 } }
+                });
+                doc.save(`${DEPT.NAME}_service_report_${pdfMachine === 'all' ? 'all' : machName}_${new Date().toISOString().slice(0,10)}.pdf`);
+            };
+
+            useEffect(() => {
+                onValue(ref(db, 'users'), (snap) => setAllUsers(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'logs'), (snap) => setLogs(snap.val() ? Object.values(snap.val()) : []));
+                onValue(ref(db, 'lines'), (snap) => setLines(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'machines'), (snap) => setMachines(snap.val() || {}));
+                onValue(ref(db, 'partRequests'), (snap) => setPartRequests(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'shiftNotes'), (snap) => setShiftNotes(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'serviceRecords'), (snap) => setServiceRecords(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'serviceIssues'), (snap) => setServiceIssues(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'serviceRequests'), (snap) => setServiceRequests(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'buildings'), (snap) => setBuildings(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'sections'), (snap) => setSections(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+                onValue(ref(db, 'modules'), (snap) => setModules(snap.val() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : []));
+            }, []);
+
+            // Real current location — Factory Manager's own Building > Section > Module
+            // hierarchy is the source of truth (mirrors worker.html / factory_manager.html).
+            const resolveLocation = (m) => {
+                if (!m || !m.moduleId || m.moduleId === 'yard') return 'Yard';
+                const mod = modules.find(x => x.id === m.moduleId);
+                const sec = mod ? sections.find(s => s.id === mod.sectionId) : null;
+                const bld = sec ? buildings.find(b => b.id === sec.buildingId) : null;
+                return [bld && bld.name, sec && sec.name, mod && mod.name].filter(Boolean).join(' > ') || 'Yard';
+            };
+            // Modules grouped by section, for the location filter dropdown.
+            const modulesBySection = useMemo(() => modules.reduce((acc, mod) => { (acc[mod.sectionId] = acc[mod.sectionId] || []).push(mod); return acc; }, {}), [modules]);
+
+            // Report flows (worker.html, the Kiosk, this hub's own Raise Ticket form) write
+            // `department: DEPT.NAME` directly onto the machine — we just filter for it here.
+            const tickets = useMemo(() => {
+                return machineList.filter(m =>
+                    (m.department === DEPT.NAME || (DEPT.INCLUDE_PM && m.isPM)) &&
+                    (m.status === 'Pending' || m.status === 'In Progress')
+                );
+            }, [machineList]);
+
+            // Search box + Line/Module/Yard filter for the ticket queue — matches on machine
+            // name/ID/issue text, and on the machine's real current location (moduleId).
+            const filteredTickets = useMemo(() => {
+                const q = ticketSearch.trim().toLowerCase();
+                return tickets.filter(t => {
+                    if (q && !(`${t.name || ''} ${t.id || ''} ${t.issue || ''}`.toLowerCase().includes(q))) return false;
+                    if (ticketLocationFilter === 'yard') { if (t.moduleId && t.moduleId !== 'yard') return false; }
+                    else if (ticketLocationFilter) { if (t.moduleId !== ticketLocationFilter) return false; }
+                    return true;
+                });
+            }, [tickets, ticketSearch, ticketLocationFilter]);
+
+            const getMachineName = (id) => machines[id]?.name || id;
+
+            const formatDuration = (ms) => {
+                if(!ms || ms < 0) return "0m";
+                const minutes = Math.floor(ms / 60000);
+                const hours = Math.floor(minutes / 60);
+                if (hours > 0) return `${hours}h ${minutes % 60}m`;
+                return `${minutes}m`;
+            };
+
+            const calculateAverage = (skillsObj) => {
+                if (!skillsObj) return 0;
+                let total = 0;
+                MACHINE_TYPES.forEach(type => { total += (parseInt(skillsObj[type]) || 0); });
+                return Math.round(total / MACHINE_TYPES.length) || 0;
+            };
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                const user = allUsers.find(u => u.username === creds.username && u.password === creds.password);
+                if (user) {
+                    if (user.department === DEPT.NAME || user.role === 'admin') {
+                        // Mark a technician Available the moment they log into the hub so the AI
+                        // auto-assign (which only picks 'Available' workers) can actually route to them.
+                        if (user.role !== 'admin') {
+                            update(ref(db, `users/${user.id}`), { status: 'Available' });
+                            setCurrentUser({ ...user, status: 'Available' });
+                            setActiveTab('my_tasks');
+                        } else {
+                            setCurrentUser(user);
+                        }
+                        setLoginError("");
+                    } else {
+                        setLoginError(`Access Denied: This hub is restricted to ${DEPT.NAME} Department staff only.`);
+                    }
+                } else if (creds.username === 'admin' && creds.password === '123') {
+                    setCurrentUser({ id: 'admin', name: 'System Admin', role: 'admin', department: DEPT.NAME });
+                } else {
+                    setLoginError("Invalid username or password.");
+                }
+            };
+
+            const handleLogout = () => {
+                if (currentUser && currentUser.role !== 'admin' && currentUser.id) {
+                    update(ref(db, `users/${currentUser.id}`), { status: 'Offline' });
+                }
+                setCurrentUser(null);
+            };
+
+            const toggleMyStatus = () => {
+                if (!currentUser || currentUser.role === 'admin') return;
+                const newStatus = currentUser.status === 'Available' ? 'Offline' : 'Available';
+                update(ref(db, `users/${currentUser.id}`), { status: newStatus });
+                setCurrentUser({ ...currentUser, status: newStatus });
+            };
+
+            // PRESENCE: keep a logged-in technician marked Available, and auto-flip them to
+            // Offline if their connection drops (browser/tab closed, network loss).
+            useEffect(() => {
+                if (!currentUser || currentUser.role === 'admin' || !currentUser.id) return;
+                const statusRef = ref(db, `users/${currentUser.id}/status`);
+                const connectedRef = ref(db, '.info/connected');
+                const unsub = onValue(connectedRef, (snap) => {
+                    if (snap.val() === true) {
+                        onDisconnect(statusRef).set('Offline');
+                        update(ref(db, `users/${currentUser.id}`), { status: 'Available' });
+                    }
+                });
+                return () => unsub();
+            }, [currentUser?.id]);
+
+            // NEW-TICKET ALERT: chime when this dept's open queue grows (supervisors/techs get notified).
+            const [lastTicketCount, setLastTicketCount] = useState(null);
+            const playChime = () => {
+                try {
+                    const Ctx = window.AudioContext || window.webkitAudioContext;
+                    if (!Ctx) return;
+                    const ctx = new Ctx();
+                    [523, 659, 784].forEach((freq, i) => {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.frequency.value = freq;
+                        osc.type = 'sine';
+                        osc.connect(gain); gain.connect(ctx.destination);
+                        const t = ctx.currentTime + i * 0.16;
+                        gain.gain.setValueAtTime(0.0001, t);
+                        gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+                        osc.start(t); osc.stop(t + 0.24);
+                    });
+                    setTimeout(() => ctx.close(), 1200);
+                } catch (e) {}
+            };
+            useEffect(() => {
+                if (!currentUser) return;
+                const openCount = tickets.length;
+                if (lastTicketCount !== null && openCount > lastTicketCount) {
+                    playChime();
+                    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                        try { new Notification(`New ${DEPT.NAME} ticket`, { body: 'A new job has entered the queue.' }); } catch (e) {}
+                    }
+                }
+                setLastTicketCount(openCount);
+            }, [tickets.length, currentUser]);
+
+            const handleDeleteWorker = (id) => {
+                if(window.confirm("Remove this mechanic from the database?")) {
+                    remove(ref(db, `users/${id}`));
+                }
+            };
+
+            const handleSkillChange = (machine, value) => {
+                let val = parseInt(value) || 0;
+                if(val > 100) val = 100;
+                if(val < 0) val = 0;
+                setNewWorker({ ...newWorker, skills: { ...newWorker.skills, [machine]: val } });
+            };
+
+            const handleSaveWorker = () => {
+                if(newWorker.name && newWorker.username && newWorker.password) {
+                    if (editingWorkerId) {
+                        update(ref(db, `users/${editingWorkerId}`), newWorker);
+                        setEditingWorkerId(null);
+                    } else {
+                        push(ref(db, 'users'), newWorker);
+                    }
+                    setNewWorker({ 
+                        name: "", username: "", password: "", department: DEPT.NAME, role: "technician", 
+                        status: "Offline", mechanicType: "Jr Mechanic", section: "Section A", assignedLines: "", idNumber: "", shift: "Shift 1",
+                        skills: { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
+                    });
+                } else {
+                    alert("Please fill name, username, and password");
+                }
+            };
+
+            const handleEditWorker = (worker) => {
+                setNewWorker({
+                    name: worker.name || "", username: worker.username || "", password: worker.password || "",
+                    department: worker.department || DEPT.NAME, role: worker.role || "technician", status: worker.status || "Offline",
+                    mechanicType: worker.mechanicType || "Jr Mechanic", section: worker.section || "Section A", assignedLines: worker.assignedLines || "",
+                    idNumber: worker.idNumber || "", shift: worker.shift || "Shift 1",
+                    skills: worker.skills || { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
+                });
+                setEditingWorkerId(worker.id);
+                document.getElementById('worker-form-section')?.scrollIntoView({ behavior: 'smooth' });
+            };
+
+            const handleAssignToMe = (ticket) => {
+                // Now writes directly to the machine entity
+                update(ref(db, `machines/${ticket.id}`), {
+                    assignedTo: currentUser.id,
+                    assignedAt: new Date().toISOString()
+                });
+            };
+
+            const handleScanVerify = (decodedText) => {
+                if (decodedText === scanTargetTicket.id || machines[decodedText]?.name === scanTargetTicket.name) {
+                    update(ref(db, `machines/${scanTargetTicket.id}`), {
+                        status: 'In Progress',
+                        startedAt: new Date().toISOString()
+                    });
+                    setShowScanner(false);
+                    setScanTargetTicket(null);
+                } else {
+                    alert(`Wrong Machine! You scanned ${decodedText}, but expected ${scanTargetTicket.id}`);
+                    setShowScanner(false);
+                }
+            };
+
+            const handleSignOffSubmit = () => {
+                if(!signOffData.operatorId) return alert("Operator ID is required for sign-off.");
+
+                const now = new Date();
+                const startedAt = new Date(signOffTicket.startedAt);
+                const assignedAt = signOffTicket.assignedAt ? new Date(signOffTicket.assignedAt) : new Date(signOffTicket.reportedAt);
+                const reportedAt = new Date(signOffTicket.reportedAt);
+
+                const responseMs = startedAt - assignedAt;
+                const repairMs = now - startedAt;
+                const downtimeMs = now - reportedAt;
+
+                push(ref(db, 'logs'), {
+                    machineId: signOffTicket.id,
+                    action: signOffTicket.isPM ? 'PM Completed (Pending Review)' : 'Fixed (Pending Review)',
+                    department: signOffTicket.department || DEPT.NAME,
+                    userId: currentUser.id,
+                    userName: currentUser.name,
+                    operatorSignOff: signOffData.operatorId,
+                    details: signOffData.remarks,
+                    timestamp: now.toISOString(),
+                    repairTime: formatDuration(repairMs),
+                    metrics: { responseMs, repairMs, downtimeMs }
+                });
+
+                // Straight to Main Hub for final close-out — no separate department
+                // review step anymore.
+                update(ref(db, `machines/${signOffTicket.id}`), {
+                    status: 'Pending Admin Approval',
+                    completionRemarks: signOffData.remarks,
+                    completionOperator: signOffData.operatorId,
+                    completedBy: currentUser.id,
+                    completedByName: currentUser.name,
+                    metrics: { responseMs, repairMs, downtimeMs }
+                });
+
+                // Free the worker for the next job so the AI auto-assign can pick them again.
+                if (currentUser.role !== 'admin') {
+                    update(ref(db, `users/${currentUser.id}`), { status: 'Available', currentTask: null });
+                }
+
+                setSignOffTicket(null);
+                setSignOffData({ operatorId: "", remarks: "" });
+                alert("Submitted for Admin Approval.");
+            };
+
+            const handleTransferDept = (ticket, newDept) => {
+                if (!newDept || !window.confirm(`Send "${ticket.name}" to the ${newDept} hub instead?`)) return;
+                update(ref(db, `machines/${ticket.id}`), { department: newDept, assignedTo: null, assignedAt: null });
+                push(ref(db, 'logs'), { machineId: ticket.id, action: 'Transferred', details: `${DEPT.NAME} -> ${newDept}`, department: newDept, userId: currentUser.id, userName: currentUser.name, timestamp: new Date().toISOString() });
+            };
+
+            // Most historical logs predate department tracking and have no `department` field
+            // of their own — fall back to the machine's CURRENT department so old records don't
+            // just vanish. If neither is known (e.g. the ticket was fully closed and reset since),
+            // the log is unattributable and is left out of every dept-scoped view rather than
+            // leaked into all of them.
+            const logDept = (l) => l.department || machines[l.machineId]?.department || null;
+            const deptLogs = useMemo(() => logs.filter(l => logDept(l) === DEPT.NAME), [logs, machines]);
+
+            const filteredReportLogs = useMemo(() => {
+                return deptLogs.filter(log => {
+                    if (log.action !== 'Fixed (Pending Review)' && log.action !== 'PM Completed (Pending Review)') return false;
+
+                    // Skip logs with a missing/invalid timestamp so toISOString() can't crash the tab.
+                    const logDateObj = log.timestamp ? new Date(log.timestamp) : null;
+                    if (!logDateObj || isNaN(logDateObj.getTime())) return false;
+                    const logDate = logDateObj.toISOString().split('T')[0];
+                    const logHour = logDateObj.getHours();
+
+                    let dateMatch = true;
+                    if (reportType === 'daily') dateMatch = logDate === startDate;
+                    if (reportType === 'weekly') {
+                        const s = new Date(startDate);
+                        const e = new Date(startDate);
+                        e.setDate(e.getDate() + 7);
+                        dateMatch = logDateObj >= s && logDateObj <= e;
+                    }
+                    if (reportType === 'monthly') dateMatch = logDate.slice(0, 7) === startDate.slice(0, 7);
+                    if (reportType === 'custom') dateMatch = logDate >= startDate && logDate <= endDate;
+
+                    let shiftMatch = true;
+                    if (reportShift === 'shift1') shiftMatch = logHour >= 6 && logHour < 14;
+                    if (reportShift === 'shift2') shiftMatch = logHour >= 14 && logHour < 22;
+
+                    let machineMatch = true;
+                    if (reportMachine) {
+                        const mName = getMachineName(log.machineId);
+                        machineMatch = mName.toLowerCase().includes(reportMachine.toLowerCase()) || log.machineId.toLowerCase().includes(reportMachine.toLowerCase());
+                    }
+
+                    return dateMatch && shiftMatch && machineMatch;
+                }).reverse();
+            }, [deptLogs, reportType, startDate, endDate, reportMachine, reportShift, machines]);
+
+            const reportStats = useMemo(() => {
+                const total = filteredReportLogs.length;
+                const totalResponseMs = filteredReportLogs.reduce((acc, l) => acc + (l.metrics?.responseMs || 0), 0);
+                const totalRepairMs = filteredReportLogs.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
+                const totalDowntimeMs = filteredReportLogs.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
+
+                return {
+                    total,
+                    avgResponse: total ? formatDuration(totalResponseMs / total) : "0m",
+                    avgRepair: total ? formatDuration(totalRepairMs / total) : "0m",
+                    totalDowntime: formatDuration(totalDowntimeMs)
+                };
+            }, [filteredReportLogs]);
+
+            // DOWNTIME BY LINE — this dept's machines only, for whichever date range is picked above.
+            const lineDowntimeReport = useMemo(() => {
+                const map = {};
+                filteredReportLogs.filter(l => !l.skipDowntime && l.department === DEPT.NAME).forEach(l => {
+                    const machine = machineList.find(m => m.id === l.machineId);
+                    const line = machine ? lines.find(ln => ln.id === machine.lineId) : null;
+                    const key = line?.name || 'Unassigned';
+                    if (!map[key]) map[key] = { line: key, downtimeMs: 0, jobs: 0 };
+                    map[key].downtimeMs += (l.metrics?.downtimeMs || 0);
+                    map[key].jobs += 1;
+                });
+                return Object.values(map).sort((a, b) => b.downtimeMs - a.downtimeMs);
+            }, [filteredReportLogs, machineList, lines]);
+
+            // Generate and download a real .pdf of the current report (no print dialog).
+            const handleDownloadPDF = () => {
+                const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+                if (!jsPDFCtor) return alert("PDF library is still loading — please try again in a moment.");
+                const doc = new jsPDFCtor();
+
+                const periodLabel = reportType === 'custom' ? `${startDate} to ${endDate}` : `${reportType.toUpperCase()} (${startDate})`;
+                const shiftLabel = reportShift === 'all' ? 'All Shifts' : reportShift === 'shift1' ? 'Shift 1 (06:00-14:00)' : 'Shift 2 (14:00-22:00)';
+
+                doc.setFontSize(16);
+                doc.text(`${DEPT.TITLE} - Maintenance & Repair Log`, 14, 18);
+                doc.setFontSize(10);
+                doc.setTextColor(100);
+                doc.text(`Period: ${periodLabel}    Shift: ${shiftLabel}${reportMachine ? `    Machine: ${reportMachine}` : ''}`, 14, 25);
+                doc.text(`Total Jobs: ${reportStats.total}    Avg Response: ${reportStats.avgResponse}    Avg Repair: ${reportStats.avgRepair}${DEPT.SHOW_DOWNTIME ? `    Total Downtime: ${reportStats.totalDowntime}` : ''}`, 14, 31);
+
+                if (DEPT.SHOW_DOWNTIME) {
+                    doc.autoTable({
+                        startY: 37,
+                        head: [['Line', 'Breakdowns', 'Total Downtime']],
+                        body: lineDowntimeReport.map(r => [r.line, String(r.jobs), formatDuration(r.downtimeMs)]),
+                        styles: { fontSize: 8, cellPadding: 2 },
+                        headStyles: { fillColor: [220, 38, 38] }
+                    });
+                }
+
+                doc.autoTable({
+                    startY: DEPT.SHOW_DOWNTIME ? (doc.lastAutoTable?.finalY || 37) + 10 : 37,
+                    head: [['Date/Time', 'Machine', 'Mechanic', 'Resp.', 'Repair', 'Action / Notes']],
+                    body: filteredReportLogs.map(log => [
+                        new Date(log.timestamp).toLocaleString(),
+                        getMachineName(log.machineId),
+                        log.userName || log.userId || '-',
+                        formatDuration(log.metrics?.responseMs),
+                        log.repairTime || '-',
+                        `${log.action}: ${log.details || '-'}`
+                    ]),
+                    styles: { fontSize: 8, cellPadding: 2 },
+                    headStyles: { fillColor: [79, 70, 229] },
+                    columnStyles: { 5: { cellWidth: 60 } }
+                });
+
+                doc.save(`${DEPT.NAME}_report_${startDate}.pdf`);
+            };
+
+            // Export the same filtered rows as a CSV/Excel-friendly file for audits.
+            const handleDownloadCSV = () => {
+                if (filteredReportLogs.length === 0) return alert("No data to export for the selected filters.");
+                const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+                const header = ['Date', 'Time', 'Machine', 'Worker', 'Operator Verified', 'Response Time', 'Repair Time', ...(DEPT.SHOW_DOWNTIME ? ['Downtime'] : []), 'Action', 'Notes'];
+                const rows = filteredReportLogs.map(log => {
+                    const d = new Date(log.timestamp);
+                    return [
+                        d.toLocaleDateString(),
+                        d.toLocaleTimeString(),
+                        getMachineName(log.machineId),
+                        log.userName || log.userId || '-',
+                        log.operatorSignOff || '-',
+                        formatDuration(log.metrics?.responseMs),
+                        log.repairTime || '-',
+                        ...(DEPT.SHOW_DOWNTIME ? [formatDuration(log.metrics?.downtimeMs)] : []),
+                        log.action || '-',
+                        log.details || '-'
+                    ].map(esc).join(',');
+                });
+                const lineRows = DEPT.SHOW_DOWNTIME ? [
+                    [].map(esc).join(','),
+                    ['Downtime by Line', '', ''].map(esc).join(','),
+                    ['Line', 'Breakdowns', 'Total Downtime'].map(esc).join(','),
+                    ...lineDowntimeReport.map(r => [r.line, r.jobs, formatDuration(r.downtimeMs)].map(esc).join(','))
+                ] : [];
+                const csv = [header.map(esc).join(','), ...rows, ...lineRows].join('\r\n');
+                const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${DEPT.NAME}_report_${startDate}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const stats = useMemo(() => {
+                const fixes = deptLogs.filter(l => l.action === 'Fixed (Pending Review)' || l.action === 'PM Completed (Pending Review)');
+                const totalFixes = fixes.length;
+                // QCM-originated tickets (l.skipDowntime) are quality-flagged issues, not actual
+                // breakdowns — exclude them from downtime-based metrics so they don't dilute MTBF/MTTR.
+                const downtimeFixes = fixes.filter(l => !l.skipDowntime);
+                const totalDowntimeFixes = downtimeFixes.length;
+                const totalDowntime = downtimeFixes.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
+                const totalRepair = fixes.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
+                const totalResponse = fixes.reduce((acc, l) => acc + (l.metrics?.responseMs || 0), 0);
+
+                return {
+                    mtbf: totalDowntimeFixes ? (totalDowntime / totalDowntimeFixes / 3600000).toFixed(1) : "0.0",
+                    mtta: totalFixes ? (totalResponse / totalFixes / 60000).toFixed(0) : "0",
+                    mttrRepair: totalFixes ? (totalRepair / totalFixes / 60000).toFixed(0) : "0",
+                    mttrRecovery: totalDowntimeFixes ? (totalDowntime / totalDowntimeFixes / 60000).toFixed(0) : "0",
+                    repairs: totalFixes
+                };
+            }, [deptLogs]);
+
+            // Chart data for the analytics tab (pure-SVG/CSS bars, no external chart lib).
+            const chartData = useMemo(() => {
+                const fixes = deptLogs.filter(l => l.action === 'Fixed (Pending Review)' || l.action === 'PM Completed (Pending Review)');
+
+                // Jobs completed per worker (top 8)
+                const perWorker = {};
+                fixes.forEach(l => {
+                    const key = l.userName || l.userId || 'Unknown';
+                    perWorker[key] = (perWorker[key] || 0) + 1;
+                });
+                const workerBars = Object.entries(perWorker)
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 8);
+
+                // Jobs completed per day, last 7 days
+                const days = [];
+                for (let i = 6; i >= 0; i--) {
+                    const d = new Date();
+                    d.setHours(0, 0, 0, 0);
+                    d.setDate(d.getDate() - i);
+                    days.push({ key: d.toISOString().split('T')[0], label: d.toLocaleDateString(undefined, { weekday: 'short' }), count: 0 });
+                }
+                fixes.forEach(l => {
+                    if (!l.timestamp) return;
+                    const k = new Date(l.timestamp).toISOString().split('T')[0];
+                    const slot = days.find(x => x.key === k);
+                    if (slot) slot.count++;
+                });
+
+                // Live ticket status mix for this dept
+                const statusMix = { Pending: 0, 'In Progress': 0, 'Pending Admin Approval': 0 };
+                machineList.forEach(m => {
+                    if (m.department !== DEPT.NAME && !(DEPT.INCLUDE_PM && m.isPM)) return;
+                    if (statusMix[m.status] !== undefined) statusMix[m.status]++;
+                });
+
+                return { workerBars, days, dayMax: Math.max(1, ...days.map(d => d.count)), workerMax: Math.max(1, ...workerBars.map(w => w.count)), statusMix };
+            }, [deptLogs, machineList]);
+
+            if (!currentUser) {
+                return (
+                    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+                        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 border-t-8 border-emerald-600 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-10"><Wrench className="w-32 h-32" /></div>
+                            <div className="text-center mb-8 relative z-10">
+                                <div className="bg-emerald-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Lock className="w-8 h-8 text-emerald-600" />
+                                </div>
+                                <h1 className="text-2xl font-bold text-slate-800">{DEPT.TITLE}</h1>
+                                <p className="text-slate-500 font-medium">Authorized Personnel Only</p>
+                            </div>
+                            
+                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded mb-6 text-sm font-bold border border-red-200 text-center">{loginError}</div>}
+                            
+                            <form onSubmit={handleLogin} className="space-y-4 relative z-10">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Username / ID</label>
+                                    <input type="text" className="w-full p-3 border border-slate-300 rounded-lg bg-slate-50" placeholder="e.g. prasad.274" value={creds.username} onChange={e => setCreds({...creds, username: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Password</label>
+                                    <input type="password" className="w-full p-3 border border-slate-300 rounded-lg bg-slate-50" placeholder="••••••••" value={creds.password} onChange={e => setCreds({...creds, password: e.target.value})} />
+                                </div>
+                                <Button fullWidth size="lg" className="mt-4"><LogIn className="w-5 h-5"/> Secure Login</Button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex h-screen bg-slate-50 font-sans">
+                    <div className="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10 shrink-0 print:hidden">
+                        <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+                            <Wrench className="w-8 h-8 text-emerald-400" />
+                            <span className="text-xl font-bold tracking-tight">{DEPT.TITLE}</span>
+                        </div>
+                        
+                        <div className="p-6 bg-slate-800/50 mb-4 border-b border-slate-800 flex items-center gap-3">
+                            <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center font-bold text-lg text-white">
+                                {currentUser.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">{currentUser.mechanicType || currentUser.role}</p>
+                                <p className="font-bold text-sm tracking-wide truncate">{currentUser.name}</p>
+                                {currentUser.role !== 'admin' && (
+                                    <button
+                                        onClick={toggleMyStatus}
+                                        title="Tap to go on/off duty"
+                                        className={`mt-1 text-[10px] px-2 py-0.5 rounded-full font-bold border transition-colors ${currentUser.status === 'Available' ? 'bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600' : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'}`}
+                                    >
+                                        {currentUser.status === 'Available' ? '● On Duty' : '○ Off Duty'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <nav className="flex-1 px-4 space-y-2 overflow-y-auto pb-4">
+                            {currentUser.role !== 'admin' && (
+                                <button onClick={() => setActiveTab('my_tasks')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'my_tasks' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                    <ClipboardList className="w-5 h-5" /> My Tasks
+                                </button>
+                            )}
+                            {currentUser.role === 'admin' && (
+                                <button onClick={() => setActiveTab('tickets')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'tickets' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                    <AlertTriangle className="w-5 h-5" /> All Pending Tickets
+                                </button>
+                            )}
+                            <button onClick={() => setActiveTab('team_status')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'team_status' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <UserCheck className="w-5 h-5" /> Team Status
+                            </button>
+                            <button onClick={() => setActiveTab('analytics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'analytics' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <BarChart2 className="w-5 h-5" /> Reliability Analytics
+                            </button>
+                            <button onClick={() => setActiveTab('mechanic_downtime')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'mechanic_downtime' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <Timer className="w-5 h-5" /> {DEPT.SHOW_DOWNTIME ? 'Mechanic Downtime' : 'Worker Performance'}
+                            </button>
+                            <button onClick={() => setActiveTab('reports')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'reports' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <FileText className="w-5 h-5" /> Reporting & Export
+                            </button>
+                            {DEPT.INCLUDE_PM && (
+                            <button onClick={() => setActiveTab('pm_schedule')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'pm_schedule' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <Calendar className="w-5 h-5" /> PM Scheduler
+                            </button>
+                            )}
+                            {DEPT.INCLUDE_PM && (
+                            <button onClick={() => setActiveTab('service_cards')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'service_cards' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <ClipboardCheck className="w-5 h-5" /> Service Cards
+                                {(monthlyDueList.length + sixOverdueList.length + openServiceIssues.length) > 0 && <span className="ml-auto bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{monthlyDueList.length + sixOverdueList.length + openServiceIssues.length}</span>}
+                            </button>
+                            )}
+                            {DEPT.INCLUDE_PM && (
+                            <a href="factory_manager.html" target="_blank" className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-all no-underline">
+                                <LayoutDashboard className="w-5 h-5" /> Factory Manager
+                            </a>
+                            )}
+                            <button onClick={() => setActiveTab('parts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'parts' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <Package className="w-5 h-5" /> Part Approvals 
+                                {partRequests.filter(r => r.status==='Pending').length > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{partRequests.filter(r => r.status==='Pending').length}</span>}
+                            </button>
+                            <button onClick={() => setActiveTab('handover')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'handover' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <MessageSquare className="w-5 h-5" /> Shift Handover
+                            </button>
+                            <button onClick={() => setActiveTab('workers')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'workers' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                <Users className="w-5 h-5" /> Skill Matrix (Staff)
+                            </button>
+                        </nav>
+
+                        <div className="p-4 border-t border-slate-800 shrink-0">
+                            <button onClick={handleLogout} className="flex items-center gap-3 text-slate-400 hover:text-white transition-colors w-full px-4 py-2 text-sm font-medium">
+                                <LogOut className="w-4 h-4" /> Logout
+                            </button>
+                        </div>
+                    </div>
+
+                    {}
+                    <div className="flex-1 overflow-y-auto relative bg-slate-50 flex flex-col print:bg-white print:overflow-visible">
+                        <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shadow-sm shrink-0 print:hidden">
+                            <h2 className="font-bold text-slate-800 capitalize tracking-wide">{activeTab.replace('_', ' ')} Dashboard</h2>
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const found = machineList.find(m => m.id === healthSearch || m.name?.toLowerCase() === healthSearch.toLowerCase());
+                                if (found) setSelectedHealthMachine(found);
+                                else alert("Machine not found.");
+                            }} className="relative">
+                                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
+                                <input 
+                                    className="pl-9 pr-4 py-2 border border-slate-300 rounded-full text-sm w-72 bg-slate-50 focus:bg-white transition-all focus:ring-2 focus:ring-emerald-500 outline-none shadow-inner" 
+                                    placeholder="Search Machine Health Card (ID/Name)..." 
+                                    value={healthSearch} 
+                                    onChange={e=>setHealthSearch(e.target.value)} 
+                                />
+                            </form>
+                        </div>
+
+                        <div className="p-8 flex-1 print:p-0">
+
+                        {showScanner && <QRScanner onScan={handleScanVerify} onClose={() => setShowScanner(false)} title="Scan Machine to Start Repair" />}
+                        
+                        <Modal isOpen={!!selectedHealthMachine} onClose={() => setSelectedHealthMachine(null)} title="Machine Health Card">
+                            <div className="space-y-4">
+                                <div className="text-center mb-4">
+                                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-inner"><Factory className="w-8 h-8"/></div>
+                                    <h3 className="font-bold text-xl">{selectedHealthMachine?.name}</h3>
+                                    <p className="text-slate-500 font-mono text-sm bg-slate-100 inline-block px-2 py-1 rounded mt-1">ID: {selectedHealthMachine?.id}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm text-center">
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Total Breakdowns</div>
+                                        <div className="font-bold text-3xl text-emerald-600">{logs.filter(l => l.machineId === selectedHealthMachine?.id).length}</div>
+                                    </div>
+                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm text-center flex flex-col justify-center">
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase mb-2">Live Status</div>
+                                        <div><Badge status={selectedHealthMachine?.status} /></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-sm text-slate-700 mb-2 border-b pb-1">Repair History</h4>
+                                    <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
+                                        {logs.filter(l => l.machineId === selectedHealthMachine?.id).slice().reverse().map((log, i) => (
+                                            <div key={i} className="text-xs bg-white p-3 border border-slate-200 rounded-lg shadow-sm">
+                                                <div className="flex justify-between mb-1">
+                                                    <span className="text-slate-500 font-mono">{new Date(log.timestamp).toLocaleDateString()}</span>
+                                                    <span className="font-bold text-emerald-700">{log.action}</span>
+                                                </div>
+                                                <p className="text-slate-600 font-medium bg-slate-50 p-2 rounded mt-1">{log.details || "No technician remarks left."}</p>
+                                            </div>
+                                        ))}
+                                        {logs.filter(l => l.machineId === selectedHealthMachine?.id).length === 0 && <p className="text-slate-400 italic text-center py-4">No repair logs found.</p>}
+                                    </div>
+                                </div>
+                            </div>
+                        </Modal>
+
+                        <Modal isOpen={!!signOffTicket} onClose={() => setSignOffTicket(null)} title="Operator Sign-Off">
+                            <div className="space-y-4">
+                                <div className="bg-emerald-50 p-3 rounded text-sm text-emerald-800 border border-emerald-100">
+                                    Machine: <span className="font-bold">{signOffTicket?.name}</span> is repaired.
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Repair Remarks</label>
+                                    <textarea className="w-full p-2 border rounded-lg text-sm" placeholder="What was fixed?" value={signOffData.remarks} onChange={e => setSignOffData({...signOffData, remarks: e.target.value})}></textarea>
+                                </div>
+                                <div className="border-t pt-4">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operator Verification ID</label>
+                                    <input className="w-full p-2 border rounded-lg text-sm bg-yellow-50 focus:ring-yellow-400" placeholder="Operator ID (Required)" value={signOffData.operatorId} onChange={e => setSignOffData({...signOffData, operatorId: e.target.value})} />
+                                    <p className="text-[10px] text-slate-400 mt-1">Operator must enter ID to confirm the machine is running.</p>
+                                </div>
+                                <Button fullWidth variant="success" onClick={handleSignOffSubmit}>Submit for Admin Approval</Button>
+                            </div>
+                        </Modal>
+
+                        {/* RAISE TICKET MODAL — supervisor/admin creates a ticket directly */}
+                        <Modal isOpen={showRaiseTicket} onClose={() => setShowRaiseTicket(false)} title={`New ${DEPT.NAME} Ticket`}>
+                            <div className="space-y-4">
+                                <p className="text-xs text-slate-500 bg-emerald-50 border border-emerald-100 rounded-lg p-3">Writes directly to the {DEPT.NAME} queue — appears immediately. Use when a machine problem is spotted directly on the floor.</p>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Machine</label>
+                                    <select className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none" value={rtMachineId} onChange={e => setRtMachineId(e.target.value)}>
+                                        <option value="">-- Select machine --</option>
+                                        {machineList.map(m => <option key={m.id} value={m.id}>{machineLabel(m)}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Problem Description *</label>
+                                    <textarea className="w-full p-3 border border-slate-200 rounded-lg h-24 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Describe the issue clearly..." value={rtIssue} onChange={e => setRtIssue(e.target.value)}></textarea>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Priority</label>
+                                    <div className="flex gap-2">
+                                        {[['Low','bg-slate-600'],['Normal','bg-emerald-600'],['Critical','bg-red-600']].map(([p, col]) => (
+                                            <button key={p} onClick={() => setRtPriority(p)}
+                                                className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 transition-all ${rtPriority===p ? `${col} border-transparent text-white` : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                                {p}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <Button fullWidth variant="success" onClick={handleRaiseTicket}><PlusCircle className="w-4 h-4"/> Create Ticket</Button>
+                            </div>
+                        </Modal>
+
+                        {/* REPORTS TAB */}
+                        {activeTab === 'reports' && (
+                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
+                                <div className="flex justify-between items-center mb-6 print:hidden">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="text-emerald-600"/> Generate Reports</h2>
+                                        <p className="text-slate-500 text-sm mt-1">Export detailed logs for audits and meetings.</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Button size="lg" onClick={handleDownloadPDF}><FileText className="w-5 h-5"/> Download PDF</Button>
+                                        <Button size="lg" variant="success" onClick={handleDownloadCSV}><FileText className="w-5 h-5"/> Export CSV / Excel</Button>
+                                        <Button size="lg" variant="secondary" onClick={() => window.print()}><Printer className="w-5 h-5"/> Print</Button>
+                                    </div>
+                                </div>
+
+                                <Card className="p-6 mb-8 print:hidden">
+                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Time Period</label>
+                                            <select className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={reportType} onChange={e => setReportType(e.target.value)}>
+                                                <option value="daily">Daily</option>
+                                                <option value="weekly">Weekly (7 Days)</option>
+                                                <option value="monthly">Monthly</option>
+                                                <option value="custom">Custom Date Range</option>
+                                                <option value="all">All Time</option>
+                                            </select>
+                                        </div>
+                                        {reportType !== 'all' && (
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">{reportType === 'weekly' ? 'Week Of' : 'Start Date'}</label>
+                                            <input type={reportType === 'monthly' ? 'month' : 'date'} className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                                        </div>
+                                        )}
+                                        {reportType === 'custom' && (
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">End Date</label>
+                                                <input type="date" className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                                            </div>
+                                        )}
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Shift Filter</label>
+                                            <select className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={reportShift} onChange={e => setReportShift(e.target.value)}>
+                                                <option value="all">All Shifts</option>
+                                                <option value="shift1">Shift 1 (6 AM - 2 PM)</option>
+                                                <option value="shift2">Shift 2 (2 PM - 10 PM)</option>
+                                            </select>
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Machine Name / ID</label>
+                                            <input className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Leave blank for all machines..." value={reportMachine} onChange={e => setReportMachine(e.target.value)} />
+                                        </div>
+                                    </div>
+                                </Card>
+
+                                <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm print:shadow-none print:border-none print:p-0">
+                                    <div className="hidden print:block mb-8 text-center border-b-2 border-slate-800 pb-4">
+                                        <h1 className="text-3xl font-bold text-slate-900 uppercase tracking-wider mb-2">{DEPT.TITLE} - Maintenance & Repair Log</h1>
+                                        <div className="text-slate-600 flex justify-center gap-6 font-medium">
+                                            <span><strong>Period:</strong> {reportType.toUpperCase()} ({startDate} {reportType === 'custom' ? `to ${endDate}` : ''})</span>
+                                            <span><strong>Shift:</strong> {reportShift === 'all' ? 'All Shifts' : reportShift === 'shift1' ? 'Shift 1 (06:00-14:00)' : 'Shift 2 (14:00-22:00)'}</span>
+                                            {reportMachine && <span><strong>Target Machine:</strong> {reportMachine}</span>}
+                                        </div>
+                                    </div>
+
+                                    <div className={`grid ${DEPT.SHOW_DOWNTIME ? 'grid-cols-4' : 'grid-cols-3'} gap-4 mb-8`}>
+                                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-center print:bg-white print:border-slate-400">
+                                            <div className="text-xs text-slate-500 uppercase font-bold tracking-wide">Total Jobs</div>
+                                            <div className="text-2xl font-bold text-slate-800">{reportStats.total}</div>
+                                        </div>
+                                        <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 text-center print:bg-white print:border-slate-400">
+                                            <div className="text-xs text-orange-600 uppercase font-bold tracking-wide">Avg Response</div>
+                                            <div className="text-2xl font-bold text-orange-700">{reportStats.avgResponse}</div>
+                                        </div>
+                                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 text-center print:bg-white print:border-slate-400">
+                                            <div className="text-xs text-blue-600 uppercase font-bold tracking-wide">Avg Repair (Wrench)</div>
+                                            <div className="text-2xl font-bold text-blue-700">{reportStats.avgRepair}</div>
+                                        </div>
+                                        {DEPT.SHOW_DOWNTIME && (
+                                        <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-center print:bg-white print:border-slate-400">
+                                            <div className="text-xs text-red-600 uppercase font-bold tracking-wide">Total Downtime</div>
+                                            <div className="text-2xl font-bold text-red-700">{reportStats.totalDowntime}</div>
+                                        </div>
+                                        )}
+                                    </div>
+
+                                    {/* DOWNTIME BY LINE — this dept, for the period selected above */}
+                                    {DEPT.SHOW_DOWNTIME && (
+                                    <div className="mb-8 print-break-inside">
+                                        <h3 className="font-bold text-lg mb-3 flex items-center gap-2 text-slate-800"><MapPin className="w-5 h-5 text-red-600"/> Downtime by Line</h3>
+                                        <table className="w-full text-left text-sm border-collapse">
+                                            <thead className="bg-slate-100 border-y-2 border-slate-300 print:bg-white">
+                                                <tr>
+                                                    <th className="p-3 font-bold text-slate-700">Line</th>
+                                                    <th className="p-3 font-bold text-slate-700 text-center">Breakdowns</th>
+                                                    <th className="p-3 font-bold text-slate-700 text-right">Total Downtime</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200">
+                                                {lineDowntimeReport.map(r => (
+                                                    <tr key={r.line} className="hover:bg-slate-50">
+                                                        <td className="p-3 font-bold text-slate-800">{r.line}</td>
+                                                        <td className="p-3 text-center text-slate-600">{r.jobs}</td>
+                                                        <td className="p-3 text-right font-mono font-bold text-red-600">{formatDuration(r.downtimeMs)}</td>
+                                                    </tr>
+                                                ))}
+                                                {lineDowntimeReport.length === 0 && <tr><td colSpan={3} className="p-6 text-center text-slate-400">No downtime recorded for this period.</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    )}
+
+                                    <table className="w-full text-left text-sm border-collapse">
+                                        <thead className="bg-slate-100 border-y-2 border-slate-300 print:bg-white">
+                                            <tr>
+                                                <th className="p-3 font-bold text-slate-700">Date/Time</th>
+                                                <th className="p-3 font-bold text-slate-700">Machine</th>
+                                                <th className="p-3 font-bold text-slate-700">Worker</th>
+                                                <th className="p-3 font-bold text-slate-700 text-center">Resp. Time</th>
+                                                <th className="p-3 font-bold text-slate-700 text-center">Rep. Time</th>
+                                                <th className="p-3 font-bold text-slate-700">Action/Notes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-200">
+                                            {filteredReportLogs.map((log, i) => {
+                                                const logHour = new Date(log.timestamp).getHours();
+                                                const shiftTag = (logHour >= 6 && logHour < 14) ? "Shift 1" : (logHour >= 14 && logHour < 22) ? "Shift 2" : "Night";
+                                                
+                                                return (
+                                                    <tr key={i} className="hover:bg-slate-50 transition-colors print:border-b print:border-slate-300">
+                                                        <td className="p-3">
+                                                            <div className="font-medium text-slate-800">{new Date(log.timestamp).toLocaleDateString()}</div>
+                                                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">{new Date(log.timestamp).toLocaleTimeString()} ({shiftTag})</div>
+                                                        </td>
+                                                        <td className="p-3 font-bold text-emerald-700">{getMachineName(log.machineId)}</td>
+                                                        <td className="p-3 text-slate-700">{log.userName || log.userId}</td>
+                                                        <td className="p-3 text-center text-orange-600 font-mono">{formatDuration(log.metrics?.responseMs)}</td>
+                                                        <td className="p-3 text-center text-blue-600 font-mono">{log.repairTime || "-"}</td>
+                                                        <td className="p-3 text-slate-600">
+                                                            <span className="font-bold text-slate-800">{log.action}:</span> {log.details || "-"}
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                            {filteredReportLogs.length === 0 && (
+                                                <tr><td colSpan="6" className="p-8 text-center text-slate-400 italic">No repair logs match the selected filters.</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* MY TASKS TAB (Mechanic View) */}
+                        {activeTab === 'my_tasks' && (
+                            <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Wrench className="text-emerald-600"/> My Workbench</h2>
+                                    {isSupervisor && (
+                                        <Button size="sm" variant="success" onClick={() => setShowRaiseTicket(true)}>
+                                            <PlusCircle className="w-4 h-4"/> Raise Floor Ticket
+                                        </Button>
+                                    )}
+                                </div>
+                                
+                                {tickets.filter(t => t.assignedTo === currentUser.id && t.status === 'In Progress').map(t => (
+                                    <div key={t.id} className="bg-white p-6 rounded-xl border-t-4 border-t-yellow-400 shadow-lg mb-6">
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div>
+                                                <h3 className="font-bold text-xl text-slate-800">{t.name}</h3>
+                                                <p className="text-sm text-slate-500 font-mono">{t.ticketId}</p>
+                                                <p className="text-xs text-emerald-600 font-bold mt-1 flex items-center gap-1"><MapPin className="w-3 h-3"/> {resolveLocation(t)}</p>
+                                            </div>
+                                            <div className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded text-xs font-bold flex items-center gap-2 animate-pulse">
+                                                <Clock className="w-4 h-4"/> TIMER RUNNING
+                                            </div>
+                                        </div>
+                                        <p className="text-slate-700 bg-slate-50 p-3 rounded border border-slate-200 mb-4">{t.issue}</p>
+                                        <Button fullWidth variant="success" onClick={() => setSignOffTicket(t)}><CheckSquare className="w-5 h-5"/> Finish & Request Sign-Off</Button>
+                                    </div>
+                                ))}
+
+                                <h3 className="font-bold text-lg text-slate-700 mb-3 mt-8">Assigned To Me (Pending Start)</h3>
+                                <div className="space-y-4">
+                                    {tickets.filter(t => t.assignedTo === currentUser.id && t.status !== 'In Progress').map(t => (
+                                        <div key={t.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                                            <div>
+                                                <div className="font-bold text-lg text-slate-800">{t.name}</div>
+                                                <div className="text-sm text-red-600 font-medium mt-1">{t.issue}</div>
+                                                <div className="text-xs text-emerald-600 font-bold mt-1 flex items-center gap-1"><MapPin className="w-3 h-3"/> {resolveLocation(t)}</div>
+                                                <div className="text-xs text-slate-400 mt-1">Assigned: {new Date(t.assignedAt).toLocaleTimeString()}</div>
+                                            </div>
+                                            <Button onClick={() => { setScanTargetTicket(t); setShowScanner(true); }} className="bg-slate-800 text-white">
+                                                <ScanLine className="w-4 h-4"/> Scan Machine to Start
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <h3 className="font-bold text-lg text-slate-700 mb-3 mt-8">Unassigned Floor Issues</h3>
+                                <div className="space-y-3">
+                                    {tickets.filter(t => !t.assignedTo).map(t => (
+                                        <div key={t.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center gap-3">
+                                            <div>
+                                                <div className="font-bold text-slate-800">{t.name} <Badge status={t.priority}/>
+                                                    {t.source === 'QCM' && (
+                                                        <span className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">From QCM</span>
+                                                    )}
+                                                </div>
+                                                <div className="text-sm text-slate-600 mt-1">{t.issue}</div>
+                                                <div className="text-xs text-emerald-600 font-bold mt-1 flex items-center gap-1"><MapPin className="w-3 h-3"/> {resolveLocation(t)}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <select className="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white" defaultValue="" onChange={e => { const v = e.target.value; e.target.value = ""; handleTransferDept(t, v); }}>
+                                                    <option value="" disabled>Not ours? Send to...</option>
+                                                    {OTHER_DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
+                                                </select>
+                                                <Button variant="outline" size="sm" onClick={() => handleAssignToMe(t)}>Claim Job</Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TEAM STATUS TAB — this dept's own workers only (mechanicalWorkers is already scoped to DEPT.NAME) */}
+                        {activeTab === 'team_status' && (
+                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-2"><UserCheck className="text-emerald-600"/> Team Status</h2>
+                                <p className="text-slate-500 text-sm mb-6">Live status of every {DEPT.NAME} team member.</p>
+                                <div className="flex gap-4 overflow-x-auto pb-2">
+                                    {mechanicalWorkers.filter(w => w.role !== 'admin').map(tech => {
+                                        const taskCount = machineList.filter(m => m.assignedTo === tech.id && m.status !== 'Running').length;
+                                        const activePMs = machineList.filter(m => m.assignedTo === tech.id && m.isPM && m.status !== 'Running').length;
+                                        return (
+                                            <div key={tech.id} className="bg-white p-4 rounded-xl min-w-[160px] flex flex-col items-center border border-slate-200 shadow-sm">
+                                                <div className="font-bold text-sm text-slate-800">{tech.name}</div>
+                                                <div className="text-xs text-slate-400 mb-2">@{tech.username}</div>
+                                                <Badge status={tech.status || 'Offline'} />
+                                                <div className="text-[10px] mt-2 text-slate-500 w-full text-center">
+                                                    Tasks: {taskCount}
+                                                </div>
+                                                {DEPT.INCLUDE_PM && <div className="text-[9px] text-emerald-500">PM Goal: {activePMs}/5</div>}
+                                            </div>
+                                        );
+                                    })}
+                                    {mechanicalWorkers.filter(w => w.role !== 'admin').length === 0 && (
+                                        <div className="p-8 text-center text-slate-400 italic w-full">No {DEPT.NAME} team members yet.</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TICKETS TAB (Admin View) */}
+                        {activeTab === 'tickets' && (
+                            <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
+                                <div className="flex justify-between items-end mb-8">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Wrench className="text-emerald-600"/> {DEPT.NAME} Queue</h2>
+                                        <p className="text-slate-500 text-sm mt-1">Live breakdown tickets — from QR scans, QCM, or raised directly.</p>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        {isSupervisor && (
+                                            <Button size="sm" variant="success" onClick={() => setShowRaiseTicket(true)}>
+                                                <PlusCircle className="w-4 h-4"/> New Ticket
+                                            </Button>
+                                        )}
+                                        <div className="bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm font-bold text-emerald-700 flex items-center gap-2">
+                                            Pending: <span className="bg-emerald-100 px-2 py-0.5 rounded text-emerald-900">{filteredTickets.length}{filteredTickets.length !== tickets.length ? ` / ${tickets.length}` : ''}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* SEARCH + LINE/MODULE/YARD FILTER */}
+                                <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                                    <div className="relative flex-1">
+                                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
+                                        <input
+                                            className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                                            placeholder="Search machine name, ID, or issue..."
+                                            value={ticketSearch} onChange={e => setTicketSearch(e.target.value)}
+                                        />
+                                    </div>
+                                    <select className="border border-slate-200 rounded-lg text-sm bg-white px-3 py-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" value={ticketLocationFilter} onChange={e => setTicketLocationFilter(e.target.value)}>
+                                        <option value="">All Locations</option>
+                                        <option value="yard">Yard Only</option>
+                                        {Object.keys(modulesBySection).map(sId => (
+                                            <optgroup key={sId} label={sections.find(s => s.id === sId)?.name || 'Unknown Section'}>
+                                                {modulesBySection[sId].map(mod => <option key={mod.id} value={mod.id}>{mod.name}</option>)}
+                                            </optgroup>
+                                        ))}
+                                    </select>
+                                    {(ticketSearch || ticketLocationFilter) && (
+                                        <button onClick={() => { setTicketSearch(''); setTicketLocationFilter(''); }} className="text-xs font-bold text-slate-400 hover:text-slate-700 px-2">Clear</button>
+                                    )}
+                                </div>
+
+                                <div className="space-y-4">
+                                    {filteredTickets.length === 0 && (
+                                        <div className="text-center py-20 bg-white border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 flex flex-col items-center">
+                                            <CheckCircle className="w-12 h-12 mb-3 text-slate-300" />
+                                            <p className="font-medium">{tickets.length === 0 ? 'No mechanical issues reported.' : 'No tickets match your search/filter.'}</p>
+                                        </div>
+                                    )}
+                                    {filteredTickets.map(t => (
+                                        <div key={t.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center group hover:border-emerald-300 transition-colors">
+                                            <div>
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <span className="font-bold text-lg text-slate-800">{t.name}</span>
+                                                    {t.priority && <Badge status={t.priority} />}
+                                                    {t.source === 'QCM' && (
+                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">From QCM</span>
+                                                    )}
+                                                </div>
+                                                <div className="text-sm font-medium text-red-600 bg-red-50 inline-block px-3 py-1 rounded-md border border-red-100">{t.issue}</div>
+                                                <div className="text-xs text-slate-500 mt-3 flex items-center gap-2 font-bold">
+                                                    <MapPin className="w-3 h-3 text-emerald-500"/> {resolveLocation(t)}
+                                                </div>
+                                                <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+                                                    <Clock className="w-3 h-3"/> Reported: {new Date(t.reportedAt).toLocaleString()}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                {t.assignedTo ? (
+                                                    <div className="text-xs bg-emerald-50 text-emerald-700 font-bold px-3 py-1 rounded">Assigned: {allUsers.find(u => u.id === t.assignedTo)?.name || t.assignedTo}</div>
+                                                ) : (
+                                                    <span className="text-xs bg-slate-100 text-slate-500 font-bold px-3 py-1 rounded">Unassigned</span>
+                                                )}
+                                                <div className="text-xs mt-2 text-slate-500">{t.status}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ANALYTICS TAB */}
+                        {activeTab === 'analytics' && (
+                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-8 flex items-center gap-2"><BarChart2 className="text-emerald-600"/> Reliability Analytics</h2>
+                                
+                                <div className={`grid grid-cols-1 md:grid-cols-2 ${DEPT.SHOW_DOWNTIME ? 'lg:grid-cols-4' : 'lg:grid-cols-2'} gap-6 mb-8`}>
+                                    {DEPT.SHOW_DOWNTIME && <KPIBox title="MTBF (Reliability)" value={stats.mtbf} unit="h" color="emerald" />}
+                                    <KPIBox title="MTTA (Response)" value={stats.mtta} unit="m" color="orange" />
+                                    <KPIBox title="MTTR (Repair)" value={stats.mttrRepair} unit="m" color="blue" />
+                                    {DEPT.SHOW_DOWNTIME && <KPIBox title="MTTR (Recovery)" value={stats.mttrRecovery} unit="m" color="emerald" />}
+                                </div>
+
+                                {/* CHART ROW — pure CSS bars, no external library */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                                    {/* Jobs completed per day (last 7 days) */}
+                                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                        <h3 className="font-bold text-sm mb-6 flex items-center gap-2 text-slate-700 uppercase tracking-wide"><BarChart2 className="w-4 h-4 text-emerald-500"/> Jobs Completed — Last 7 Days</h3>
+                                        <div className="flex items-end justify-between gap-2 h-44">
+                                            {chartData.days.map((d, i) => (
+                                                <div key={i} className="flex-1 flex flex-col items-center justify-end h-full gap-2">
+                                                    <span className="text-xs font-bold text-slate-600">{d.count || ''}</span>
+                                                    <div className="w-full bg-emerald-500 rounded-t-md transition-all hover:bg-emerald-600" style={{ height: `${(d.count / chartData.dayMax) * 100}%`, minHeight: d.count ? '4px' : '0px' }}></div>
+                                                    <span className="text-[10px] text-slate-400 font-medium">{d.label}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Jobs per worker (top 8) */}
+                                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                        <h3 className="font-bold text-sm mb-6 flex items-center gap-2 text-slate-700 uppercase tracking-wide"><Users className="w-4 h-4 text-emerald-500"/> Jobs per Worker</h3>
+                                        {chartData.workerBars.length === 0 ? (
+                                            <p className="text-slate-400 italic text-sm py-8 text-center">No completed jobs yet.</p>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {chartData.workerBars.map((w, i) => (
+                                                    <div key={i} className="flex items-center gap-3">
+                                                        <span className="text-xs font-medium text-slate-600 w-24 truncate text-right" title={w.name}>{w.name}</span>
+                                                        <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                                                            <div className="bg-emerald-500 h-full rounded-full flex items-center justify-end pr-2 transition-all" style={{ width: `${(w.count / chartData.workerMax) * 100}%`, minWidth: '24px' }}>
+                                                                <span className="text-[10px] font-bold text-white">{w.count}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Live ticket status mix */}
+                                <div className="grid grid-cols-3 gap-4 mb-8">
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center"><div className="text-3xl font-bold text-red-600">{chartData.statusMix.Pending}</div><div className="text-[10px] uppercase font-bold text-slate-400 tracking-wide mt-1">Pending</div></div>
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center"><div className="text-3xl font-bold text-yellow-600">{chartData.statusMix['In Progress']}</div><div className="text-[10px] uppercase font-bold text-slate-400 tracking-wide mt-1">In Progress</div></div>
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center"><div className="text-3xl font-bold text-orange-600">{chartData.statusMix['Pending Admin Approval']}</div><div className="text-[10px] uppercase font-bold text-slate-400 tracking-wide mt-1">Awaiting Admin</div></div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><History className="w-5 h-5 text-slate-400"/> Recent Repair Logs</h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
+                                                <tr>
+                                                    <th className="p-4">Date</th>
+                                                    <th className="p-4">Machine</th>
+                                                    <th className="p-4">Action</th>
+                                                    <th className="p-4">Repair Time</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {deptLogs.slice().reverse().slice(0, 10).map((log, i) => (
+                                                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                        <td className="p-4 text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</td>
+                                                        <td className="p-4 font-bold text-slate-800">{getMachineName(log.machineId)}</td>
+                                                        <td className="p-4">
+                                                            <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{log.action}</span>
+                                                            <div className="text-[10px] text-slate-400 mt-1">Tech: {log.userName || log.userId}</div>
+                                                        </td>
+                                                        <td className="p-4 text-slate-600 font-medium">
+                                                            <div>Wrench: {log.repairTime || "-"}</div>
+                                                            {log.metrics?.responseMs && <div className="text-[10px] text-orange-500">Response: {formatDuration(log.metrics.responseMs)}</div>}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {logs.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-slate-400 italic">No repair logs found.</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* WORKER DOWNTIME / PERFORMANCE TAB */}
+                        {activeTab === 'mechanic_downtime' && (
+                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-8 flex items-center gap-2"><Timer className="text-emerald-600"/> {DEPT.NAME} Worker-Wise {DEPT.SHOW_DOWNTIME ? 'Downtime Details' : 'Performance Details'}</h2>
+
+                                <div className="bg-white rounded-xl shadow-sm border border-slate-300 overflow-hidden mb-8">
+                                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                        <h3 className="font-bold text-lg text-slate-800">{DEPT.SHOW_DOWNTIME ? 'Performance & Downtime Contribution' : 'Response & Repair Time Performance'}</h3>
+                                        <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-1 rounded">Live Data Sync</span>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-center text-sm border-collapse">
+                                            <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-bold tracking-wider border-b-2 border-slate-300">
+                                                <tr>
+                                                    <th className="p-3 border-r border-slate-200 text-center">Section</th>
+                                                    <th className="p-3 border-r border-slate-200 text-left">Worker Name</th>
+                                                    <th className="p-3 border-r border-slate-200 text-center">Line No</th>
+                                                    <th className="p-3 border-r border-slate-200">Role/Type</th>
+                                                    <th className="p-3 border-r border-slate-200">Total Jobs Completed</th>
+                                                    <th className={`p-3 text-orange-600 ${DEPT.SHOW_DOWNTIME ? 'border-r border-slate-200' : ''}`}>Total Response Time</th>
+                                                    <th className={`p-3 text-emerald-600 ${DEPT.SHOW_DOWNTIME ? 'border-r border-slate-200' : ''}`}>Total Repair Time (Wrench Time)</th>
+                                                    {DEPT.SHOW_DOWNTIME && <th className="p-3 text-red-600 font-bold">Total Downtime Contribution</th>}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200">
+                                                {(() => {
+                                                    const toHours = (ms) => (ms / (1000 * 60 * 60)).toFixed(2);
+                                                    const rows = mechanicalWorkers.filter(w => w.role !== 'admin').map(w => {
+                                                        const workerLogs = logs.filter(l => l.userId === w.id && (l.action === 'Fixed (Pending Review)' || l.action === 'PM Completed (Pending Review)'));
+                                                        const totalJobs = workerLogs.length;
+                                                        if (totalJobs === 0) return null;
+
+                                                        const totalResponseMs = workerLogs.reduce((acc, l) => acc + (l.metrics?.responseMs || 0), 0);
+                                                        const totalRepairMs = workerLogs.reduce((acc, l) => acc + (l.metrics?.repairMs || 0), 0);
+                                                        const totalDowntimeMs = workerLogs.reduce((acc, l) => acc + (l.metrics?.downtimeMs || 0), 0);
+
+                                                        return (
+                                                            <tr key={w.id} className="hover:bg-slate-50 transition-colors">
+                                                                <td className="p-3 border-r border-slate-200 font-bold text-slate-600 text-center">{w.section || "-"}</td>
+                                                                <td className="p-3 border-r border-slate-200 font-bold text-slate-800 text-left">{w.name}</td>
+                                                                <td className="p-3 border-r border-slate-200 font-bold text-slate-600 text-center">{w.assignedLines || "-"}</td>
+                                                                <td className="p-3 border-r border-slate-200 text-xs text-slate-500">{w.mechanicType || w.role}</td>
+
+                                                                <td className="p-3 border-r border-slate-200 font-bold">{totalJobs}</td>
+                                                                <td className={`p-3 text-orange-600 font-mono ${DEPT.SHOW_DOWNTIME ? 'border-r border-slate-200' : ''}`}>{toHours(totalResponseMs)}h</td>
+                                                                <td className={`p-3 text-emerald-600 font-mono ${DEPT.SHOW_DOWNTIME ? 'border-r border-slate-200' : ''}`}>{toHours(totalRepairMs)}h</td>
+                                                                {DEPT.SHOW_DOWNTIME && <td className="p-3 text-red-600 font-bold font-mono bg-red-50/30">{toHours(totalDowntimeMs)}h</td>}
+                                                            </tr>
+                                                        );
+                                                    }).filter(Boolean);
+
+                                                    if (rows.length === 0) {
+                                                        return <tr><td colSpan={DEPT.SHOW_DOWNTIME ? 8 : 7} className="p-8 text-slate-400 italic">No completed jobs yet for the {DEPT.NAME} team — this fills in once a worker closes their first ticket.</td></tr>;
+                                                    }
+                                                    return rows;
+                                                })()}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* SKILL MATRIX TAB */}
+                        {activeTab === 'workers' && (
+                            <div className="max-w-[1400px] mx-auto animate-in fade-in duration-300">
+                                <div className="flex justify-between items-center mb-8">
+                                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Users className="text-emerald-600"/> Machine Wise Mechanic Skill Percentage</h2>
+                                </div>
+                                
+                                {/* SKILL MATRIX PIVOT TABLE */}
+                                <div className="bg-white rounded-xl shadow-sm border border-slate-300 overflow-hidden mb-8 relative">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-center text-sm border-collapse min-w-max">
+                                            <thead className="bg-slate-100 text-slate-800 uppercase text-[11px] font-bold tracking-wider border-b-2 border-slate-300">
+                                                <tr>
+                                                    <th className="p-3 border-r-2 border-slate-300 sticky-col font-bold">Machine type</th>
+                                                    {mechanicalWorkers.map(w => (
+                                                        <th key={w.id} className="p-3 border-r border-slate-200 writing-vertical" style={{ minWidth: '100px' }}>
+                                                            <div className="flex justify-between items-center w-full group">
+                                                                <span className="truncate" title={w.name}>{w.name}</span>
+                                                                <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <button onClick={() => handleEditWorker(w)} className="text-blue-400 hover:text-blue-600 mx-1" title="Edit Mechanic"><Edit className="w-3 h-3"/></button>
+                                                                    <button onClick={() => handleDeleteWorker(w.id)} className="text-red-400 hover:text-red-600" title="Delete Mechanic"><Trash2 className="w-3 h-3"/></button>
+                                                                </div>
+                                                            </div>
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200">
+                                                {MACHINE_TYPES.map(type => (
+                                                    <tr key={type} className="hover:bg-slate-50 transition-colors">
+                                                        <td className="p-3 font-bold text-slate-700 bg-slate-50 sticky-col text-left border-r-2 border-slate-300 shadow-[1px_0_5px_rgba(0,0,0,0.05)]">{type}</td>
+                                                        {mechanicalWorkers.map(w => (
+                                                            <td key={`${w.id}-${type}`} className="p-3 border-r border-slate-200 font-medium">
+                                                                {w.skills?.[type] || 0}%
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                                {/* AVERAGE ROW */}
+                                                <tr className="bg-slate-100 border-t-2 border-slate-300 font-bold">
+                                                    <td className="p-3 text-slate-800 sticky-col text-left border-r-2 border-slate-300">Average</td>
+                                                    {mechanicalWorkers.map(w => (
+                                                        <td key={`${w.id}-avg`} className="p-3 border-r border-slate-200 text-emerald-700">
+                                                            {calculateAverage(w.skills)}%
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {mechanicalWorkers.length === 0 && (
+                                        <div className="p-8 text-center text-slate-500 italic border-t border-slate-200">
+                                            No mechanics found. Add staff below to build the skill matrix.
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ADD/EDIT MECHANIC FORM */}
+                                <div id="worker-form-section" className="bg-white rounded-xl shadow-sm border border-slate-300 p-6">
+                                    <h3 className="font-bold text-lg mb-6 flex items-center gap-2 border-b pb-4">
+                                        {editingWorkerId ? <Edit className="w-5 h-5 text-blue-600"/> : <PlusCircle className="w-5 h-5 text-emerald-600"/>} 
+                                        {editingWorkerId ? "Edit Mechanic Profile" : "Onboard New Mechanic"}
+                                    </h3>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                        {/* Basic Info */}
+                                        <div className="space-y-4">
+                                            <h4 className="text-sm font-bold text-slate-700 uppercase">Basic Info</h4>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Full Name</label>
+                                                    <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all" placeholder="e.g. Prasad" value={newWorker.name} onChange={e => setNewWorker({...newWorker, name: e.target.value})} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">ID Number</label>
+                                                    <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all" placeholder="e.g. EMP-1234" value={newWorker.idNumber} onChange={e => setNewWorker({...newWorker, idNumber: e.target.value})} />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Type</label>
+                                                    <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" value={newWorker.mechanicType} onChange={e => setNewWorker({...newWorker, mechanicType: e.target.value})}>
+                                                        <option>Jr Mechanic</option>
+                                                        <option>Sr Mechanic</option>
+                                                        <option>Supervisor</option>
+                                                        <option>Mechanical Admin</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Section</label>
+                                                    <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" value={newWorker.section} onChange={e => setNewWorker({...newWorker, section: e.target.value})}>
+                                                        <option value="Section A">Section A</option>
+                                                        <option value="Section B">Section B</option>
+                                                        <option value="Both">Both (A & B)</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Shift</label>
+                                                    <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" value={newWorker.shift} onChange={e => setNewWorker({...newWorker, shift: e.target.value})}>
+                                                        <option value="Shift 1">Shift 1 (6 AM - 2 PM)</option>
+                                                        <option value="Shift 2">Shift 2 (2 PM - 10 PM)</option>
+                                                        <option value="Both">Both / General Shift</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Assigned Line(s)</label>
+                                                <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="e.g. Line 1, 2" value={newWorker.assignedLines} onChange={e => setNewWorker({...newWorker, assignedLines: e.target.value})} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Login ID / Username</label>
+                                                <input className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all" placeholder="e.g. prasad-274" value={newWorker.username} onChange={e => setNewWorker({...newWorker, username: e.target.value})} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Password</label>
+                                                <input type="password" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all" placeholder="••••••••" value={newWorker.password} onChange={e => setNewWorker({...newWorker, password: e.target.value})} />
+                                            </div>
+                                        </div>
+
+                                        {/* Skill Percentages */}
+                                        <div className="md:col-span-2">
+                                            <h4 className="text-sm font-bold text-slate-700 uppercase mb-4 flex justify-between items-center">
+                                                Machine Skill Profile (%)
+                                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-bold">Avg: {calculateAverage(newWorker.skills)}%</span>
+                                            </h4>
+                                            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                                {MACHINE_TYPES.map(type => (
+                                                    <div key={type}>
+                                                        <label className="block text-xs font-bold text-slate-500 tracking-wide mb-1">{type}</label>
+                                                        <div className="relative">
+                                                            <input 
+                                                                type="number" 
+                                                                min="0" max="100"
+                                                                className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all pr-8 font-bold text-emerald-700" 
+                                                                value={newWorker.skills[type]} 
+                                                                onChange={e => handleSkillChange(type, e.target.value)} 
+                                                            />
+                                                            <span className="absolute right-3 top-2.5 text-slate-400 font-bold">%</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="mt-6 flex justify-end gap-3">
+                                                {editingWorkerId && (
+                                                    <Button size="lg" variant="secondary" onClick={() => {
+                                                        setEditingWorkerId(null);
+                                                        setNewWorker({ 
+                                                            name: "", username: "", password: "", department: DEPT.NAME, role: "technician", status: "Offline",
+                                                            mechanicType: "Jr Mechanic", section: "Section A", assignedLines: "", idNumber: "", shift: "Shift 1",
+                                                            skills: { Flatlock: 0, Zigzag: 0, Flatseam: 0, "Single needle": 0, Overlock: 0, Bartack: 0 }
+                                                        });
+                                                    }}>Cancel Edit</Button>
+                                                )}
+                                                <Button size="lg" onClick={handleSaveWorker} className="px-8">
+                                                    <CheckCircle className="w-5 h-5"/> 
+                                                    {editingWorkerId ? "Update Mechanic" : "Save Mechanic to Matrix"}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* PM SCHEDULER TAB */}
+                        {DEPT.INCLUDE_PM && activeTab === 'pm_schedule' && (
+                            <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Calendar className="text-emerald-600"/> Preventive Maintenance Scheduler</h2>
+                                <Card className="p-6">
+                                    <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl mb-6 flex items-start gap-3">
+                                        <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
+                                        <p className="text-sm">Machines are recommended for preventive service every 30 days. Clicking "Trigger PM" generates an AI-routed ticket for the mechanical team to inspect and oil the machine before a critical failure occurs.</p>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {machineList.slice(0,20).map(m => (
+                                            <div key={m.id} className="flex justify-between items-center p-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-emerald-300 transition-colors">
+                                                <div>
+                                                    <div className="font-bold text-slate-800 text-lg">{m.name}</div>
+                                                    <div className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                                                        <Clock className="w-3 h-3"/> Last Serviced: <span className="font-bold text-slate-700">{m.lastMaintenance ? new Date(m.lastMaintenance).toLocaleDateString() : 'Never'}</span>
+                                                    </div>
+                                                </div>
+                                                <Button size="sm" variant="outline" onClick={() => {
+                                                    update(ref(db, `machines/${m.id}`), {
+                                                        issue: "Scheduled Preventive Maintenance",
+                                                        priority: "Normal",
+                                                        status: "Pending",
+                                                        department: DEPT.NAME,
+                                                        reportedAt: new Date().toISOString(),
+                                                        ticketId: `#PM-${Math.floor(1000 + Math.random() * 9000)}`,
+                                                        isPM: true
+                                                    });
+                                                    alert(`PM Ticket created for ${m.name}`);
+                                                }}>Trigger PM</Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </Card>
+                            </div>
+                        )}
+
+                        {/* SERVICE CARDS TAB — digital Monthly + 6-Month maintenance cards */}
+                        {DEPT.INCLUDE_PM && activeTab === 'service_cards' && (
+                            <div className="max-w-6xl mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><ClipboardCheck className="text-emerald-600"/> Machine Service Cards</h2>
+
+                                {/* Summary: how many machines are due/overdue */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                    <Card className="p-5 border-l-4 border-l-orange-500">
+                                        <div className="text-xs font-bold text-slate-400 uppercase">Monthly Check Due ({thisPeriod})</div>
+                                        <div className="text-3xl font-bold text-orange-600 mt-1">{monthlyDueList.length}</div>
+                                        <div className="text-xs text-slate-500 mt-1">of {machineList.length} machines</div>
+                                    </Card>
+                                    <Card className="p-5 border-l-4 border-l-red-500">
+                                        <div className="text-xs font-bold text-slate-400 uppercase">6-Month Service Overdue</div>
+                                        <div className="text-3xl font-bold text-red-600 mt-1">{sixOverdueList.length}</div>
+                                        <div className="text-xs text-slate-500 mt-1">past 6-month interval</div>
+                                    </Card>
+                                    <Card className="p-5 border-l-4 border-l-emerald-500">
+                                        <div className="text-xs font-bold text-slate-400 uppercase">Service Records Logged</div>
+                                        <div className="text-3xl font-bold text-emerald-600 mt-1">{serviceRecords.length}</div>
+                                        <div className="text-xs text-slate-500 mt-1">all time</div>
+                                    </Card>
+                                </div>
+
+                                {/* RE-CHECK REQUESTS — workers asking to redo an already-done service */}
+                                {pendingServiceRequests.length > 0 && (
+                                    <Card className="p-5 mb-6 border-l-4 border-l-amber-500 bg-amber-50/40">
+                                        <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-amber-600"/> Re-check Requests ({pendingServiceRequests.length})</h3>
+                                        <div className="space-y-2">
+                                            {pendingServiceRequests.map(r => (
+                                                <div key={r.id} className="flex items-center justify-between bg-white border border-amber-200 rounded-lg px-4 py-2.5">
+                                                    <div className="text-sm">
+                                                        <span className="font-bold text-slate-800">{r.machineName || getMachineName(r.machineId)}</span>
+                                                        <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">{r.serviceType === 'monthly' ? 'Monthly' : '6-Month'}</span>
+                                                        <span className="text-slate-400 text-xs ml-2">by {r.requestedByName} · {new Date(r.createdAt).toLocaleDateString()}</span>
+                                                    </div>
+                                                    {isSupervisor ? (
+                                                        <div className="flex gap-2">
+                                                            <Button size="sm" variant="success" onClick={() => approveServiceRequest(r.id)}>Approve</Button>
+                                                            <Button size="sm" variant="danger" onClick={() => rejectServiceRequest(r.id)}>Reject</Button>
+                                                        </div>
+                                                    ) : <span className="text-xs text-slate-400">Awaiting supervisor</span>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Card>
+                                )}
+
+                                {/* SERVICE ISSUES — raised automatically when a Monthly/6-Month checklist
+                                    item is ticked "issue". Stay open until closed with a comment. */}
+                                {openServiceIssues.length > 0 && (
+                                    <Card className="p-5 mb-6 border-l-4 border-l-red-500 bg-red-50/40">
+                                        <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-600"/> Open Service Issues ({openServiceIssues.length})</h3>
+                                        <div className="space-y-2">
+                                            {openServiceIssues.map(iss => (
+                                                <div key={iss.id} className="flex items-center justify-between bg-white border border-red-200 rounded-lg px-4 py-2.5 gap-3">
+                                                    <div className="text-sm min-w-0">
+                                                        <span className="font-bold text-slate-800">{iss.machineModel ? `${iss.machineModel} · SN ${iss.machineSerial}` : (iss.machineName || iss.machineId)}</span>
+                                                        <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700">{iss.item}</span>
+                                                        <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">{iss.serviceType === 'monthly' ? 'Monthly' : '6-Month'}</span>
+                                                        {iss.note && <div className="text-slate-700 text-xs mt-1 italic">"{iss.note}"</div>}
+                                                        <div className="text-slate-400 text-xs mt-0.5">Raised by {iss.raisedByName} · {new Date(iss.raisedAt).toLocaleDateString()}</div>
+                                                    </div>
+                                                    {(isSupervisor || currentUser.role === 'admin') ? (
+                                                        <div className="flex gap-2 shrink-0">
+                                                            <Button size="sm" variant="outline" onClick={() => handleCreateWorkOrder(iss)}>Work Order</Button>
+                                                            <Button size="sm" variant="success" onClick={() => { setClosingIssue(iss); setCloseComment(""); }}>Close</Button>
+                                                        </div>
+                                                    ) : <span className="text-xs text-slate-400 shrink-0">Awaiting supervisor</span>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Card>
+                                )}
+
+                                {/* PDF EXPORT — by machine + date range (or current year) */}
+                                <Card className="p-4 mb-6">
+                                    <div className="flex flex-wrap items-end gap-3">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Machine</label>
+                                            <select value={pdfMachine} onChange={e => setPdfMachine(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white min-w-[160px]">
+                                                <option value="all">All Machines</option>
+                                                {machineList.map(m => <option key={m.id} value={m.id}>{machineLabel(m)}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">From</label>
+                                            <input type="date" value={pdfFrom} onChange={e => setPdfFrom(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white"/>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">To</label>
+                                            <input type="date" value={pdfTo} onChange={e => setPdfTo(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white"/>
+                                        </div>
+                                        <button onClick={exportServicePDF} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2"><FileText className="w-4 h-4"/> Download PDF</button>
+                                        {(pdfFrom || pdfTo || pdfMachine !== 'all') && <button onClick={() => { setPdfMachine('all'); setPdfFrom(''); setPdfTo(''); }} className="text-sm text-slate-500 hover:text-slate-800 font-medium">Reset</button>}
+                                        <span className="text-xs text-slate-400 ml-auto">Leave dates empty to export the whole history.</span>
+                                    </div>
+                                </Card>
+
+                                {/* View toggle */}
+                                <div className="flex items-center gap-2 mb-4">
+                                    <button onClick={() => setServiceTypeView('monthly')} className={`px-4 py-2 rounded-lg text-sm font-bold ${serviceTypeView==='monthly' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 border'}`}>Monthly Grid</button>
+                                    <button onClick={() => setServiceTypeView('sixmonth')} className={`px-4 py-2 rounded-lg text-sm font-bold ${serviceTypeView==='sixmonth' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 border'}`}>6-Month Service</button>
+                                    {serviceTypeView==='monthly' && (
+                                        <div className="ml-auto flex items-center gap-2">
+                                            <button onClick={() => setServiceYear(y => y-1)} className="px-3 py-1.5 rounded bg-white border text-slate-600 font-bold">‹</button>
+                                            <span className="font-bold text-slate-700">{serviceYear}</span>
+                                            <button onClick={() => setServiceYear(y => y+1)} className="px-3 py-1.5 rounded bg-white border text-slate-600 font-bold">›</button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* MONTHLY GRID — like the physical Jan-Dec card */}
+                                {serviceTypeView === 'monthly' && (
+                                    <Card className="p-0 overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-slate-100 text-slate-600">
+                                                <tr>
+                                                    <th className="p-3 text-left sticky left-0 bg-slate-100 z-10">Machine</th>
+                                                    {MONTHS.map(mo => <th key={mo} className="p-2 text-center w-12">{mo}</th>)}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {machineList.map(m => {
+                                                    const recs = (recordsByMachine[m.id] || []).filter(r => r.serviceType === 'monthly' && r.year === serviceYear);
+                                                    const doneMonths = new Set(recs.map(r => r.month));
+                                                    const issueMonths = new Set(recs.filter(r => (r.issuesFound||[]).length > 0).map(r => r.month));
+                                                    return (
+                                                        <tr key={m.id} className="hover:bg-slate-50">
+                                                            <td className="p-3 font-bold text-slate-800 sticky left-0 bg-white z-10 whitespace-nowrap cursor-pointer hover:text-emerald-600" onClick={() => setOpenServiceMachine(m.id)}>{machineLabel(m)}</td>
+                                                            {MONTHS.map((mo, i) => {
+                                                                const mn = i+1;
+                                                                const done = doneMonths.has(mn);
+                                                                const issue = issueMonths.has(mn);
+                                                                return <td key={mo} className="p-2 text-center">
+                                                                    {done ? <span className={issue ? 'text-red-600 font-bold' : 'text-emerald-600 font-bold'} title={issue ? 'Serviced — issues found' : 'Serviced'}>{issue ? '⚠' : '✓'}</span> : <span className="text-slate-200">·</span>}
+                                                                </td>;
+                                                            })}
+                                                        </tr>
+                                                    );
+                                                })}
+                                                {machineList.length === 0 && <tr><td colSpan={13} className="p-8 text-center text-slate-400">No machines.</td></tr>}
+                                            </tbody>
+                                        </table>
+                                        <div className="p-3 text-xs text-slate-400 flex gap-4 border-t"><span><span className="text-emerald-600 font-bold">✓</span> serviced</span><span><span className="text-red-600 font-bold">⚠</span> serviced, issue found</span><span><span className="text-slate-300">·</span> not done</span></div>
+                                    </Card>
+                                )}
+
+                                {/* 6-MONTH SERVICE — status list */}
+                                {serviceTypeView === 'sixmonth' && (
+                                    <Card className="p-0 overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-slate-100 text-slate-600">
+                                                <tr>
+                                                    <th className="p-3 text-left">Machine</th>
+                                                    <th className="p-3 text-left">Last 6-Month Service</th>
+                                                    <th className="p-3 text-left">Next Due</th>
+                                                    <th className="p-3 text-center">Status</th>
+                                                    <th className="p-3 text-center">Card</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {serviceStatus.map(m => (
+                                                    <tr key={m.id} className="hover:bg-slate-50">
+                                                        <td className="p-3 font-bold text-slate-800">{machineLabel(m)}</td>
+                                                        <td className="p-3 text-slate-600">{m.lastSixMonthServiceAt ? new Date(m.lastSixMonthServiceAt).toLocaleDateString() : <span className="text-slate-400">Never</span>}</td>
+                                                        <td className="p-3 text-slate-600">{m.nextSixMonthDue || '—'}</td>
+                                                        <td className="p-3 text-center">
+                                                            {m.sixOverdue
+                                                                ? <span className="px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-700">OVERDUE</span>
+                                                                : <span className="px-2 py-1 rounded text-xs font-bold bg-emerald-100 text-emerald-700">OK</span>}
+                                                        </td>
+                                                        <td className="p-3 text-center">
+                                                            <button onClick={() => setOpenServiceMachine(m.id)} className="text-emerald-600 font-bold text-xs hover:underline">View</button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {serviceStatus.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400">No machines.</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </Card>
+                                )}
+                            </div>
+                        )}
+
+                        {/* CLOSE SERVICE ISSUE — requires a resolution comment (e.g. "Changed/Repaired - ...") */}
+                        {closingIssue && (
+                            <div className="fixed inset-0 bg-black/60 z-[90] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setClosingIssue(null)}>
+                                <Card className="w-full max-w-md p-0" onClick={e => e.stopPropagation()}>
+                                    <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+                                        <h3 className="font-bold flex items-center gap-2"><CheckCircle className="w-5 h-5 text-emerald-400"/> Close Issue</h3>
+                                        <button onClick={() => setClosingIssue(null)}><X className="w-5 h-5"/></button>
+                                    </div>
+                                    <div className="p-5 space-y-3">
+                                        <div className="text-sm bg-slate-50 border border-slate-200 rounded-lg p-3">
+                                            <span className="font-bold text-slate-800">{closingIssue.machineModel ? `${closingIssue.machineModel} · SN ${closingIssue.machineSerial}` : (closingIssue.machineName || closingIssue.machineId)}</span>
+                                            <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700">{closingIssue.item}</span>
+                                            {closingIssue.note && <div className="text-slate-600 mt-1 italic">"{closingIssue.note}"</div>}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Resolution Comment *</label>
+                                            <textarea autoFocus className="w-full p-3 border rounded-lg h-24 text-sm" placeholder="e.g. Changed / Repaired - replaced worn screw" value={closeComment} onChange={e => setCloseComment(e.target.value)}></textarea>
+                                        </div>
+                                        <Button fullWidth variant="success" onClick={closeServiceIssue}><CheckCircle className="w-5 h-5"/> Mark as Closed</Button>
+                                    </div>
+                                </Card>
+                            </div>
+                        )}
+
+                        {/* SERVICE CARD DRILL-DOWN MODAL — the ticked items of recent services */}
+                        {openServiceMachine && (() => {
+                            const recs = (recordsByMachine[openServiceMachine] || []).slice().sort((a,b) => new Date(b.date) - new Date(a.date));
+                            const m = machineList.find(x => x.id === openServiceMachine);
+                            const latest = recs[0];
+                            return (
+                                <div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setOpenServiceMachine(null)}>
+                                    <Card className="w-full max-w-lg max-h-[85vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+                                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center sticky top-0">
+                                            <h3 className="font-bold flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-emerald-400"/> {m ? machineLabel(m) : openServiceMachine} — Service History</h3>
+                                            <button onClick={() => setOpenServiceMachine(null)}><X className="w-5 h-5"/></button>
+                                        </div>
+                                        <div className="p-5">
+                                            <div className="grid grid-cols-2 gap-2 text-sm bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+                                                <div><span className="text-slate-400 text-xs uppercase font-bold block">Model</span><span className="font-mono font-bold text-slate-700">{(latest && latest.machineModel) || m?.model || m?.type || '—'}</span></div>
+                                                <div><span className="text-slate-400 text-xs uppercase font-bold block">Serial No.</span><span className="font-mono font-bold text-slate-700">{(latest && latest.machineSerial) || m?.serial || m?.id || '—'}</span></div>
+                                            </div>
+                                            {!latest ? <p className="text-slate-400 text-center py-8">No service records yet for this machine.</p> : (
+                                                <>
+                                                    <div className="mb-4">
+                                                        <div className="text-xs text-slate-400 uppercase font-bold mb-2">Latest: {latest.serviceType === 'monthly' ? 'Monthly' : '6-Month'} · {new Date(latest.date).toLocaleDateString()} · by {latest.performedByName}</div>
+                                                        <div className="grid grid-cols-2 gap-1.5">
+                                                            {/* items is an array of {name,state} (item names can contain "/" so they can't be object keys); tolerate the old object shape too */}
+                                                            {(Array.isArray(latest.items) ? latest.items.map(x => [x.name, x.state]) : Object.entries(latest.items || {})).map(([item, val]) => (
+                                                                <div key={item} className="flex items-center justify-between text-xs bg-slate-50 rounded px-2 py-1.5 border">
+                                                                    <span className="text-slate-700">{item}</span>
+                                                                    <span className={`font-bold ${val==='ok'?'text-emerald-600':val==='issue'?'text-red-600':'text-slate-400'}`}>{val==='ok'?'✓':val==='issue'?'✗':'—'}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {latest.remarks && <div className="mt-3 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800"><b>Remarks:</b> {latest.remarks}</div>}
+                                                    </div>
+                                                    <div className="border-t pt-3">
+                                                        <div className="text-xs text-slate-400 uppercase font-bold mb-2">All Records ({recs.length})</div>
+                                                        <div className="space-y-1.5">
+                                                            {recs.map(r => (
+                                                                <div key={r.id} className="flex justify-between items-center text-xs bg-white border rounded px-3 py-2">
+                                                                    <span className="font-medium text-slate-700">{r.serviceType==='monthly'?'Monthly':'6-Month'} · {new Date(r.date).toLocaleDateString()}</span>
+                                                                    <span className="text-slate-500">{r.performedByName}</span>
+                                                                    {(r.issuesFound||[]).length > 0
+                                                                        ? <span className="px-2 py-0.5 rounded bg-red-100 text-red-700 font-bold">{r.issuesFound.length} issue</span>
+                                                                        : <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">Clean</span>}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </Card>
+                                </div>
+                            );
+                        })()}
+
+                        {/* PARTS APPROVAL TAB */}
+                        {activeTab === 'parts' && (
+                            <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Package className="text-emerald-600"/> Spare Parts Requisition</h2>
+                                <Card className="p-6">
+                                    {partRequests.length === 0 ? (
+                                        <div className="text-center py-12 text-slate-400 border-2 border-dashed rounded-xl">
+                                            <Package className="w-12 h-12 mx-auto mb-3 opacity-50"/>
+                                            <p>No pending part requests from the floor.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {partRequests.filter(r => r.status === 'Pending').map(req => (
+                                                <div key={req.id} className="flex justify-between items-center p-5 bg-orange-50 border-l-4 border-l-orange-500 border border-orange-200 rounded-xl shadow-sm">
+                                                    <div>
+                                                        <div className="font-bold text-orange-900 text-xl">{req.partName}</div>
+                                                        <div className="text-sm text-orange-800 mt-1">Requested by: <span className="font-bold">{req.techName}</span></div>
+                                                        <div className="text-xs bg-white border border-orange-100 inline-block px-2 py-1 rounded text-orange-600 mt-2 font-mono">Machine: {getMachineName(req.machineId)}</div>
+                                                    </div>
+                                                    <div className="flex flex-col gap-2">
+                                                        <Button size="md" variant="success" onClick={() => update(ref(db, `partRequests/${req.id}`), { status: 'Approved' })}><Check className="w-4 h-4"/> Approve Request</Button>
+                                                        <Button size="sm" variant="danger" className="bg-white" onClick={() => remove(ref(db, `partRequests/${req.id}`))}>Reject</Button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            
+                                            {partRequests.filter(r => r.status === 'Approved').length > 0 && (
+                                                <>
+                                                    <h3 className="font-bold text-sm text-slate-400 uppercase mt-8 mb-2 border-b pb-2">Recently Approved</h3>
+                                                    <div className="space-y-2">
+                                                        {partRequests.filter(r => r.status === 'Approved').map(req => (
+                                                            <div key={req.id} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-200 rounded-lg opacity-75">
+                                                                <div>
+                                                                    <span className="font-bold text-slate-700">{req.partName}</span>
+                                                                    <span className="text-xs text-slate-500 ml-2">({req.techName})</span>
+                                                                </div>
+                                                                <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-bold uppercase tracking-wide">Approved</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </Card>
+                            </div>
+                        )}
+
+                        {/* SHIFT HANDOVER TAB */}
+                        {activeTab === 'handover' && (
+                            <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><MessageSquare className="text-emerald-600"/> Shift Handover Log</h2>
+                                <Card className="p-6 mb-8 bg-gradient-to-r from-emerald-50 to-blue-50 border-emerald-100 shadow-inner">
+                                    <h3 className="font-bold text-emerald-900 mb-3">Leave a note for the incoming shift manager</h3>
+                                    <textarea 
+                                        className="w-full p-4 border border-emerald-200 rounded-xl bg-white h-28 mb-4 focus:ring-2 focus:ring-emerald-500 outline-none resize-none shadow-sm text-sm" 
+                                        placeholder="e.g., Machine 42 is waiting for a motor from stores. Leave it offline until A-Shift arrives." 
+                                        value={newShiftNote} 
+                                        onChange={e => setNewShiftNote(e.target.value)}>
+                                    </textarea>
+                                    <div className="flex justify-end">
+                                        <Button size="lg" onClick={() => {
+                                            if(!newShiftNote) return;
+                                            push(ref(db, 'shiftNotes'), {
+                                                author: currentUser.name,
+                                                note: newShiftNote,
+                                                timestamp: new Date().toISOString()
+                                            });
+                                            setNewShiftNote("");
+                                        }}><CheckCircle className="w-5 h-5"/> Post Handover Note</Button>
+                                    </div>
+                                </Card>
+                                <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
+                                    {shiftNotes.slice().reverse().map((note, idx) => (
+                                        <div key={note.id} className={`relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active`}>
+                                            <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white bg-slate-200 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                                                <MessageSquare className="w-4 h-4" />
+                                            </div>
+                                            <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                                <div className="flex justify-between items-center mb-2 border-b border-slate-100 pb-2">
+                                                    <span className="font-bold text-slate-800 text-sm">{note.author}</span>
+                                                    <span className="text-xs text-slate-400 font-mono bg-slate-50 px-2 py-0.5 rounded">{new Date(note.timestamp).toLocaleString()}</span>
+                                                </div>
+                                                <p className="text-slate-600 text-sm whitespace-pre-wrap">{note.note}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {shiftNotes.length === 0 && <p className="text-center text-slate-400 italic mt-8 relative z-10 bg-slate-50 py-2 w-48 mx-auto rounded-full">No handover notes logged.</p>}
+                                </div>
+                            </div>
+                        )}
+
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<MaintenanceDashboard />);
+    </script>
+</body>
+</html>
