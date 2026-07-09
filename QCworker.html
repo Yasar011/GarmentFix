@@ -86,6 +86,10 @@
     onValue(ref(db,'machineRosters'),s=>{WS.machineRosters=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];});
     onValue(ref(db,'settings/rotation'),s=>{WS.rotation=s.exists()?s.val():null;if(WS.step&&!['login','loading'].includes(WS.step))renderW();});
     onValue(ref(db,'settings/factory'),s=>{WS.factory=s.exists()?s.val():null;});
+    // Shift handover notes — a quick one-line note a QC leaves for whoever picks up the same
+    // module next, replacing the paper hand-off. Loaded for all roles; the Handover screen
+    // filters to the currently scanned module.
+    onValue(ref(db,'shiftHandoverNotes'),s=>{WS.handoverNotes=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];if(WS.step==='handover')renderW();});
     // 3rd Party Quality Checking master switch — while OFF, no new audit data is captured.
     onValue(ref(db,'settings/thirdParty'),s=>{WS.thirdParty=s.exists()?s.val():null;if(WS.step&&(WS.step+'').startsWith('tp_'))renderW();});
     onValue(ref(db,'thirdPartyAudits'),s=>{
@@ -155,10 +159,52 @@
     }
   };
 
-  window.fbAdd=async(path,data)=>{const r=push(ref(db,path));await set(r,{...data,createdAt:new Date().toISOString()});return r.key;};
-  window.fbAddAlert=async(data)=>{const r=push(ref(db,'alerts'));await set(r,{...data,createdAt:new Date().toISOString()});};
+  // ---- Offline queue: factory wifi drops mid-shift, and a lost submission is worse than a
+  // slow one. fbAdd is the single choke-point every submit function already calls through, so
+  // wrapping it here covers End Line / Roving / 3rd Party / urgent-alert writes without having
+  // to touch each individual submit function. Queued items live in localStorage (survives a
+  // tab reload/crash while offline) and get replayed in order once connectivity returns. ----
+  const OFFLINE_KEY='gfix_offline_queue';
+  function offlineQueueGet(){try{return JSON.parse(localStorage.getItem(OFFLINE_KEY)||'[]');}catch(e){return [];}}
+  function offlineQueueSet(q){try{localStorage.setItem(OFFLINE_KEY,JSON.stringify(q));}catch(e){}}
+  window.offlineQueueCount=function(){return offlineQueueGet().length;};
+  const _fbAddReal=async(path,data)=>{const r=push(ref(db,path));await set(r,{...data,createdAt:new Date().toISOString()});return r.key;};
+  function queueOffline(path,data){
+    const id='OFFLINE-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
+    const q=offlineQueueGet();
+    q.push({id,path,data,queuedAt:new Date().toISOString()});
+    offlineQueueSet(q);
+    toast('⚠ Offline — saved on this phone, will sync automatically','error');
+    if(typeof renderW==='function'&&WS.step&&WS.step!=='loading'&&WS.step!=='login')renderW();
+    return id;
+  }
+  window.fbAdd=async(path,data)=>{
+    if(navigator.onLine===false)return queueOffline(path,data);
+    try{return await _fbAddReal(path,data);}
+    catch(e){return queueOffline(path,data);} // flaky connection reported itself as "online" but the write still failed
+  };
+  window.flushOfflineQueue=async function(){
+    const q=offlineQueueGet();
+    if(!q.length)return;
+    const remaining=[];
+    for(const item of q){
+      try{await _fbAddReal(item.path,item.data);}
+      catch(e){remaining.push(item);}
+    }
+    offlineQueueSet(remaining);
+    if(remaining.length===0&&q.length>0)toast('✅ '+q.length+' offline entr'+(q.length===1?'y':'ies')+' synced','success');
+    if(typeof renderW==='function'&&WS.step&&WS.step!=='loading'&&WS.step!=='login')renderW();
+  };
+  window.addEventListener('online',()=>window.flushOfflineQueue());
+  setInterval(()=>window.flushOfflineQueue(),30000); // fallback in case the 'online' event doesn't fire reliably on this device
+  // fbAddAlert now routes through fbAdd so an urgent report made while offline is queued and
+  // synced the same way as regular inspection submissions, instead of being silently lost.
+  window.fbAddAlert=async(data)=>{await window.fbAdd('alerts',data);};
   window.fbSet=async(path,data)=>{await set(ref(db,path),{...data,updatedAt:new Date().toISOString()});};
   window.fbGet=async(path)=>{const s=await get(ref(db,path));return s.exists()?s.val():null;};
+  // Anything queued from a previous session (app closed/crashed while offline) gets a sync
+  // attempt right away, as soon as Firebase is initialized on this boot.
+  window.flushOfflineQueue();
 
   // On boot: try to restore a saved session (keeps operators logged in across a
   // mobile tab reload / Chrome discard). Otherwise fall through to the login screen.
@@ -184,7 +230,12 @@ button{cursor:pointer;border:none;outline:none}
 .page{min-height:100vh;display:flex;flex-direction:column}
 .header{padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
 .logo-sm{width:32px;height:32px;background:#ececec;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:12px;overflow:hidden}
-.body{flex:1;padding:16px;overflow-y:auto;max-width:540px;margin:0 auto;width:100%}
+.body{flex:1;padding:16px 16px 100px 16px;overflow-y:auto;max-width:540px;margin:0 auto;width:100%}
+.bottom-nav{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;background:rgba(20,20,26,.94);border-radius:32px;padding:8px 10px;box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:50;backdrop-filter:blur(6px)}
+.bn-btn{width:46px;height:46px;border-radius:50%;background:transparent;display:flex;align-items:center;justify-content:center;font-size:20px;color:#cfcfd6;transition:background .15s}
+.bn-btn.active{background:rgba(255,255,255,.14);color:#fff}
+.bn-btn.bn-urgent{background:var(--red);color:#fff;font-size:22px}
+.bn-btn.bn-urgent.active{background:#b23a3a}
 .login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .login-card{width:100%;max-width:380px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px 24px}
 .form-group{margin-bottom:16px}
@@ -299,6 +350,8 @@ window.WS = {
   scannedModule:null, modules:[], styles:[], operations:[], defects:[],
   machines:[], machineRosters:[], myInspections:[], myRovingInspections:[],
   myMachine:null,
+  handoverNotes:[], handoverDraft:'', _sessionStartAt:new Date().toISOString(),
+  urgentType:'', urgentNote:'',
   // Check round state
   checkRound:1, checkMachineIdx:0, checkRoundData:[], checkRoundResults:[],
   _currentCheckMachine:null,
@@ -395,7 +448,7 @@ function restoreSession(){
     if(s.draft){BX_DRAFT_FIELDS.forEach(k=>{if(s.draft[k]!==undefined)WS[k]=s.draft[k];});}
     // Land on the role's home screen — it shows the preserved tally / roster / round
     // so the operator continues, without restoring a half-filled single-machine form.
-    WS.step=isSupervisor()?'sup_home':!WS.scannedModule?'scan':isLineHead()?'lh_scan':isEndline()?'endline_home':isRoving()?'roving_home':isThirdParty()?'tp_home':'check_home';
+    WS.step=homeStepFor();
     if(isEndline())window.startHourlyReminder();
     return true;
   }catch(e){return false;}
@@ -410,7 +463,9 @@ window.renderW = function(){
     return;
   }
   if(WS.step==='login'||!WS.user){app.innerHTML=renderLogin();bindLogin();return;}
-  app.innerHTML='<div class="page">'+renderHeader()+'<div class="body fade-in">'+renderStep()+'</div></div>';
+  const offlineCount=window.offlineQueueCount?window.offlineQueueCount():0;
+  const offlineBanner=offlineCount>0?'<div style="background:rgba(212,168,0,.12);border:1px solid rgba(212,168,0,.4);color:var(--yellow);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;text-align:center">⏳ '+offlineCount+' entr'+(offlineCount===1?'y':'ies')+' saved on this phone — will send automatically once you\'re back online</div>':'';
+  app.innerHTML='<div class="page">'+renderHeader()+'<div class="body fade-in">'+offlineBanner+renderStep()+'</div>'+renderBottomNav()+'</div>';
   bindStep();
   startQRIfNeeded();
   saveSession();
@@ -456,6 +511,10 @@ function renderStep(){
   if(s==='sup_home')        return renderSupHome();
   if(s==='verify_amms_ticket') return renderVerifyAmmsTicket();
   // Shared
+  if(s==='handover')        return renderHandover();
+  if(s==='menu')            return renderMenu();
+  if(s==='urgent')          return renderUrgent();
+  if(s==='my_issues')       return renderMyIssues();
   if(s==='my_report')       return renderMyReport();
   if(s==='roster_manual')   return renderRosterManual();
   if(s==='dashboard')       return renderDash();
@@ -473,7 +532,6 @@ function renderHeader(){
     +'<div style="font-size:10px;color:'+roleColor+'">'+roleLabel+(WS.scannedModule?' • '+WS.scannedModule.name:'')+'</div></div>'
     +'</div>'
     +'<div style="display:flex;gap:6px">'
-    +(WS.step!=='dashboard'&&WS.step!=='scan'?'<button class="btn-sm" onclick="WS.step=\'dashboard\';renderW()">📊</button>':'')
     +'<button class="btn-sm" onclick="doLogout()">Logout</button>'
     +'</div></div>';
 }
@@ -1137,12 +1195,7 @@ function renderCheckHome(){
        +'<button class="btn-big btn-primary" style="margin:0" onclick="openManualRoster()">➕ Set Up Machines Manually</button>'
        +'</div>')
     +'<button class="btn-big btn-primary" onclick="startCheckRound('+nextRound+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
-    +'▶ Start Check '+nextRound+'</button>'
-    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Machine Roster</button>'
-    +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
-    +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+    +'▶ Start Check '+nextRound+'</button>';
 }
 
 window.startCheckRound=async function(roundNum){
@@ -1483,12 +1536,7 @@ function renderEndlineHome(){
     +'<button class="btn-big btn-primary" onclick="elGoAddDefect()"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'➕ Add Defect</button>'
     +'<button class="btn-big" onclick="WS.step=\'endline_hour_end\';WS.elCheckedQty=0;WS._elHourRework=0;renderW()" style="background:var(--yellow);color:#000;'+(totDef===0?'opacity:.45;cursor:not-allowed':'')+'">⏰ End Hour — Enter Pieces Checked</button>'
-    +'<button class="btn-big" onclick="WS._elReworkInput=0;WS.step=\'endline_shift_end\';renderW()" style="background:var(--accent);color:#000">🏁 End Shift — Rework Pieces</button>'
-    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⚙️ '+(noMachines?'Set Up':'Edit')+' Roster</button>'
-    +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
-    +'<button class="btn-big btn-ghost" onclick="openAddMissed(\'endline\')">⏪ Add a Missed Hour</button>'
-    +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+    +'<button class="btn-big" onclick="WS._elReworkInput=0;WS.step=\'endline_shift_end\';renderW()" style="background:var(--accent);color:#000">🏁 End Shift — Rework Pieces</button>';
 }
 
 // ---- Add Defect screen (operator + code + qty) ----
@@ -1901,8 +1949,7 @@ function renderTpHome(){
     +'</div>'
     +histSection
     +'<button class="btn-big btn-primary" onclick="tpGoAddDefect()">➕ Add Defect</button>'
-    +'<button class="btn-big" onclick="tpGoRoundEnd()" style="background:var(--yellow);color:#000'+(!thirdPartyOn()?';opacity:.45;cursor:not-allowed':'')+'"'+(!thirdPartyOn()?' disabled':'')+'>⏰ End Round — Enter Pieces &amp; Submit</button>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+    +'<button class="btn-big" onclick="tpGoRoundEnd()" style="background:var(--yellow);color:#000'+(!thirdPartyOn()?';opacity:.45;cursor:not-allowed':'')+'"'+(!thirdPartyOn()?' disabled':'')+'>⏰ End Round — Enter Pieces &amp; Submit</button>';
 }
 
 function renderTpAddDefect(){
@@ -2244,14 +2291,7 @@ function renderRovingHome(){
       :'')
     +'<button class="btn-big btn-primary" onclick="startRovingRound('+nextVisit+')"'+(noMachines?' disabled style="opacity:.4"':'')+'>'
     +'▶ Start Visit '+nextVisit+'</button>'
-    +renderCapNavButton()
-    +'<button class="btn-big btn-ghost" onclick="openMyRecords()">✏️ My Records / Request Edit</button>'
-    +'<button class="btn-big btn-ghost" onclick="openAddMissed(\'roving\')">⏪ Add a Missed Visit</button>'
-    +'<button class="btn-big btn-ghost" onclick="openMyReport()">📊 Line Report</button>'
-    +'<button class="btn-big btn-ghost" onclick="openRosterSetup()">📷 '+(noMachines?'Set Up':'Edit')+' Roster (scan)</button>'
-    +'<button class="btn-big btn-ghost" onclick="openManualRoster()">⌨️ Edit Roster Manually</button>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'scan\';WS.scannedModule=null;renderW()">🔄 Change Module</button>'
-    +'<button class="btn-big btn-ghost" onclick="WS.step=\'dashboard\';renderW()">📊 Dashboard</button>';
+    +renderCapNavButton();
 }
 
 function renderCapNavButton(){
@@ -3803,6 +3843,201 @@ window.goStartCheck=function(){
   else WS.step='scan';
   renderW();
 };
+
+// ==================== BOTTOM NAV — one consistent, always-reachable nav bar ====================
+// Mirrors the role→home mapping already used by restoreSession()/goStartCheck(), so "Home"
+// always lands wherever the rest of the app already considers "home" for this role.
+function homeStepFor(){
+  if(isSupervisor())return 'sup_home';
+  if(!WS.scannedModule)return 'scan';
+  if(isLineHead())return 'lh_scan';
+  if(isEndline())return 'endline_home';
+  if(isRoving())return 'roving_home';
+  if(isThirdParty())return 'tp_home';
+  return 'check_home';
+}
+window.bnGoHome=function(){WS.step=homeStepFor();renderW();};
+window.bnGoHandover=function(){WS.step='handover';renderW();};
+window.bnGoUrgent=function(){WS.step='urgent';renderW();};
+window.bnGoStats=function(){WS.step='dashboard';renderW();};
+window.bnGoMenu=function(){WS.step='menu';renderW();};
+function renderBottomNav(){
+  const s=WS.step;
+  const homeGroup=['scan','verify','lh_scan','lh_fill','lh_roster','lh_done','check_home','check_scan_pick','check_form','check_end','endline_home','endline_add_defect','endline_hour_end','endline_shift_end','roving_home','roving_scan_pick','roving_form','roving_end','roving_update','tp_home','tp_add_defect','tp_round_end','sup_home'];
+  const isActive=(names)=>names.includes(s);
+  const btn=(id,icon,onclick,active,extraClass)=>`<button class="bn-btn${active?' active':''}${extraClass?' '+extraClass:''}" onclick="${onclick}" aria-label="${id}">${icon}</button>`;
+  return `<div class="bottom-nav">
+    ${btn('Home','🏠','bnGoHome()',isActive(homeGroup))}
+    ${btn('Handover','📋','bnGoHandover()',isActive(['handover']))}
+    ${btn('Urgent','🚨','bnGoUrgent()',isActive(['urgent','my_issues']),'bn-urgent')}
+    ${btn('Stats','📊','bnGoStats()',isActive(['dashboard']))}
+    ${btn('Menu','👤','bnGoMenu()',isActive(['menu','my_records','edit_record','add_missed','my_report','roster_manual']))}
+  </div>`;
+}
+// ==================== MENU — "More" screen consolidating the secondary/utility actions that
+// used to be a stack of ghost buttons on every home screen (Roster setup, My Records, Add a
+// Missed Hour/Visit, Line Report). Content is role-aware, matching exactly what each role's
+// home screen used to offer, just relocated behind the Menu icon instead of cluttering Home. ====
+function renderMenu(){
+  const home=homeStepFor();
+  const rows=[];
+  if(home==='endline_home'){
+    const noMachines=getModuleMachines(WS.elShift).length===0;
+    rows.push(['⚙️',(noMachines?'Set Up':'Edit')+' Roster',"openManualRoster()"]);
+    rows.push(['✏️','My Records / Request Edit',"openMyRecords()"]);
+    rows.push(['⏪','Add a Missed Hour',"openAddMissed('endline')"]);
+    rows.push(['📊','Line Report',"openMyReport()"]);
+  } else if(home==='roving_home'){
+    const noMachines=getModuleMachines(recordShift()).length===0;
+    rows.push(['📷',(noMachines?'Set Up':'Edit')+' Roster (scan)',"openRosterSetup()"]);
+    rows.push(['⌨️','Edit Roster Manually',"openManualRoster()"]);
+    rows.push(['✏️','My Records / Request Edit',"openMyRecords()"]);
+    rows.push(['⏪','Add a Missed Visit',"openAddMissed('roving')"]);
+    rows.push(['📊','Line Report',"openMyReport()"]);
+    rows.push(['🔄','Change Module',"WS.step='scan';WS.scannedModule=null;renderW()"]);
+  } else if(home==='check_home'){
+    const noMachines=getModuleMachines().length===0;
+    rows.push(['⚙️',(noMachines?'Set Up':'Edit')+' Machine Roster',"openManualRoster()"]);
+    rows.push(['✏️','My Records / Request Edit',"openMyRecords()"]);
+    rows.push(['📊','Line Report',"openMyReport()"]);
+    rows.push(['🔄','Change Module',"WS.step='scan';WS.scannedModule=null;renderW()"]);
+  }
+  return '<div style="margin-bottom:16px"><div style="font-size:18px;font-weight:600">👤 Menu</div><div style="font-size:12px;color:var(--text3)">Roster, records, reports and other less-frequent actions</div></div>'
+    +(rows.length===0
+      ?'<div class="card" style="text-align:center;padding:24px;color:var(--text3)">Nothing extra here for this role — Dashboard and Handover are on the bottom bar.</div>'
+      :rows.map(([icon,label,action])=>'<button class="btn-big btn-ghost" onclick="'+action+'">'+icon+' '+label+'</button>').join(''))
+    +'<button class="btn-big btn-ghost" style="margin-top:14px" onclick="WS.step=\''+home+'\';renderW()">← Back</button>';
+}
+
+// ==================== SHIFT HANDOVER NOTES ====================
+// Replaces the paper hand-off: a QC leaves a short note for whoever picks up this same module
+// next (any role, any shift) — visible the moment the next person opens the Handover screen.
+window.saveHandoverNote=async function(){
+  const m=WS.scannedModule;
+  if(!m){toast('Scan a module first','error');return;}
+  const ta=document.getElementById('handover-note-input');
+  const note=(ta?.value||'').trim();
+  if(!note){toast('Write a note first','error');return;}
+  const btn=document.getElementById('handover-save-btn');
+  if(btn){btn.disabled=true;btn.textContent='Saving...';}
+  try{
+    await window.fbAdd('shiftHandoverNotes',{
+      module:m.name||'',date:workDate(),shift:WS.elShift||activeShift(),
+      note,submittedBy:WS.user?.username||'',submittedByName:WS.user?.name||''
+    });
+    if(ta)ta.value='';
+    toast('Note left for next shift ✓','success');
+    renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+  if(btn){btn.disabled=false;btn.textContent='📋 Leave Note for Next Shift';}
+};
+function renderHandover(){
+  const m=WS.scannedModule;
+  const back=homeStepFor();
+  if(!m){
+    return '<div class="card" style="text-align:center;padding:32px"><div style="font-size:32px;margin-bottom:10px">📋</div><div style="color:var(--text2);margin-bottom:16px">Scan a module first to view or leave handover notes.</div>'
+      +'<button class="btn-big btn-ghost" onclick="WS.step=\''+back+'\';renderW()">← Back</button></div>';
+  }
+  const notes=(WS.handoverNotes||[]).filter(n=>n.module===m.name).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,8);
+  return '<div class="card card-accent" style="margin-bottom:14px">'
+    +'<div style="font-size:18px;font-weight:700">📋 Shift Handover — '+(m.name||'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:2px">Leave a note for whoever picks up this module next, or check what the last shift left you.</div></div>'
+    +'<div class="card" style="margin-bottom:14px">'
+    +'<div class="form-label">Leave a Note</div>'
+    +'<textarea id="handover-note-input" class="form-input" rows="3" placeholder="e.g. Machine 3 has recurring skip stitch, keep an eye on it..."></textarea>'
+    +'<button id="handover-save-btn" class="btn-big btn-primary" style="margin-top:10px" onclick="saveHandoverNote()">📋 Leave Note for Next Shift</button>'
+    +'</div>'
+    +'<div style="font-size:13px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em;font-weight:500">Recent Notes — This Module</div>'
+    +(notes.length===0?'<div class="card" style="text-align:center;padding:24px;color:var(--text3)">No handover notes yet for this module</div>'
+      :notes.map(n=>{
+        const isNew=n.createdAt&&WS._sessionStartAt&&n.createdAt>WS._sessionStartAt&&n.submittedBy!==WS.user?.username;
+        return '<div class="sub-item" style="align-items:flex-start'+(isNew?';border-left:3px solid var(--accent)':'')+'">'
+          +'<div><div style="font-size:13px;line-height:1.5">'+n.note+'</div>'
+          +'<div style="font-size:11px;color:var(--text3);margin-top:4px">'+(n.submittedByName||n.submittedBy||'Unknown')+' • Team '+(n.shift||'—')+' • '+(n.date||'')+(isNew?' <span style="color:var(--accent);font-weight:600">NEW</span>':'')+'</div></div>'
+          +'</div>';
+      }).join(''))
+    +'<button class="btn-big btn-ghost" style="margin-top:14px" onclick="WS.step=\''+back+'\';renderW()">← Back</button>';
+}
+
+// ==================== ONE-TAP URGENT ISSUE FLAG ====================
+// Separate from normal defect logging — for a machine breakdown, safety issue, or anything
+// that needs a supervisor's attention NOW. Writes straight into the same Firebase `alerts`
+// collection the admin's Alerts page + notification bell already read, so no admin-side work
+// was needed to make this visible.
+window.selectUrgentType=function(t){WS.urgentType=t;renderW();};
+window.submitUrgent=async function(){
+  const m=WS.scannedModule;
+  if(!WS.urgentType){toast('Pick what kind of issue this is','error');return;}
+  const ta=document.getElementById('urgent-note-input');
+  const note=(ta?.value||'').trim();
+  const btn=document.getElementById('urgent-submit-btn');
+  if(btn){btn.disabled=true;btn.textContent='Sending...';}
+  try{
+    await window.fbAddAlert({
+      title:'🚨 '+WS.urgentType+' — '+(m?.name||'Unknown module'),
+      message:note||'(no additional details given)',
+      level:'critical',module:m?.name||'',read:false,
+      createdBy:WS.user?.username||'',createdByName:WS.user?.name||''
+    });
+    toast('Reported — a supervisor has been alerted ✓','success');
+    WS.urgentType='';WS.urgentNote='';
+    WS.step=homeStepFor();renderW();
+  }catch(e){toast('Failed: '+e.message,'error');}
+  if(btn){btn.disabled=false;btn.textContent='🚨 Send Urgent Report';}
+};
+function renderUrgent(){
+  const types=[{v:'Machine Down',d:'Equipment stopped or broken'},{v:'Safety Issue',d:'Anything unsafe on the floor'},{v:'Quality Emergency',d:'Serious defect spike, needs attention now'},{v:'Other',d:'Anything else urgent'}];
+  return '<div class="card" style="background:rgba(224,85,85,.08);border:2px solid var(--red);margin-bottom:14px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
+    +'<div><div style="font-size:18px;font-weight:700;color:var(--red)">🚨 Report Urgent Issue</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-top:2px">This alerts a supervisor immediately — separate from normal defect logging.</div></div>'
+    +'<button class="btn-sm" style="flex-shrink:0" onclick="openMyIssues()">📋 My Reports</button>'
+    +'</div></div>'
+    +'<div class="card" style="margin-bottom:14px">'
+    +'<div class="form-label">What kind of issue?</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    +types.map(t=>'<button type="button" style="padding:14px 10px;border-radius:10px;cursor:pointer;border:2px solid '+(WS.urgentType===t.v?'var(--red)':'var(--border)')+';background:'+(WS.urgentType===t.v?'rgba(224,85,85,.15)':'var(--bg3)')+';color:'+(WS.urgentType===t.v?'var(--red)':'var(--text)')+';text-align:left;font-family:var(--font)" onclick="selectUrgentType(\''+t.v+'\')"><div style="font-weight:700;font-size:13px">'+t.v+'</div><div style="font-size:10px;color:var(--text3);margin-top:2px">'+t.d+'</div></button>').join('')
+    +'</div></div>'
+    +'<div class="card" style="margin-bottom:14px">'
+    +'<div class="form-label">Details (optional)</div>'
+    +'<textarea id="urgent-note-input" class="form-input" rows="3" placeholder="What\'s happening?"></textarea>'
+    +'</div>'
+    +'<button id="urgent-submit-btn" class="btn-big" style="background:var(--red);color:#fff" onclick="submitUrgent()" '+(WS.urgentType?'':'disabled')+'>🚨 Send Urgent Report</button>'
+    +'<button class="btn-big btn-ghost" style="margin-top:8px" onclick="WS.urgentType=\'\';WS.step=\''+homeStepFor()+'\';renderW()">← Cancel</button>';
+}
+
+// ==================== MY REPORTED ISSUES — history of this worker's own urgent flags ====================
+// Fetched on demand (same pattern as openMyReport) rather than kept as a live subscription,
+// since it's only needed when this specific screen is open. Filtering by createdBy===own
+// username naturally excludes the auto-generated alerts (createdBy:'qc-auto'/'roving-auto'/
+// '3rdparty-auto') — those aren't "reported by me", they're system-detected.
+window.openMyIssues=async function(){
+  WS._issuesBack=WS.step;
+  WS.step='my_issues';WS._issuesLoading=true;renderW();
+  try{
+    const s=await window._get(window._ref(window._db,'alerts'));
+    const all=s.exists()?Object.entries(s.val()).map(([k,v])=>({fbKey:k,...v})):[];
+    WS._myIssues=all.filter(a=>a.createdBy===WS.user?.username).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  }catch(e){WS._myIssues=[];toast('Failed to load: '+e.message,'error');}
+  WS._issuesLoading=false;renderW();
+};
+function renderMyIssues(){
+  const back=WS._issuesBack||homeStepFor();
+  if(WS._issuesLoading)
+    return '<div class="card" style="text-align:center;padding:40px"><div class="spinner" style="width:32px;height:32px;margin:0 auto 14px"></div><div style="color:var(--text2)">Loading your reports…</div></div>';
+  const issues=WS._myIssues||[];
+  const levelColor={critical:'var(--red)',high:'var(--red)',medium:'var(--yellow)',low:'var(--green)'};
+  return '<div style="margin-bottom:16px"><div style="font-size:18px;font-weight:600">📋 My Reported Issues</div><div style="font-size:12px;color:var(--text3)">Everything you\'ve sent via 🚨 Report Urgent Issue</div></div>'
+    +(issues.length===0
+      ?'<div class="card" style="text-align:center;padding:32px;color:var(--text3)">You haven\'t reported any urgent issues yet</div>'
+      :issues.map(a=>'<div class="sub-item" style="align-items:flex-start;border-left:3px solid '+(levelColor[a.level]||'var(--border)')+'">'
+        +'<div style="flex:1"><div style="font-size:13px;font-weight:600">'+(a.title||'')+'</div>'
+        +'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+(a.message||'')+'</div>'
+        +'<div style="font-size:11px;color:var(--text3);margin-top:4px">'+(a.createdAt?new Date(a.createdAt).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'')+'</div></div>'
+        +'<span class="badge badge-'+(a.read?'green':'yellow')+'" style="flex-shrink:0">'+(a.read?'✓ Seen':'⏳ New')+'</span>'
+        +'</div>').join(''))
+    +'<button class="btn-big btn-ghost" style="margin-top:14px" onclick="WS.step=\''+back+'\';renderW()">← Back</button>';
+}
 
 // ==================== MY LINE REPORT (worker side) ====================
 // Same analysis the admin sees, but scoped to the QC's own module/line and role.
