@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GarmentFix - Factory Manager Tool</title>
+    <title>APMS - Factory Manager Tool</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -35,7 +35,7 @@
           LayoutDashboard, PlusCircle, Factory, Printer, QrCode, 
           Building, Trash2, Loader2, LogOut, Wrench, AlertTriangle, 
           CheckCircle, Settings, Layers, Zap, ChevronDown, ChevronRight, 
-          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3, ScanLine, X, Search, History, Archive, RefreshCw, RotateCcw, FileSpreadsheet, DollarSign, Tag, Upload, TrendingDown, Copy, Move, Warehouse, ArrowRightLeft, MapPin
+          AlertCircle, Lock, Unlock, ShieldAlert, Calendar, Edit3, ScanLine, X, Search, History, Archive, RefreshCw, RotateCcw, FileSpreadsheet, DollarSign, Tag, Upload, TrendingDown, Copy, Move, Warehouse, ArrowRightLeft, BookMarked, PlusCircle as PlusIcon, Users
         } from 'lucide-react';
         import { initializeApp } from "firebase/app";
         import { getAuth, signInAnonymously } from "firebase/auth";
@@ -104,8 +104,8 @@
             );
         };
 
-        const StatCard = ({ label, value, subtext, icon: Icon, color }) => (
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+        const StatCard = ({ label, value, subtext, icon: Icon, color, onClick }) => (
+            <div onClick={onClick} className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between ${onClick ? 'cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all' : ''}`}>
                 <div>
                     <p className="text-slate-500 text-xs font-bold uppercase">{label}</p>
                     <h3 className="text-2xl font-bold text-slate-800">{value}</h3>
@@ -221,7 +221,91 @@
                                     </select>
                                 </div>
                             </div>
-                            
+
+                            {/* ASSET REGISTRY DETAILS — mirrors the company's real machine-inventory
+                                spreadsheet (Group Name, Owned Company, Barcode, Owned/Current Factory,
+                                Last Scanned, In-Transit, Machine Age, Ownership Status, Condition,
+                                Service Barcode, FAR Code) so every field from that sheet has a home here. */}
+                            <div className="pt-4 border-t">
+                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2"><Tag className="w-3.5 h-3.5"/> Asset Registry Details</h4>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Group Name</label>
+                                        <input className="w-full p-2 border rounded" placeholder="e.g. Brandix" value={formData.groupName || ""} onChange={e => setFormData({...formData, groupName: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Owned Company</label>
+                                        <input className="w-full p-2 border rounded" placeholder="e.g. BEL" value={formData.ownedCompany || ""} onChange={e => setFormData({...formData, ownedCompany: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Asset Category</label>
+                                        <input className="w-full p-2 border rounded" placeholder="e.g. Plant Machinery" value={formData.assetCategory || ""} onChange={e => setFormData({...formData, assetCategory: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Machine Name (as per registry)</label>
+                                        <input className="w-full p-2 border rounded" placeholder="e.g. Zig Zag-Electronic" value={formData.machineName || ""} onChange={e => setFormData({...formData, machineName: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Barcode</label>
+                                        <input className="w-full p-2 border rounded font-mono text-sm" placeholder="e.g. PM0009631" value={formData.barcode || ""} onChange={e => setFormData({...formData, barcode: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Service Barcode</label>
+                                        <input className="w-full p-2 border rounded font-mono text-sm" placeholder="e.g. SV0009631" value={formData.serviceBarcode || ""} onChange={e => setFormData({...formData, serviceBarcode: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Owned Factory</label>
+                                        <input className="w-full p-2 border rounded" placeholder="e.g. BEN" value={formData.ownedFactory || ""} onChange={e => setFormData({...formData, ownedFactory: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Current Factory</label>
+                                        <input className="w-full p-2 border rounded" placeholder="e.g. BEAI3" value={formData.currentFactory || ""} onChange={e => setFormData({...formData, currentFactory: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Ownership Status</label>
+                                        <select className="w-full p-2 border rounded bg-white" value={formData.ownershipStatus || "Own"} onChange={e => setFormData({...formData, ownershipStatus: e.target.value})}>
+                                            <option>Own</option><option>Leased</option><option>Rented</option><option>Borrowed</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Condition</label>
+                                        <select className="w-full p-2 border rounded bg-white" value={formData.condition || "Working"} onChange={e => setFormData({...formData, condition: e.target.value})}>
+                                            <option>Working</option><option>Damaged</option><option>Under Repair</option><option>Scrapped</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Last Scanned On</label>
+                                        <input type="date" className="w-full p-2 border rounded" value={extractDate(formData.lastScannedOn)} onChange={e => setFormData({...formData, lastScannedOn: e.target.value ? new Date(e.target.value).toISOString() : null})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Machine Age</label>
+                                        <input className="w-full p-2 border rounded" placeholder="e.g. 16 Y 160 D" value={formData.machineAge || ""} onChange={e => setFormData({...formData, machineAge: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">FAR Code</label>
+                                        <input className="w-full p-2 border rounded font-mono text-sm" placeholder="e.g. 2008003127-1" value={formData.farCode || ""} onChange={e => setFormData({...formData, farCode: e.target.value})} />
+                                    </div>
+                                    <div className="flex items-end pb-1">
+                                        <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                                            <input type="checkbox" className="w-4 h-4 rounded" checked={!!formData.inTransit} onChange={e => setFormData({...formData, inTransit: e.target.checked})} />
+                                            In-Transit (moving between units)
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="flex gap-2 pt-4 border-t mt-4">
                                 <Button className="flex-1" onClick={() => onSave(formData.id, formData)}>Save Changes</Button>
                             </div>
@@ -231,7 +315,12 @@
             );
         }
 
-        const MachineDetailsModal = ({ machine, logs, buildings, sections, modules, onClose }) => {
+        const MachineDetailsModal = ({ machine, logs, onClose }) => {
+            // Hooks must run on every render regardless of `machine`, so they're declared
+            // before the early-return guard below.
+            const [histFrom, setHistFrom] = useState("");
+            const [histTo, setHistTo] = useState("");
+
             if (!machine) return null;
 
             const intervalDays = parseInt(machine.interval) || 30;
@@ -239,20 +328,30 @@
             const daysSincePM = lastPM ? Math.floor((new Date() - lastPM) / (1000 * 60 * 60 * 24)) : 999;
             const isPmValid = daysSincePM <= intervalDays;
             const pmStatus = isPmValid ? "Valid" : "Expired / Due";
-            
+
             const history = logs.filter(l => l.machineId === machine.id).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-            let locationString = "Machine Yard (Spare)";
-            if (machine.moduleId && machine.moduleId !== 'yard') {
-                const mod = modules?.find(m => m.id === machine.moduleId);
-                const section = sections?.find(s => s.id === mod?.sectionId);
-                const building = buildings?.find(b => b.id === section?.buildingId);
-                if (mod && section && building) {
-                    locationString = `${building.name} > ${section.name} > ${mod.name}`;
-                } else {
-                    locationString = "Unknown Floor Location";
-                }
-            }
+            // "Any machine's data — just pick a time range, download, and send."
+            const downloadHistoryCSV = () => {
+                let rows = history;
+                if (histFrom) rows = rows.filter(l => l.timestamp && l.timestamp.slice(0,10) >= histFrom);
+                if (histTo) rows = rows.filter(l => l.timestamp && l.timestamp.slice(0,10) <= histTo);
+                if (rows.length === 0) return alert("No history records in that date range.");
+                const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+                const header = ['Date', 'Time', 'Action', 'Details', 'Repair Time', 'Department', 'Worker'];
+                const csvRows = rows.map(l => {
+                    const d = new Date(l.timestamp);
+                    return [d.toLocaleDateString(), d.toLocaleTimeString(), l.action || '-', l.details || '-', l.repairTime || '-', l.department || '-', l.userName || l.userId || '-'].map(esc).join(',');
+                });
+                const csv = [header.map(esc).join(','), ...csvRows].join('\r\n');
+                const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${machine.name || machine.id}_history_${histFrom || 'all'}_to_${histTo || new Date().toISOString().slice(0,10)}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
 
             return (
                  <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -265,16 +364,7 @@
                         <div className="p-6 overflow-y-auto space-y-6">
                             <div className="text-center">
                                 <h2 className="text-2xl font-bold text-slate-900">{machine.name}</h2>
-                                <p className="text-indigo-600 text-sm font-bold font-mono mt-1 bg-indigo-50 inline-block px-3 py-1 rounded">Service Barcode: {machine.id}</p>
-                                <p className="text-slate-500 text-sm mt-2">{machine.type || "Universal"} {machine.brand && `• ${machine.brand}`}</p>
-                            </div>
-
-                            <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex items-start gap-3">
-                                <MapPin className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
-                                <div>
-                                    <div className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">Current Location</div>
-                                    <div className="font-bold text-indigo-900">{locationString}</div>
-                                </div>
+                                <p className="text-slate-500 text-sm font-mono mt-1">ID: {machine.id} • {machine.type || "Universal"}</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -296,6 +386,53 @@
                                 </div>
                             </div>
 
+                            {/* ASSET REGISTRY — the fields from the company's real machine-inventory sheet */}
+                            <div>
+                                <h4 className="font-bold text-slate-800 mb-2 border-b pb-2 flex items-center gap-2"><Tag className="w-4 h-4 text-indigo-600"/> Asset Registry</h4>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Barcode</span>
+                                        <span className="font-mono font-medium text-slate-800">{machine.barcode || "-"}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Service Barcode</span>
+                                        <span className="font-mono font-medium text-slate-800">{machine.serviceBarcode || machine.id}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Owned Company</span>
+                                        <span className="font-medium text-slate-800">{machine.ownedCompany || "-"}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Owned / Current Factory</span>
+                                        <span className="font-medium text-slate-800">{machine.ownedFactory || "-"} / {machine.currentFactory || "-"}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Ownership Status</span>
+                                        <span className="font-medium text-slate-800">{machine.ownershipStatus || "-"}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Condition</span>
+                                        <span className={`font-bold ${machine.condition === 'Working' || !machine.condition ? 'text-emerald-600' : 'text-red-600'}`}>{machine.condition || "Working"}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Machine Age</span>
+                                        <span className="font-medium text-slate-800">{machine.machineAge || "-"}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">In-Transit</span>
+                                        <span className={`font-bold ${machine.inTransit ? 'text-orange-600' : 'text-slate-600'}`}>{machine.inTransit ? 'In-Transit' : 'Not In-Transit'}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">Last Scanned On</span>
+                                        <span className="font-medium text-slate-800">{machine.lastScannedOn ? new Date(machine.lastScannedOn).toLocaleDateString() : "-"}</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 rounded border text-sm">
+                                        <span className="block text-xs text-slate-500 uppercase font-bold">FAR Code</span>
+                                        <span className="font-mono font-medium text-slate-800">{machine.farCode || "-"}</span>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                                     <div className="text-xs text-slate-500 font-bold uppercase mb-1">Current Status</div>
@@ -313,7 +450,21 @@
                                     <h4 className="font-bold text-slate-800 flex items-center gap-2"><History className="w-4 h-4 text-indigo-600"/> Maintenance History</h4>
                                     <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{history.length} Records</span>
                                 </div>
-                                
+
+                                {/* Pick any time range for this machine and download it — no need to ask anyone, just grab and send. */}
+                                <div className="flex flex-wrap items-end gap-2 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">From</label>
+                                        <input type="date" className="p-2 text-sm border rounded bg-white" value={histFrom} onChange={e => setHistFrom(e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">To</label>
+                                        <input type="date" className="p-2 text-sm border rounded bg-white" value={histTo} onChange={e => setHistTo(e.target.value)} />
+                                    </div>
+                                    <Button variant="success" onClick={downloadHistoryCSV} className="text-sm py-2"><FileSpreadsheet className="w-4 h-4"/> Download CSV</Button>
+                                    {(histFrom || histTo) && <button onClick={() => { setHistFrom(""); setHistTo(""); }} className="text-xs text-slate-400 hover:text-slate-700">Clear dates</button>}
+                                </div>
+
                                 <div className="space-y-3">
                                     {history.length > 0 ? history.map(log => (
                                         <div key={log.id} className="text-sm p-3 bg-slate-50 rounded border border-slate-100 hover:bg-white hover:shadow-sm transition-all">
@@ -363,12 +514,12 @@
         };
 
         const useFactoryData = () => {
-            const [data, setData] = useState({ buildings: [], sections: [], modules: [], machines: [], users: [], logs: [], archived_machines: [] });
+            const [data, setData] = useState({ buildings: [], sections: [], modules: [], machines: [], users: [], logs: [], archived_machines: [], machineTransfers: [], machineBookings: [] });
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
                 signInAnonymously(auth).catch(console.error);
-                const endpoints = ['buildings', 'sections', 'modules', 'machines', 'users', 'logs', 'archived_machines'];
+                const endpoints = ['buildings', 'sections', 'modules', 'machines', 'users', 'logs', 'archived_machines', 'machineTransfers', 'machineBookings'];
                 const unsubscribers = endpoints.map(endpoint => {
                     return onValue(ref(db, endpoint), (snapshot) => {
                         const val = snapshot.val();
@@ -389,68 +540,90 @@
             return { ...data, ...maps, loading };
         };
 
-        const FactoryManagerApp = () => {
-            const { buildings, sections, modules, machines, users, logs, archived_machines, sectionsMap, modulesMap, machinesMap, loading } = useFactoryData();
-            
-            const handlePrintQRs = (title, machinesList) => {
-                if(!machinesList || machinesList.length === 0) return alert("No machines found to print.");
-                
-                const printWindow = window.open('', '_blank');
-                printWindow.document.write(`
-                    <html>
-                    <head>
-                        <title>Asset Labels - ${title}</title>
-                        <style>
-                            body { font-family: sans-serif; padding: 20px; background: #f8fafc; }
-                            .grid { display: grid; grid-template-columns: repeat(auto-fill, 220px); gap: 20px; justify-content: center; }
-                            .card { background: white; border: 2px solid #0f172a; padding: 15px; page-break-inside: avoid; border-radius: 8px; width: 200px; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
-                            .header { text-align: center; margin-bottom: 12px; width: 100%; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
-                            .name { font-weight: 900; font-size: 16px; text-align: center; line-height: 1.3; word-wrap: break-word; color: #0f172a; width: 100%; }
-                            img { width: 130px; height: 130px; object-fit: contain; margin-bottom: 12px; border: 1px solid #cbd5e1; padding: 4px; border-radius: 4px; }
-                            .details { width: 100%; font-size: 12px; line-height: 1.6; color: #334155; }
-                            .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #cbd5e1; padding: 4px 0; }
-                            .lbl { font-weight: 700; color: #64748b; }
-                            .val { text-align: right; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #0f172a; }
-                            @media print { .no-print { display: none; } body { padding: 0; background: white; } .card { box-shadow: none; border: 1px solid #000; } }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="no-print" style="text-align:center; margin-bottom:20px;">
-                            <h1>${title} Labels</h1>
-                            <p style="color: #64748b; margin-bottom: 15px;">Print these cards or save as PDF to download them.</p>
-                            <button onclick="window.print()" style="padding:12px 24px; background:#4f46e5; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:16px;">Print / Download Labels</button>
-                        </div>
-                        <div class="grid">
-                            ${machinesList.map(m => `
-                                <div class="card">
-                                    <div class="header">
-                                        <div class="name" title="${m.name}">${m.name}</div>
-                                    </div>
-                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${m.id}" alt="${m.name}" />
-                                    <div class="details">
-                                        <div class="row"><span class="lbl">Model:</span><span class="val" title="${m.model}">${m.model || '-'}</span></div>
-                                        <div class="row"><span class="lbl">Serial No:</span><span class="val" title="${m.serial}">${m.serial || '-'}</span></div>
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </body>
-                    </html>
-                `);
-                printWindow.document.close();
-            };
+        const handlePrintQRs = (title, machinesList, resolveLocation) => {
+            if(!machinesList || machinesList.length === 0) return alert("No machines found to print.");
+            const locOf = (m) => (typeof resolveLocation === 'function' ? resolveLocation(m) : (m.moduleId === 'yard' ? 'Machine Yard / Spare' : '-'));
 
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>Asset Labels - ${title}</title>
+                    <style>
+                        body { font-family: sans-serif; padding: 20px; background: #f8fafc; }
+                        .grid { display: grid; grid-template-columns: repeat(auto-fill, 200px); gap: 20px; justify-content: center; }
+                        .card { background: white; border: 2px solid #0f172a; padding: 14px; page-break-inside: avoid; border-radius: 8px; width: 180px; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+                        img { width: 128px; height: 128px; object-fit: contain; margin-bottom: 10px; border: 1px solid #cbd5e1; padding: 4px; border-radius: 4px; }
+                        .details { width: 100%; font-size: 11px; line-height: 1.5; color: #334155; }
+                        .row { display: flex; justify-content: space-between; border-bottom: 1px dashed #cbd5e1; padding: 3px 0; gap: 8px; }
+                        .lbl { font-weight: 700; color: #64748b; white-space: nowrap; }
+                        .val { text-align: right; font-weight: 600; color: #0f172a; word-break: break-word; }
+                        @media print { .no-print { display: none; } body { padding: 0; background: white; } .card { box-shadow: none; border: 1px solid #000; } }
+                    </style>
+                </head>
+                <body>
+                    <div class="no-print" style="text-align:center; margin-bottom:20px;">
+                        <h1>${title} Labels</h1>
+                        <p style="color: #64748b; margin-bottom: 15px;">Print these cards or save as PDF to download them.</p>
+                        <button onclick="window.print()" style="padding:12px 24px; background:#4f46e5; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:16px;">Print / Download Labels</button>
+                    </div>
+                    <div class="grid">
+                        ${machinesList.map(m => `
+                            <div class="card">
+                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(m.id)}" alt="${m.name}" />
+                                <div class="details">
+                                    <div class="row"><span class="lbl">Model:</span><span class="val">${m.model || '-'}</span></div>
+                                    <div class="row"><span class="lbl">Serial No:</span><span class="val">${m.serial || '-'}</span></div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        };
+
+        const FactoryManagerApp = () => {
+            const { buildings, sections, modules, machines, users, logs, archived_machines, machineTransfers, machineBookings, sectionsMap, modulesMap, machinesMap, loading } = useFactoryData();
             const [isAuthenticated, setIsAuthenticated] = useState(false);
+            // WHO is logged in and what they're allowed to do. Management can edit everything
+            // (buildings/sections/modules/machines, transfers, CSV import, users); Planning,
+            // Sampling and Technical can see all of it but only manage the Booking board.
+            const [currentFactoryUser, setCurrentFactoryUser] = useState(null);
+            const FACTORY_ROLES = ['Management', 'Planning', 'Sampling', 'Technical'];
+            const canManageAll = currentFactoryUser?.factoryRole === 'Management';
             const [expandedBuildings, setExpandedBuildings] = useState({});
             const [highlightedMachine, setHighlightedMachine] = useState(null);
             
             const [adminMode, setAdminMode] = useState(false);
+            const [adminName, setAdminName] = useState("Factory Admin");
             const [showAuthModal, setShowAuthModal] = useState(false);
             const [authError, setAuthError] = useState("");
             const [showScanner, setShowScanner] = useState(false);
             const [scannedMachineDetails, setScannedMachineDetails] = useState(null);
             const [searchTerm, setSearchTerm] = useState("");
             const [editingMachine, setEditingMachine] = useState(null);
+            const [showBreakdownsPanel, setShowBreakdownsPanel] = useState(false);
+
+            // MACHINE BOOKING — production tells engineering, ahead of a style change: which
+            // line (or "not decided yet"), what machine types/quantities they'll need, which of
+            // the machines already on that line need to be swapped, and by when.
+            const [showBookingsPanel, setShowBookingsPanel] = useState(false);
+            const [showBookingModal, setShowBookingModal] = useState(false);
+            const emptyBooking = { styleNumber: "", changeDate: "", moduleId: "", neededMachines: [], machinesToChange: {}, notes: "" };
+            const [bookingForm, setBookingForm] = useState(emptyBooking);
+            const [bookingTypeSel, setBookingTypeSel] = useState(MACHINE_TYPES[0]);
+            const [bookingQtySel, setBookingQtySel] = useState(1);
+
+            // GLOBAL FILTER BAR — narrows the Facility Overview tree AND the Yard at once.
+            // With 1500+ machines loaded, browsing without filters is impractical.
+            const [filterText, setFilterText] = useState("");
+            const [filterSection, setFilterSection] = useState("");
+            const [filterCondition, setFilterCondition] = useState("");
+            const [filterStatus, setFilterStatus] = useState("");
+            const filtersActive = !!(filterText.trim() || filterSection || filterCondition || filterStatus);
+            const clearFilters = () => { setFilterText(""); setFilterSection(""); setFilterCondition(""); setFilterStatus(""); };
 
             const fileInputRef = useRef(null);
 
@@ -458,6 +631,8 @@
             const [newSection, setNewSection] = useState({ name: "", buildingId: "" });
             const [newModule, setNewModule] = useState({ name: "", sectionId: "" });
             const [newMachine, setNewMachine] = useState({ name: "", brand: "", year: "", moduleId: "", model: "", serial: "", price: "", type: "Single Needle Lockstitch (SNLS)", interval: 30, lastMaintenance: "" });
+            const [newFactoryUser, setNewFactoryUser] = useState({ name: "", username: "", password: "", factoryRole: "Planning" });
+            const [editingFactoryUserId, setEditingFactoryUserId] = useState(null);
 
             const extractDate = (iso) => iso ? iso.split('T')[0] : "";
 
@@ -484,6 +659,43 @@
             const brokenMachines = floorMachines.filter(m => m.status === 'Pending' || m.status === 'In Progress');
             const brokenCount = brokenMachines.length;
 
+            const moduleById = useMemo(() => { const map = {}; modules.forEach(x => map[x.id] = x); return map; }, [modules]);
+
+            // ORPHANED machines — moduleId points at a module that no longer exists, OR at a
+            // module whose parent section/building was deleted. Either way they render nowhere
+            // in the tree and aren't in the yard, so without this panel they'd be invisible.
+            const knownModuleIds = useMemo(() => {
+                // A module only "exists" if its whole chain is alive: module -> section -> building.
+                const bldIds = new Set(buildings.map(b => b.id));
+                const liveSecIds = new Set(sections.filter(s => bldIds.has(s.buildingId)).map(s => s.id));
+                return new Set(modules.filter(m => liveSecIds.has(m.sectionId)).map(m => m.id));
+            }, [modules, sections, buildings]);
+            const orphanMachines = machines.filter(m => m.moduleId && m.moduleId !== 'yard' && !knownModuleIds.has(m.moduleId));
+            const rescueOrphan = (m) => {
+                if (!adminMode) return alert("Unlock Edit Mode first.");
+                if (!isValidMachineId(m.id)) return alert("Corrupted record — delete it instead.");
+                update(ref(db, `machines/${m.id}`), { moduleId: 'yard', status: 'In Yard' });
+            };
+
+            // One matcher shared by the tree, the yard, and the match counter.
+            const machineMatches = (m) => {
+                const q = filterText.trim().toLowerCase();
+                if (q && !(`${m.name || ''} ${m.model || ''} ${m.serial || ''} ${m.barcode || ''} ${m.serviceBarcode || ''} ${m.farCode || ''} ${m.brand || ''}`.toLowerCase().includes(q))) return false;
+                if (filterCondition && (m.condition || 'Working') !== filterCondition) return false;
+                if (filterStatus) {
+                    if (filterStatus === 'Breakdown') { if (m.status !== 'Pending' && m.status !== 'In Progress') return false; }
+                    else if ((m.status || 'Running') !== filterStatus) return false;
+                }
+                if (filterSection) {
+                    if (filterSection === 'yard') { if (m.moduleId !== 'yard') return false; }
+                    else { const mod = moduleById[m.moduleId]; if (!mod || mod.sectionId !== filterSection) return false; }
+                }
+                return true;
+            };
+            const fMachinesFor = (modId) => (machinesMap[modId] || []).filter(machineMatches);
+            const fYardMachines = yardMachines.filter(machineMatches);
+            const totalMatches = machines.filter(machineMatches).length;
+
             const toggleBuilding = (id) => setExpandedBuildings(prev => ({...prev, [id]: !prev[id]}));
 
             const onAddBuilding = () => { if(newBuilding) { push(ref(db, 'buildings'), { name: newBuilding }); setNewBuilding(""); }};
@@ -495,25 +707,154 @@
                     if (newMachine.lastMaintenance) submission.lastMaintenance = new Date(newMachine.lastMaintenance).toISOString();
                     else delete submission.lastMaintenance;
 
-                    push(ref(db, 'machines'), submission); 
-                    setNewMachine({name: "", brand: "", year: "", moduleId: "", model: "", serial: "", price: "", type: "Single Needle Lockstitch (SNLS)", interval: 30, lastMaintenance: "" }); 
+                    push(ref(db, 'machines'), submission);
+                    setNewMachine({name: "", brand: "", year: "", moduleId: "", model: "", serial: "", price: "", type: "Single Needle Lockstitch (SNLS)", interval: 30, lastMaintenance: "" });
                 }
+            };
+
+            // USER MANAGEMENT — Management-only. Grants/revokes Factory Manager access and role
+            // (Management / Planning / Sampling / Technical) on top of the shared `users`
+            // collection, without touching the AMMS-specific `role`/`department` fields on it.
+            const factoryUsers = users.filter(u => !!u.factoryRole);
+            const onSaveFactoryUser = () => {
+                if (!newFactoryUser.name.trim() || !newFactoryUser.username.trim() || !newFactoryUser.password.trim()) {
+                    return alert("Name, username, and password are all required.");
+                }
+                if (editingFactoryUserId) {
+                    update(ref(db, `users/${editingFactoryUserId}`), { ...newFactoryUser });
+                    setEditingFactoryUserId(null);
+                } else {
+                    if (users.some(u => u.username === newFactoryUser.username)) return alert("That username is already taken.");
+                    push(ref(db, 'users'), { ...newFactoryUser });
+                }
+                setNewFactoryUser({ name: "", username: "", password: "", factoryRole: "Planning" });
+            };
+            const onEditFactoryUser = (u) => {
+                setNewFactoryUser({ name: u.name || "", username: u.username || "", password: u.password || "", factoryRole: u.factoryRole });
+                setEditingFactoryUserId(u.id);
+            };
+            const onDeleteFactoryUser = (u) => {
+                if (!confirm(`Remove ${u.name}'s Factory Manager access? (Deletes the account entirely if it has no other role.)`)) return;
+                if (u.role || u.department) update(ref(db, `users/${u.id}`), { factoryRole: null });
+                else remove(ref(db, `users/${u.id}`));
             };
 
             const getMachinesForSection = (sId) => (modulesMap[sId] || []).flatMap(m => machinesMap[m.id] || []);
             const getMachinesForBuilding = (bId) => (sectionsMap[bId] || []).flatMap(s => getMachinesForSection(s.id));
 
-            const checkCredentials = (u, p) => {
-                const adminUser = users.find(user => user.username === u && user.password === p && user.role === 'admin');
-                return adminUser || (u === 'admin' && p === '123');
+            // Resolve a machine's printable location (Building > Section > Module) for QR labels.
+            const resolveLocation = (m) => {
+                if (!m || !m.moduleId || m.moduleId === 'yard') return 'Machine Yard / Spare';
+                const mod = modules.find(x => x.id === m.moduleId);
+                const sec = mod ? sections.find(s => s.id === mod.sectionId) : null;
+                const bld = sec ? buildings.find(b => b.id === sec.buildingId) : null;
+                return [bld && bld.name, sec && sec.name, mod && mod.name].filter(Boolean).join(' > ') || '-';
             };
 
-            const handleAuthSubmit = (u, p) => {
-                if (checkCredentials(u, p)) { setAdminMode(true); setShowAuthModal(false); setAuthError(""); } 
-                else setAuthError("Invalid credentials or not an Admin.");
+            // Master override (admin/123) always logs in as Management; everyone else needs a
+            // real user record with a factoryRole assigned (via User Management, Management-only).
+            const checkCredentials = (u, p) => {
+                if (u === 'admin' && p === '123') return { name: 'Factory Admin', username: 'admin', factoryRole: 'Management' };
+                const match = users.find(user => user.username === u && user.password === p && user.factoryRole);
+                return match || null;
             };
+
+            // "Unlock Edit Mode" is a second, deliberate confirmation before structural changes
+            // are allowed — kept as-is, but only reachable at all for Management (the button
+            // that opens this modal is hidden for every other role).
+            const handleAuthSubmit = (u, p) => {
+                const result = checkCredentials(u, p);
+                if (result && result.factoryRole === 'Management') { setAdminMode(true); setAdminName(result.name || u); setShowAuthModal(false); setAuthError(""); }
+                else setAuthError("Invalid credentials, or this account isn't Management.");
+            };
+
+            // Worker-requested moves (from worker.html's "Request Transfer") wait here for
+            // approval — Factory Manager is the only tool with the power to authorize a move.
+            // Approving does NOT touch the machine yet — the worker must scan it on the floor
+            // to actually finalize the move (machine.moduleId only changes at that point), so
+            // a machine never silently teleports just because admin clicked a button.
+            const pendingTransfers = machineTransfers.filter(t => t.status === 'Pending');
+            const approveTransfer = (t) => {
+                update(ref(db, `machineTransfers/${t.id}`), { status: 'Approved', approvedBy: adminName, approvedByName: adminName, approvedAt: new Date().toISOString() });
+            };
+            const rejectTransfer = (t) => {
+                const reason = window.prompt("Reason for rejecting this move?") || '';
+                update(ref(db, `machineTransfers/${t.id}`), { status: 'Rejected', approvedBy: adminName, approvedByName: adminName, approvedAt: new Date().toISOString(), rejectReason: reason });
+            };
+
+            // MACHINE BOOKING (style-change requests) — production books what they need for an
+            // upcoming style ahead of time so engineering can plan the swap instead of
+            // scrambling on changeover day.
+            const bookingLineLabel = (moduleId) => {
+                if (!moduleId) return 'Not decided yet';
+                const mod = modules.find(x => x.id === moduleId);
+                const sec = mod ? sections.find(s => s.id === mod.sectionId) : null;
+                const bld = sec ? buildings.find(b => b.id === sec.buildingId) : null;
+                return [bld && bld.name, sec && sec.name, mod && mod.name].filter(Boolean).join(' > ') || 'Unknown line';
+            };
+            // Machines currently sitting on the booking's chosen line, so production can check
+            // off exactly which ones they think need to change (and to what/why).
+            const bookingLineMachines = bookingForm.moduleId ? (machinesMap[bookingForm.moduleId] || []) : [];
+
+            const addNeededMachine = () => {
+                if (!bookingTypeSel || bookingQtySel < 1) return;
+                setBookingForm(prev => {
+                    const existing = prev.neededMachines.find(n => n.type === bookingTypeSel);
+                    const neededMachines = existing
+                        ? prev.neededMachines.map(n => n.type === bookingTypeSel ? { ...n, qty: n.qty + bookingQtySel } : n)
+                        : [...prev.neededMachines, { type: bookingTypeSel, qty: bookingQtySel }];
+                    return { ...prev, neededMachines };
+                });
+                setBookingQtySel(1);
+            };
+            const removeNeededMachine = (type) => setBookingForm(prev => ({ ...prev, neededMachines: prev.neededMachines.filter(n => n.type !== type) }));
+            const toggleMachineToChange = (machine) => {
+                setBookingForm(prev => {
+                    const machinesToChange = { ...prev.machinesToChange };
+                    if (machinesToChange[machine.id]) delete machinesToChange[machine.id];
+                    else machinesToChange[machine.id] = { machineLabel: `${machine.machineName || machine.name || 'Unnamed machine'} (${machine.model || '-'} · SN ${machine.serial || '-'})`, changeNote: '' };
+                    return { ...prev, machinesToChange };
+                });
+            };
+            const setChangeNote = (machineId, note) => setBookingForm(prev => ({ ...prev, machinesToChange: { ...prev.machinesToChange, [machineId]: { ...prev.machinesToChange[machineId], changeNote: note } } }));
+
+            const submitBooking = () => {
+                if (!bookingForm.styleNumber.trim()) return alert("Style number is required.");
+                if (!bookingForm.changeDate) return alert("Pick the date this change is needed by.");
+                if (bookingForm.neededMachines.length === 0 && Object.keys(bookingForm.machinesToChange).length === 0) {
+                    return alert("Add at least one needed machine type, or mark a machine that needs to change.");
+                }
+                push(ref(db, 'machineBookings'), {
+                    styleNumber: bookingForm.styleNumber.trim(),
+                    changeDate: bookingForm.changeDate,
+                    moduleId: bookingForm.moduleId || null,
+                    lineLabel: bookingLineLabel(bookingForm.moduleId),
+                    neededMachines: bookingForm.neededMachines,
+                    machinesToChange: Object.entries(bookingForm.machinesToChange).map(([machineId, v]) => ({ machineId, ...v })),
+                    notes: bookingForm.notes.trim(),
+                    status: 'Pending',
+                    requestedBy: currentFactoryUser?.name || 'Production',
+                    requestedByRole: currentFactoryUser?.factoryRole || null,
+                    requestedAt: new Date().toISOString()
+                });
+                setBookingForm(emptyBooking);
+                setShowBookingModal(false);
+                alert("Booking sent to the engineering team.");
+            };
+            const updateBookingStatus = (b, status) => update(ref(db, `machineBookings/${b.id}`), { status, [`${status.toLowerCase()}At`]: new Date().toISOString(), [`${status.toLowerCase()}By`]: currentFactoryUser?.name || 'Unknown' });
+            const deleteBooking = (b) => { if (confirm(`Delete the booking for style ${b.styleNumber}?`)) remove(ref(db, `machineBookings/${b.id}`)); };
+            const bookingsSorted = machineBookings.slice().sort((a, b) => new Date(a.changeDate) - new Date(b.changeDate));
+
+            // A machine object missing a real Firebase key (id undefined, or the literal
+            // string "undefined" from a previously-corrupted record) must never be written
+            // to `machines/${id}` — that silently creates/re-creates a garbage node with no
+            // name/model/serial that then shows up blank everywhere. Refuse and tell the user
+            // to delete the broken row instead of trying to edit it.
+            const isValidMachineId = (id) => !!id && id !== 'undefined' && id !== 'null';
 
             const handleUpdateMachine = (id, updatedData) => {
+                if (!isValidMachineId(id)) return alert("This machine record has no valid ID (it's corrupted) — delete it instead of editing it.");
+                // Adjust status if moved to/from yard
                 if (updatedData.moduleId === 'yard' && updatedData.status !== 'In Yard') updatedData.status = 'In Yard';
                 else if (updatedData.moduleId !== 'yard' && updatedData.status === 'In Yard') updatedData.status = 'Running';
 
@@ -539,6 +880,7 @@
             const handleMoveToYard = (e, machine) => {
                 e.stopPropagation();
                 if(!adminMode) return alert("Unlock first.");
+                if (!isValidMachineId(machine.id)) return alert("This machine record is corrupted (no valid ID) — delete it instead.");
                 if(confirm(`Move ${machine.name} off the floor and into the Machine Yard?`)) {
                     update(ref(db, `machines/${machine.id}`), { moduleId: 'yard', status: 'In Yard' });
                 }
@@ -547,9 +889,10 @@
             const handleArchiveMachine = (e, machine) => {
                 e.stopPropagation();
                 if(!adminMode) return alert("Unlock Edit Mode first.");
+                if (!isValidMachineId(machine.id)) return alert("This machine record is corrupted (no valid ID) — use Permanent Delete instead.");
                 const reason = prompt(`Why are you archiving ${machine.name}?`);
                 if(reason === null) return;
-                
+
                 const archiveData = { ...machine, archivedAt: new Date().toISOString(), deletionReason: reason || "No reason provided", deletedBy: "Admin" };
                 set(ref(db, `archived_machines/${machine.id}`), archiveData)
                     .then(() => remove(ref(db, `machines/${machine.id}`)))
@@ -559,9 +902,12 @@
             const handlePermanentDeleteMachine = (e, machine) => {
                 e.stopPropagation();
                 if(!adminMode) return alert("Unlock Edit Mode first.");
-                if(confirm(`⚠️ PERMANENT DELETE\n\nAre you sure you want to permanently delete "${machine.name}" from the database? This cannot be undone.`)) {
-                    remove(ref(db, `machines/${machine.id}`)).catch(err => console.error(err));
-                    remove(ref(db, `archived_machines/${machine.id}`)).catch(err => console.error(err));
+                // Corrupted records (no valid id) still need to be deletable — fall back to the
+                // literal "undefined" path so a broken row can always be cleaned up.
+                const targetId = isValidMachineId(machine.id) ? machine.id : 'undefined';
+                if(confirm(`⚠️ PERMANENT DELETE\n\nAre you sure you want to permanently delete "${machine.name || '(corrupted record)'}" from the database? This cannot be undone.`)) {
+                    remove(ref(db, `machines/${targetId}`)).catch(err => console.error(err));
+                    remove(ref(db, `archived_machines/${targetId}`)).catch(err => console.error(err));
                 }
             };
 
@@ -574,6 +920,7 @@
             const handleRestore = (machine) => {
                 const restoreData = { ...machine };
                 delete restoreData.archivedAt; delete restoreData.deletionReason; delete restoreData.deletedBy;
+                // Default to yard when restored to prevent breaking floor UI
                 restoreData.moduleId = 'yard';
                 restoreData.status = 'In Yard';
                 set(ref(db, `machines/${machine.id}`), restoreData)
@@ -581,13 +928,32 @@
                     .catch(err => alert("Error restoring: " + err.message));
             };
 
+            // Header order mirrors the company's real machine-inventory export exactly (Group
+            // Name ... FAR Code), with the app's own hierarchy/operational columns appended
+            // after — so this file round-trips through Excel and re-imports cleanly.
+            const CSV_HEADERS = [
+                'Group Name','Owned Company','Machine Type','Machine Name','Barcode','Serial No','Model',
+                'Owned Factory','Current Factory','Building','Section','Module','Last Scanned On','In-Transit',
+                'Machine Age','Ownership Status','Condition','Service Barcode','FAR Code',
+                'Machine ID','Name','Brand','Year','Price','PM Interval (Days)','Operational Status','Last Maintenance'
+            ];
+
             const handleExportCSV = () => {
-                let csvContent = "data:text/csv;charset=utf-8,";
-                csvContent += "Type,Brand,Plant,Section,Module,Machine ID,Name,Model,Serial,Year,Price,Interval,Status,Last Maintenance\n";
+                const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+                const rows = [CSV_HEADERS.map(esc).join(',')];
 
                 const appendRow = (bName, sName, modName, m) => {
-                    const row = [ m.type || "N/A", m.brand || "-", bName, sName, modName, m.id, m.name, m.model || "-", m.serial || "-", m.year || "-", m.price || "0", m.interval || "30", m.status, m.lastMaintenance ? new Date(m.lastMaintenance).toLocaleDateString() : "-" ].map(item => `"${item}"`).join(",");
-                    csvContent += row + "\n";
+                    rows.push([
+                        m.groupName || '', m.ownedCompany || '', m.assetCategory || '', m.machineName || '', m.barcode || '',
+                        m.serial || '', m.model || '', m.ownedFactory || '', m.currentFactory || '',
+                        bName, sName, modName,
+                        m.lastScannedOn ? new Date(m.lastScannedOn).toLocaleDateString() : '',
+                        m.inTransit ? 'In-Transit' : 'Not In-Transit',
+                        m.machineAge || '', m.ownershipStatus || 'Own', m.condition || 'Working',
+                        m.serviceBarcode || m.id, m.farCode || '',
+                        m.id, m.name || '', m.brand || '', m.year || '', m.price || '0', m.interval || '30',
+                        m.status || '', m.lastMaintenance ? new Date(m.lastMaintenance).toLocaleDateString() : ''
+                    ].map(esc).join(','));
                 };
 
                 buildings.forEach(b => {
@@ -598,59 +964,250 @@
                     });
                 });
 
-                yardMachines.forEach(m => appendRow("YARD", "YARD", "YARD", m));
+                yardMachines.forEach(m => appendRow(m.currentFactory || 'YARD', 'Yard', 'Machine Yard', m));
 
-                const encodedUri = encodeURI(csvContent);
+                const csv = rows.join('\r\n');
+                const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
-                link.setAttribute("href", encodedUri);
+                link.href = url;
                 link.setAttribute("download", `factory_inventory_${new Date().toISOString().slice(0,10)}.csv`);
                 document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                URL.revokeObjectURL(url);
             };
+
+            // Full-text, quote-aware CSV parser. Must scan the WHOLE file (not split by line
+            // first) because real exports from the asset-registry system sometimes contain a
+            // quoted cell with a literal embedded line break (e.g. a wrapped column header like
+            // "Owned\nFactory") — a naive `text.split(/\r?\n/)` would chop that single logical
+            // row into two, corrupting every column after it.
+            const parseCSV = (text) => {
+                const rows = [];
+                let row = [], cur = '', inQuotes = false;
+                for (let i = 0; i < text.length; i++) {
+                    const ch = text[i];
+                    if (inQuotes) {
+                        if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; }
+                        else if (ch === '"') inQuotes = false;
+                        else cur += ch;
+                    } else {
+                        if (ch === '"') inQuotes = true;
+                        else if (ch === ',') { row.push(cur); cur = ''; }
+                        else if (ch === '\r') { /* ignore, \n (or EOF) ends the row */ }
+                        else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+                        else cur += ch;
+                    }
+                }
+                if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+                return rows.map(r => r.map(c => c.trim()));
+            };
+
+            // Collapse embedded newlines/whitespace runs in a header cell so a wrapped column
+            // header (e.g. "Owned\nFactory") still matches the plain "Owned Factory" lookup name.
+            const normalizeHeader = (h) => String(h || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+            // Splits their real "Line Name" path (e.g. "BEL-BEAI3-BEAI3-Production-Line 10")
+            // into building/section/module. Segment 3 is the section, everything after is the
+            // module name (module names can themselves contain dashes, e.g. none in practice but
+            // safe either way). A "Yard" section maps to the app's special 'yard' sentinel
+            // instead of a real module, so it stays compatible with the rest of the app's
+            // yard/spare handling.
+            const parseLineName = (lineName, fallbackFactory) => {
+                const segs = lineName.split('-').map(s => s.trim()).filter(Boolean);
+                const building = fallbackFactory || segs[2] || segs[0] || 'Unknown Plant';
+                const section = segs[3] || '';
+                const module = segs.slice(4).join('-').trim();
+                return { building, section, module };
+            };
+
+            // Excel sometimes exports date cells as raw serial numbers if the sheet cell wasn't
+            // formatted as text/date before saving to CSV — tolerate that alongside normal dates.
+            const parseMaybeDate = (v) => {
+                if (!v) return null;
+                if (/^\d+(\.\d+)?$/.test(v)) {
+                    const serial = parseFloat(v);
+                    return new Date(Math.round((serial - 25569) * 86400 * 1000));
+                }
+                const d = new Date(v);
+                return isNaN(d.getTime()) ? null : d;
+            };
+
+            // A machine mid-repair must never have its location/status silently overwritten by a
+            // CSV re-sync — only these "idle" statuses are safe to touch.
+            const IDLE_STATUSES = ['Running', 'In Yard', undefined, null, ''];
 
             const handleImportCSV = (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
+                if (!adminMode) { alert("Unlock Edit Mode first — importing can move existing machines."); fileInputRef.current.value = ""; return; }
 
                 const reader = new FileReader();
                 reader.onload = async (e) => {
-                    const rows = e.target.result.split('\n').slice(1);
+                    const text = e.target.result.replace(/^﻿/, '');
+                    const allRows = parseCSV(text).filter(r => r.some(c => c.trim() !== ''));
+                    if (allRows.length < 2) { alert("No data rows found in the file."); fileInputRef.current.value = ""; return; }
+
+                    // Real exports from the asset-registry system have several blank/title rows
+                    // (report name, generated-on date, etc.) before the actual header — find the
+                    // row that actually looks like a header instead of assuming row 0.
+                    let headerRowIdx = allRows.findIndex(r => r.some(c => normalizeHeader(c) === 'machine name'));
+                    if (headerRowIdx === -1) headerRowIdx = 0;
+                    const headers = allRows[headerRowIdx];
+                    const dataRows = allRows.slice(headerRowIdx + 1);
+
+                    const idx = (name) => headers.findIndex(h => normalizeHeader(h) === normalizeHeader(name));
+                    const get = (cols, name) => { const i = idx(name); return i >= 0 ? (cols[i] || '').trim() : ''; };
+                    const norm = (v) => String(v || '').trim().toLowerCase();
+
+                    // Re-importing an updated snapshot of the same fleet (machines that moved
+                    // module, moved to/from the yard, changed condition, etc.) must UPDATE the
+                    // existing record, not create a duplicate. Match by Barcode first (the asset
+                    // tag), then Service Barcode, then Serial No — whichever the sheet actually
+                    // has filled in for that row.
+                    const byBarcode = {}, byService = {}, bySerial = {};
+                    machines.forEach(m => {
+                        if (m.barcode) byBarcode[norm(m.barcode)] = m.id;
+                        if (m.serviceBarcode) byService[norm(m.serviceBarcode)] = m.id;
+                        if (m.serial) bySerial[norm(m.serial)] = m.id;
+                    });
+                    const machineById = {}; machines.forEach(m => { machineById[m.id] = m; });
+                    const findExisting = (cols) => {
+                        const barcode = norm(get(cols, 'Barcode'));
+                        const svc = norm(get(cols, 'Service Barcode'));
+                        const serial = norm(get(cols, 'Serial No') || get(cols, 'Serial'));
+                        if (barcode && byBarcode[barcode]) return byBarcode[barcode];
+                        if (svc && byService[svc]) return byService[svc];
+                        if (serial && bySerial[serial]) return bySerial[serial];
+                        return null;
+                    };
+
+                    // PASS 1 — figure out the Building/Section/Module (or Yard) each row needs,
+                    // and whether it matches an existing machine. Nothing is written yet.
+                    const planned = [];
+                    let skipped = 0;
+                    for (const cols of dataRows) {
+                        const mName = get(cols, 'Name') || get(cols, 'Machine Name');
+                        if (!mName) { skipped++; continue; }
+
+                        let bName = get(cols, 'Building'), sName = get(cols, 'Section'), modName = get(cols, 'Module');
+                        const currentFactory = get(cols, 'Current Factory');
+                        if (!bName && get(cols, 'Line Name')) {
+                            const parsed = parseLineName(get(cols, 'Line Name'), currentFactory);
+                            bName = parsed.building; sName = parsed.section; modName = parsed.module;
+                        }
+                        bName = bName || currentFactory || 'Unknown Plant';
+
+                        planned.push({ cols, mName, bName, sName, modName, currentFactory, existingId: findExisting(cols) });
+                    }
+
+                    // PASS 2 — resolve/create the (small number of distinct) Building > Section >
+                    // Module combos up front, sequentially, so two rows needing the same new
+                    // module don't race and create it twice.
                     const bMap = {}; buildings.forEach(b => bMap[b.name] = b.id);
                     const sMap = {}; sections.forEach(s => sMap[`${s.buildingId}_${s.name}`] = s.id);
                     const modMap = {}; modules.forEach(mod => modMap[`${mod.sectionId}_${mod.name}`] = mod.id);
+                    const moduleIdFor = {}; // keyed by `${bName}|${sName}|${modName}` -> resolved moduleId
 
-                    let count = 0;
-                    for (let row of rows) {
-                        if (!row.trim()) continue;
-                        const cols = row.split(',').map(c => c.replace(/"/g, '').trim());
-                        const [mType, mBrand, bName, sName, modName, mId, mName, mModel, mSerial, mYear, mPrice, mInterval, mStatus, mLastMaint] = cols;
+                    for (const p of planned) {
+                        const isYard = !p.sName || p.sName.toLowerCase() === 'yard' || !p.modName;
+                        const key = isYard ? '__yard__' : `${p.bName}|${p.sName}|${p.modName}`;
+                        if (moduleIdFor[key] !== undefined) continue;
+                        if (isYard) { moduleIdFor[key] = 'yard'; continue; }
 
-                        if (!mName) continue;
+                        let bId = bMap[p.bName] || (await push(ref(db, 'buildings'), { name: p.bName })).key; bMap[p.bName] = bId;
+                        let sId = sMap[`${bId}_${p.sName}`] || (await push(ref(db, 'sections'), { name: p.sName, buildingId: bId })).key; sMap[`${bId}_${p.sName}`] = sId;
+                        let modId = modMap[`${sId}_${p.modName}`] || (await push(ref(db, 'modules'), { name: p.modName, sectionId: sId })).key; modMap[`${sId}_${p.modName}`] = modId;
+                        moduleIdFor[key] = modId;
+                    }
 
-                        let modId = 'yard'; 
-                        if (bName && bName.toUpperCase() !== 'YARD' && sName && modName) {
-                            let bId = bMap[bName] || (await push(ref(db, 'buildings'), { name: bName })).key; bMap[bName] = bId;
-                            let sId = sMap[`${bId}_${sName}`] || (await push(ref(db, 'sections'), { name: sName, buildingId: bId })).key; sMap[`${bId}_${sName}`] = sId;
-                            modId = modMap[`${sId}_${modName}`] || (await push(ref(db, 'modules'), { name: modName, sectionId: sId })).key; modMap[`${sId}_${modName}`] = modId;
+                    // PASS 3 — every hierarchy node now exists, so the machine writes themselves
+                    // are independent and can go out in parallel instead of one round-trip at a time.
+                    let created = 0, updated = 0, locationSkipped = 0;
+                    const writes = planned.map(p => {
+                        const isYard = !p.sName || p.sName.toLowerCase() === 'yard' || !p.modName;
+                        const key = isYard ? '__yard__' : `${p.bName}|${p.sName}|${p.modName}`;
+                        const modId = moduleIdFor[key];
+                        const cols = p.cols;
+
+                        const lastScanned = parseMaybeDate(get(cols, 'Last Scanned On') || get(cols, 'Last Scaned On'));
+                        const lastMaint = parseMaybeDate(get(cols, 'Last Maintenance'));
+                        const inTransitRaw = (get(cols, 'In-Transit') || '').toLowerCase();
+
+                        // Fields that come straight from the sheet, shared by create and update.
+                        const fields = {
+                            name: p.mName,
+                            groupName: get(cols, 'Group Name') || 'Brandix',
+                            ownedCompany: get(cols, 'Owned Company'),
+                            assetCategory: get(cols, 'Machine Type'),
+                            machineName: get(cols, 'Machine Name'),
+                            barcode: get(cols, 'Barcode'),
+                            serial: get(cols, 'Serial No') || get(cols, 'Serial'),
+                            model: get(cols, 'Model'),
+                            ownedFactory: get(cols, 'Owned Factory'),
+                            currentFactory: p.currentFactory,
+                            type: get(cols, 'Machine Type') || 'Other',
+                            inTransit: inTransitRaw.includes('not') ? false : !!inTransitRaw,
+                            machineAge: get(cols, 'Machine Age'),
+                            ownershipStatus: get(cols, 'Ownership Status') || get(cols, 'Status') || 'Own',
+                            condition: get(cols, 'Condition') || 'Working',
+                            serviceBarcode: get(cols, 'Service Barcode'),
+                            farCode: get(cols, 'FAR Code')
+                        };
+                        if (get(cols, 'Brand')) fields.brand = get(cols, 'Brand');
+                        if (get(cols, 'Year')) fields.year = get(cols, 'Year');
+                        if (get(cols, 'Price')) fields.price = get(cols, 'Price');
+                        if (get(cols, 'PM Interval (Days)')) fields.interval = get(cols, 'PM Interval (Days)');
+                        if (lastScanned) fields.lastScannedOn = lastScanned.toISOString();
+                        if (lastMaint) fields.lastMaintenance = lastMaint.toISOString();
+
+                        if (p.existingId) {
+                            // UPDATE — never overwrite fields not listed here (assignedTo, issue,
+                            // ticketId, department, etc. all stay untouched via a partial update).
+                            const existing = machineById[p.existingId];
+                            if (existing.moduleId !== modId) {
+                                if (IDLE_STATUSES.includes(existing.status)) {
+                                    fields.moduleId = modId;
+                                    fields.status = modId === 'yard' ? 'In Yard' : 'Running';
+                                    push(ref(db, 'logs'), {
+                                        machineId: p.existingId, action: 'Moved (CSV Sync)', department: null,
+                                        userId: 'import', userName: adminName || 'CSV Import',
+                                        details: `Location updated from registry sync (${p.mName}).`,
+                                        timestamp: new Date().toISOString()
+                                    });
+                                } else {
+                                    locationSkipped++; // machine has an active ticket — location left alone
+                                }
+                            }
+                            updated++;
+                            return update(ref(db, `machines/${p.existingId}`), fields);
                         }
 
-                        const newMac = {
-                            name: mName, brand: mBrand || "", moduleId: modId, type: mType || "Single Needle Lockstitch (SNLS)", model: mModel || "",
-                            serial: mSerial || "", year: mYear || "", price: mPrice || "0", interval: mInterval || "30",
-                            status: modId === 'yard' ? 'In Yard' : 'Running', createdAt: new Date().toISOString()
-                        };
-                        if (mLastMaint && mLastMaint !== '-') newMac.lastMaintenance = new Date(mLastMaint).toISOString();
+                        // CREATE — brand new asset not seen before.
+                        fields.moduleId = modId;
+                        fields.price = fields.price || '0';
+                        fields.interval = fields.interval || '30';
+                        fields.status = modId === 'yard' ? 'In Yard' : 'Running';
+                        fields.createdAt = new Date().toISOString();
+                        created++;
+                        return push(ref(db, 'machines'), fields);
+                    });
 
-                        await push(ref(db, 'machines'), newMac);
-                        count++;
-                    }
-                    alert(`Imported ${count} machines!`);
+                    await Promise.all(writes);
+                    alert(`Synced ${writes.length} machines — ${created} new, ${updated} updated.${locationSkipped ? ` ${locationSkipped} location change(s) held back (machine has an active ticket).` : ''}${skipped ? ` ${skipped} row(s) skipped — missing a name.` : ''}`);
                     fileInputRef.current.value = "";
                 };
                 reader.readAsText(file);
             };
 
             const findAndScrollToMachine = (query) => {
-                const machine = machines.find(m => m.id.toLowerCase() === query.toLowerCase() || m.name.toLowerCase().includes(query.toLowerCase()));
+                // Exact matches on the unique identifiers first (ID / barcode / service barcode /
+                // serial), then fuzzy on name/model — and never crash on records missing a field.
+                const q = String(query || '').trim().toLowerCase();
+                if (!q) return null;
+                const lc = (v) => String(v || '').toLowerCase();
+                const machine =
+                    machines.find(m => lc(m.id) === q || lc(m.barcode) === q || lc(m.serviceBarcode) === q || lc(m.serial) === q) ||
+                    machines.find(m => lc(m.name).includes(q) || lc(m.model).includes(q) || lc(m.serial).includes(q) || lc(m.barcode).includes(q));
                 if (machine) {
                     if (machine.moduleId === 'yard') {
                         setHighlightedMachine(machine.id);
@@ -698,7 +1255,7 @@
                                 <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Factory className="w-8 h-8 text-indigo-600" /></div>
                                 <h1 className="text-2xl font-bold text-slate-800">Factory Manager</h1>
                             </div>
-                            <form onSubmit={(e) => { e.preventDefault(); if(checkCredentials(initialCreds.u, initialCreds.p)) setIsAuthenticated(true); else alert("Invalid credentials."); }} className="space-y-4">
+                            <form onSubmit={(e) => { e.preventDefault(); const result = checkCredentials(initialCreds.u, initialCreds.p); if (result) { setCurrentFactoryUser(result); setIsAuthenticated(true); } else alert("Invalid credentials, or this account has no Factory Manager role assigned yet — ask Management to add you."); }} className="space-y-4">
                                 <input className="w-full p-3 border rounded-lg" placeholder="Username" value={initialCreds.u} onChange={e => setInitialCreds({...initialCreds, u: e.target.value})} />
                                 <input className="w-full p-3 border rounded-lg" type="password" placeholder="Password" value={initialCreds.p} onChange={e => setInitialCreds({...initialCreds, p: e.target.value})} />
                                 <Button className="w-full">Access Tool</Button>
@@ -713,9 +1270,211 @@
             return (
                 <div className="min-h-screen flex flex-col md:flex-row">
                     <AuthModal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setAuthError(""); }} onConfirm={handleAuthSubmit} error={authError} />
-                    <MachineDetailsModal machine={scannedMachineDetails} logs={logs} buildings={buildings} sections={sections} modules={modules} onClose={() => setScannedMachineDetails(null)} />
+                    <MachineDetailsModal machine={scannedMachineDetails} logs={logs} onClose={() => setScannedMachineDetails(null)} />
                     <EditMachineModal machine={editingMachine} modulesMap={modulesMap} sections={sections} buildings={buildings} onClose={() => setEditingMachine(null)} onSave={handleUpdateMachine} />
                     {showScanner && <QRScanner onScan={handleScanFind} onClose={() => setShowScanner(false)} title="Scan to Find Machine" />}
+
+                    {/* ACTIVE BREAKDOWNS — moved off the main page into a slide-over so it
+                        doesn't push the whole Facility Overview down; opened from the stat card. */}
+                    {showBreakdownsPanel && (
+                        <div className="fixed inset-0 z-50 flex justify-end">
+                            <div className="absolute inset-0 bg-black/50" onClick={() => setShowBreakdownsPanel(false)}></div>
+                            <div className="relative w-full max-w-md bg-slate-50 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+                                <div className="p-4 bg-red-600 text-white flex justify-between items-center shrink-0">
+                                    <h3 className="font-bold text-lg flex items-center gap-2"><AlertCircle className="w-5 h-5"/> Active Breakdowns ({brokenCount})</h3>
+                                    <button onClick={() => setShowBreakdownsPanel(false)}><X className="w-5 h-5"/></button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                    {brokenMachines.length === 0 && <p className="text-center text-slate-400 italic py-8">No active breakdowns.</p>}
+                                    {brokenMachines.map(m => (
+                                        <div key={m.id} className="bg-white border border-red-200 p-4 rounded-xl shadow-sm">
+                                            <div className="flex justify-between items-start gap-2">
+                                                <div className="min-w-0">
+                                                    <div className="font-bold text-red-900 truncate">{m.machineName || m.name || 'Unnamed machine'}</div>
+                                                    <div className="text-[10px] text-red-400 truncate">{m.model || '-'} · SN {m.serial || '-'}</div>
+                                                    <div className="text-xs text-red-700 font-mono mt-1">{m.ticketId} · {resolveLocation(m)}</div>
+                                                </div>
+                                                <span className={`px-2 py-1 rounded text-xs font-bold shrink-0 ${m.status === 'Pending' ? 'bg-red-200 text-red-800' : 'bg-yellow-200 text-yellow-800'}`}>{m.status}</span>
+                                            </div>
+                                            <div className="text-sm text-red-800 mt-2">{m.issue}</div>
+                                            {adminMode && <button onClick={(e) => handleMoveToYard(e, m)} className="mt-3 text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><Warehouse className="w-3.5 h-3.5"/> Move to Yard</button>}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MACHINE BOOKINGS BOARD — production's style-change requests, sorted by
+                        the date they're needed. Engineering acts on them from here. */}
+                    {showBookingsPanel && (
+                        <div className="fixed inset-0 z-50 flex justify-end">
+                            <div className="absolute inset-0 bg-black/50" onClick={() => setShowBookingsPanel(false)}></div>
+                            <div className="relative w-full max-w-lg bg-slate-50 h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+                                <div className="p-4 bg-teal-600 text-white flex justify-between items-center shrink-0">
+                                    <h3 className="font-bold text-lg flex items-center gap-2"><BookMarked className="w-5 h-5"/> Machine Bookings ({bookingsSorted.length})</h3>
+                                    <button onClick={() => setShowBookingsPanel(false)}><X className="w-5 h-5"/></button>
+                                </div>
+                                <div className="p-4 border-b bg-white shrink-0">
+                                    <Button className="w-full" onClick={() => { setBookingForm(emptyBooking); setShowBookingModal(true); }}><PlusIcon className="w-4 h-4"/> New Booking Request</Button>
+                                    <p className="text-xs text-slate-400 mt-2">Tell engineering: which style, how many machines of which type, which existing machines need to change, and by when.</p>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                    {bookingsSorted.length === 0 && <p className="text-center text-slate-400 italic py-8">No bookings yet.</p>}
+                                    {bookingsSorted.map(b => {
+                                        const statusStyle = { Pending: 'bg-amber-100 text-amber-700 border-amber-200', Acknowledged: 'bg-blue-100 text-blue-700 border-blue-200', Completed: 'bg-emerald-100 text-emerald-700 border-emerald-200', Cancelled: 'bg-slate-100 text-slate-500 border-slate-200' };
+                                        const isPast = b.changeDate && b.changeDate < new Date().toISOString().slice(0,10) && b.status !== 'Completed' && b.status !== 'Cancelled';
+                                        return (
+                                        <div key={b.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+                                            <div className="flex justify-between items-start gap-2 mb-2">
+                                                <div>
+                                                    <div className="font-bold text-slate-800">Style {b.styleNumber}</div>
+                                                    <div className={`text-xs font-bold flex items-center gap-1 mt-0.5 ${isPast ? 'text-red-600' : 'text-slate-500'}`}><Calendar className="w-3 h-3"/> Needed by {b.changeDate}{isPast ? ' (overdue)' : ''}</div>
+                                                </div>
+                                                <span className={`px-2 py-1 rounded text-[10px] font-bold border uppercase shrink-0 ${statusStyle[b.status] || statusStyle.Pending}`}>{b.status}</span>
+                                            </div>
+                                            <div className="text-xs text-indigo-600 font-bold mb-2">{b.lineLabel || 'Not decided yet'}</div>
+
+                                            {b.neededMachines && b.neededMachines.length > 0 && (
+                                                <div className="mb-2">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Machines Needed</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {b.neededMachines.map((n, i) => <span key={i} className="text-xs bg-slate-100 px-2 py-1 rounded font-medium text-slate-700">{n.qty}× {n.type}</span>)}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {b.machinesToChange && b.machinesToChange.length > 0 && (
+                                                <div className="mb-2">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Machines To Change ({b.machinesToChange.length})</div>
+                                                    <div className="space-y-1">
+                                                        {b.machinesToChange.map((mc, i) => (
+                                                            <div key={i} className="text-xs bg-orange-50 border border-orange-100 rounded px-2 py-1.5">
+                                                                <span className="font-bold text-orange-800">{mc.machineLabel}</span>
+                                                                {mc.changeNote && <span className="text-orange-600"> — {mc.changeNote}</span>}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {b.notes && <div className="text-xs text-slate-600 bg-slate-50 rounded p-2 mb-2 italic">"{b.notes}"</div>}
+                                            <div className="text-[10px] text-slate-400">Requested by {b.requestedBy} · {new Date(b.requestedAt).toLocaleDateString()}</div>
+
+                                            {/* Planning/Sampling/Technical can fully manage the booking board even
+                                                though they can never unlock structural Edit Mode. */}
+                                            {!!currentFactoryUser && (
+                                                <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+                                                    {b.status === 'Pending' && <Button variant="primary" className="text-xs py-1.5 flex-1" onClick={() => updateBookingStatus(b, 'Acknowledged')}>Acknowledge</Button>}
+                                                    {b.status === 'Acknowledged' && <Button variant="success" className="text-xs py-1.5 flex-1" onClick={() => updateBookingStatus(b, 'Completed')}>Mark Completed</Button>}
+                                                    {(b.status === 'Pending' || b.status === 'Acknowledged') && <Button variant="danger" className="text-xs py-1.5" onClick={() => updateBookingStatus(b, 'Cancelled')}>Cancel</Button>}
+                                                    <button onClick={() => deleteBooking(b)} className="text-slate-300 hover:text-red-600 px-2" title="Delete"><Trash2 className="w-3.5 h-3.5"/></button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NEW BOOKING REQUEST FORM */}
+                    {showBookingModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
+                            <Card className="w-full max-w-xl p-6 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><BookMarked className="w-5 h-5 text-teal-600"/> Book Machines for Style Change</h3>
+                                    <button onClick={() => setShowBookingModal(false)}><X className="w-5 h-5 text-slate-400"/></button>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Style Number *</label>
+                                            <input className="w-full p-2 border rounded" placeholder="e.g. ST-2201" value={bookingForm.styleNumber} onChange={e => setBookingForm({...bookingForm, styleNumber: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Needed By *</label>
+                                            <input type="date" className="w-full p-2 border rounded" value={bookingForm.changeDate} onChange={e => setBookingForm({...bookingForm, changeDate: e.target.value})} />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Line / Module</label>
+                                        <select className="w-full p-2 border rounded bg-white" value={bookingForm.moduleId} onChange={e => setBookingForm({...bookingForm, moduleId: e.target.value, machinesToChange: {}})}>
+                                            <option value="">-- Not decided yet --</option>
+                                            {Object.keys(modulesMap).map(sId => (
+                                                <optgroup key={sId} label={sections.find(s => s.id === sId)?.name || 'Unknown Section'}>
+                                                    {modulesMap[sId].map(mod => <option key={mod.id} value={mod.id}>{mod.name}</option>)}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+                                        <p className="text-[11px] text-slate-400 mt-1">Pick the line if it's already decided — that unlocks the checklist below to mark which of its current machines need to change.</p>
+                                    </div>
+
+                                    <div className="pt-3 border-t">
+                                        <label className="block text-xs font-bold text-slate-500 mb-2">Machine Types Needed</label>
+                                        <div className="flex gap-2 mb-2">
+                                            <select className="flex-1 p-2 border rounded bg-white text-sm" value={bookingTypeSel} onChange={e => setBookingTypeSel(e.target.value)}>
+                                                {MACHINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                            <input type="number" min="1" className="w-20 p-2 border rounded text-sm" value={bookingQtySel} onChange={e => setBookingQtySel(parseInt(e.target.value) || 1)} />
+                                            <Button variant="secondary" onClick={addNeededMachine}><PlusIcon className="w-4 h-4"/></Button>
+                                        </div>
+                                        {bookingForm.neededMachines.length > 0 && (
+                                            <div className="flex flex-wrap gap-2">
+                                                {bookingForm.neededMachines.map(n => (
+                                                    <span key={n.type} className="text-xs bg-slate-100 pl-2 pr-1 py-1 rounded-full flex items-center gap-1 font-medium text-slate-700">
+                                                        {n.qty}× {n.type}
+                                                        <button onClick={() => removeNeededMachine(n.type)} className="hover:text-red-600"><X className="w-3 h-3"/></button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {bookingForm.moduleId && (
+                                        <div className="pt-3 border-t">
+                                            <label className="block text-xs font-bold text-slate-500 mb-2">Which Machines On This Line Need To Change?</label>
+                                            {bookingLineMachines.length === 0 ? (
+                                                <p className="text-xs text-slate-400 italic">This module has no machines recorded yet.</p>
+                                            ) : (
+                                                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                                                    {bookingLineMachines.map(m => {
+                                                        const checked = !!bookingForm.machinesToChange[m.id];
+                                                        return (
+                                                            <div key={m.id} className={`border rounded-lg p-2 ${checked ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>
+                                                                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                                                                    <input type="checkbox" checked={checked} onChange={() => toggleMachineToChange(m)} className="w-4 h-4 rounded mt-0.5" />
+                                                                    <span className="flex flex-col">
+                                                                        <span className="font-medium text-slate-700">{m.machineName || m.name || 'Unnamed machine'}</span>
+                                                                        <span className="text-xs text-slate-400">{m.model || '-'} · SN {m.serial || '-'}</span>
+                                                                    </span>
+                                                                </label>
+                                                                {checked && (
+                                                                    <input className="w-full mt-2 p-1.5 border border-orange-200 rounded text-xs" placeholder="What should it change to / why? (optional)"
+                                                                        value={bookingForm.machinesToChange[m.id].changeNote} onChange={e => setChangeNote(m.id, e.target.value)} />
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div className="pt-3 border-t">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Notes (optional)</label>
+                                        <textarea className="w-full p-2 border rounded text-sm h-16" placeholder="Anything else engineering should know..." value={bookingForm.notes} onChange={e => setBookingForm({...bookingForm, notes: e.target.value})}></textarea>
+                                    </div>
+
+                                    <div className="flex gap-2 pt-2">
+                                        <Button className="flex-1" onClick={submitBooking}>Send to Engineering</Button>
+                                    </div>
+                                </div>
+                            </Card>
+                        </div>
+                    )}
 
                     {/* --- SIDEBAR FORMS --- */}
                     {adminMode && (
@@ -799,6 +1558,40 @@
                                     </div>
                                     <Button onClick={onAddMachine} className="w-full py-1 text-sm">Create Machine</Button>
                                 </div>
+                                <div className="border-t"></div>
+
+                                <div className="space-y-3">
+                                    <h3 className="font-bold text-sm text-slate-500 uppercase flex items-center gap-2"><Users className="w-4 h-4"/> 5. Manage Users</h3>
+                                    <p className="text-[11px] text-slate-400">Management can edit everything here. Planning, Sampling and Technical can see the whole factory and fully manage the Booking board, but nothing else.</p>
+                                    {factoryUsers.length > 0 && (
+                                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                                            {factoryUsers.map(u => (
+                                                <div key={u.id} className="flex items-center justify-between gap-2 bg-slate-50 rounded p-2 text-xs">
+                                                    <div className="min-w-0">
+                                                        <div className="font-bold text-slate-700 truncate">{u.name} <span className="text-slate-400 font-normal">@{u.username}</span></div>
+                                                        <div className="text-[10px] text-indigo-600 font-bold">{u.factoryRole}</div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <button onClick={() => onEditFactoryUser(u)} className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-indigo-600"><Edit3 className="w-3 h-3"/></button>
+                                                        <button onClick={() => onDeleteFactoryUser(u)} className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3"/></button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <input className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Full Name" value={newFactoryUser.name} onChange={e => setNewFactoryUser({...newFactoryUser, name: e.target.value})} />
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Username" value={newFactoryUser.username} onChange={e => setNewFactoryUser({...newFactoryUser, username: e.target.value})} />
+                                        <input className="w-full p-2 text-sm border rounded bg-slate-50" placeholder="Password" value={newFactoryUser.password} onChange={e => setNewFactoryUser({...newFactoryUser, password: e.target.value})} />
+                                    </div>
+                                    <select className="w-full p-2 text-sm border rounded bg-slate-50" value={newFactoryUser.factoryRole} onChange={e => setNewFactoryUser({...newFactoryUser, factoryRole: e.target.value})}>
+                                        {FACTORY_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                    </select>
+                                    <div className="flex gap-2">
+                                        <Button onClick={onSaveFactoryUser} className="flex-1 py-1 text-sm">{editingFactoryUserId ? 'Save Changes' : 'Add User'}</Button>
+                                        {editingFactoryUserId && <Button variant="secondary" className="py-1 text-sm" onClick={() => { setEditingFactoryUserId(null); setNewFactoryUser({ name: "", username: "", password: "", factoryRole: "Planning" }); }}>Cancel</Button>}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -807,125 +1600,215 @@
                     <div className="flex-1 bg-slate-100 h-screen overflow-y-auto">
                         <div className="p-8 max-w-7xl mx-auto space-y-8">
                             
-                            {/* 1. Stats Directory */}
-                            <div>
-                                <div className="flex justify-between items-end mb-4 flex-wrap gap-4">
-                                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><LayoutDashboard className="text-indigo-600"/> Factory Directory</h2>
-                                    
-                                    <div className="flex items-center gap-3">
+                            {/* 1. HEADER BANNER + STATS + GLOBAL FILTER BAR */}
+                            <div className="space-y-4">
+                                <div className="bg-slate-900 text-white rounded-2xl px-6 py-5 shadow-lg flex justify-between items-center flex-wrap gap-4">
+                                    <div>
+                                        <h2 className="text-2xl font-bold flex items-center gap-3"><LayoutDashboard className="text-indigo-400"/> Factory Manager</h2>
+                                        <p className="text-slate-400 text-sm mt-0.5 flex items-center gap-2 flex-wrap">
+                                            <span>{floorMachines.length + yardMachines.length} machines · {buildings.map(b => b.name).join(', ') || 'no plant yet'}</span>
+                                            {currentFactoryUser && (
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${canManageAll ? 'bg-indigo-500 text-white' : 'bg-teal-500 text-white'}`}>{currentFactoryUser.name} · {currentFactoryUser.factoryRole}</span>
+                                            )}
+                                            {adminMode && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-slate-900">Edit Mode</span>}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <form onSubmit={handleSearchSubmit} className="relative group">
-                                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500" />
-                                            <input type="text" placeholder="Search Machine..." className="pl-9 pr-4 py-2 border rounded-lg text-sm w-64 focus:ring-1 focus:ring-indigo-500" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                                            <input type="text" placeholder="Find: barcode / serial / model..." className="pl-9 pr-4 py-2 border border-slate-700 bg-slate-800 text-white placeholder-slate-500 rounded-lg text-sm w-64 focus:ring-2 focus:ring-indigo-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                                         </form>
-
-                                        <button onClick={() => setShowScanner(true)} className="bg-white border px-3 py-2 rounded-lg hover:bg-slate-50 shadow-sm" title="Scan QR"><ScanLine className="w-4 h-4" /></button>
-                                        
-                                        <div className="flex bg-white rounded-lg border overflow-hidden shadow-sm">
-                                            <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleImportCSV} />
-                                            <button onClick={() => fileInputRef.current.click()} className="px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 border-r flex items-center gap-2"><Upload className="w-4 h-4"/> Import</button>
-                                            <button onClick={handleExportCSV} className="px-3 py-2 text-sm font-bold text-emerald-600 hover:bg-emerald-50 flex items-center gap-2"><FileSpreadsheet className="w-4 h-4" /> Export</button>
+                                        <button onClick={() => setShowScanner(true)} className="bg-slate-800 border border-slate-700 px-3 py-2 rounded-lg hover:bg-slate-700 text-slate-200" title="Scan QR"><ScanLine className="w-4 h-4" /></button>
+                                        <div className="flex bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+                                            {canManageAll && (
+                                                <>
+                                                    <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleImportCSV} />
+                                                    <button onClick={() => fileInputRef.current.click()} className="px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-700 border-r border-slate-700 flex items-center gap-2"><Upload className="w-4 h-4"/> Import</button>
+                                                </>
+                                            )}
+                                            <button onClick={handleExportCSV} className="px-3 py-2 text-sm font-bold text-emerald-400 hover:bg-slate-700 flex items-center gap-2"><FileSpreadsheet className="w-4 h-4" /> Export</button>
                                         </div>
-
-                                        {!adminMode ? (
-                                            <button onClick={() => setShowAuthModal(true)} className="bg-white border px-4 py-2 rounded-lg text-sm font-bold flex gap-2 hover:bg-slate-50 shadow-sm"><Lock className="w-4 h-4" /> Unlock Edit Mode</button>
+                                        {canManageAll && (!adminMode ? (
+                                            <button onClick={() => setShowAuthModal(true)} className="bg-indigo-600 px-4 py-2 rounded-lg text-sm font-bold flex gap-2 hover:bg-indigo-500 text-white"><Lock className="w-4 h-4" /> Unlock Edit Mode</button>
                                         ) : (
-                                            <button onClick={() => setAdminMode(false)} className="bg-indigo-100 text-indigo-700 border px-4 py-2 rounded-lg text-sm font-bold flex gap-2 hover:bg-indigo-200 shadow-inner"><Unlock className="w-4 h-4" /> Lock Console</button>
-                                        )}
-
-                                        <button onClick={() => setIsAuthenticated(false)} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex gap-2 hover:bg-slate-300"><LogOut className="w-4 h-4"/> Logout</button>
+                                            <button onClick={() => setAdminMode(false)} className="bg-amber-500 text-slate-900 px-4 py-2 rounded-lg text-sm font-bold flex gap-2 hover:bg-amber-400"><Unlock className="w-4 h-4" /> Lock Console</button>
+                                        ))}
+                                        <button onClick={() => { setIsAuthenticated(false); setCurrentFactoryUser(null); setAdminMode(false); }} className="bg-slate-800 border border-slate-700 text-slate-300 px-3 py-2 rounded-lg text-sm font-bold flex gap-2 hover:bg-slate-700"><LogOut className="w-4 h-4"/></button>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
                                     <StatCard label="Plants" value={buildings.length} icon={Building} color="indigo" />
                                     <StatCard label="Sections" value={sections.length} icon={Layers} color="blue" />
                                     <StatCard label="Modules" value={modules.length} icon={Zap} color="purple" />
-                                    <StatCard label="Number of Machines" value={floorMachines.length} icon={Factory} color="slate" />
+                                    <StatCard label="Floor Machines" value={floorMachines.length} icon={Factory} color="slate" />
                                     <StatCard label="Yard Spares" value={yardMachines.length} icon={Warehouse} color="indigo" />
-                                    <StatCard label="Breakdowns" value={brokenCount} icon={AlertTriangle} color="red" />
+                                    <StatCard label="Breakdowns" value={brokenCount} icon={AlertTriangle} color="red" subtext={brokenCount > 0 ? "Click to view" : null} onClick={() => setShowBreakdownsPanel(true)} />
+                                    <StatCard label="Pending Transfers" value={pendingTransfers.length} icon={ArrowRightLeft} color="orange" />
+                                    <StatCard label="Machine Bookings" value={bookingsSorted.filter(b => b.status === 'Pending').length} icon={BookMarked} color="teal" subtext="Click to view/add" onClick={() => setShowBookingsPanel(true)} />
+                                </div>
+
+                                {/* GLOBAL FILTER BAR — filters the Facility Overview tree and the Yard together */}
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 flex flex-wrap items-center gap-2">
+                                    <div className="relative flex-1 min-w-[220px]">
+                                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
+                                        <input className="w-full pl-9 pr-3 py-2 border border-slate-200 bg-slate-50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none"
+                                            placeholder="Filter machines — model, serial, barcode, name..."
+                                            value={filterText} onChange={e => setFilterText(e.target.value)} />
+                                    </div>
+                                    <select className="border border-slate-200 bg-slate-50 rounded-lg text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" value={filterSection} onChange={e => setFilterSection(e.target.value)}>
+                                        <option value="">All Sections</option>
+                                        <option value="yard">Yard Only</option>
+                                        {sections.map(s => <option key={s.id} value={s.id}>{buildings.find(b => b.id === s.buildingId)?.name || '?'} · {s.name}</option>)}
+                                    </select>
+                                    <select className="border border-slate-200 bg-slate-50 rounded-lg text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                                        <option value="">All Statuses</option>
+                                        <option value="Running">Running</option>
+                                        <option value="In Yard">In Yard</option>
+                                        <option value="Breakdown">Breakdown (Pending / In Progress)</option>
+                                    </select>
+                                    <select className="border border-slate-200 bg-slate-50 rounded-lg text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" value={filterCondition} onChange={e => setFilterCondition(e.target.value)}>
+                                        <option value="">All Conditions</option>
+                                        <option>Working</option><option>Damaged</option><option>Under Repair</option><option>Scrapped</option>
+                                    </select>
+                                    {filtersActive && (
+                                        <>
+                                            <span className="text-xs font-bold px-2.5 py-1.5 rounded-full bg-indigo-100 text-indigo-700">{totalMatches} match{totalMatches === 1 ? '' : 'es'}</span>
+                                            <button onClick={clearFilters} className="text-xs font-bold text-slate-400 hover:text-slate-700 flex items-center gap-1 px-2"><X className="w-3.5 h-3.5"/> Clear</button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* 2. ACTIVE BREAKDOWNS */}
-                            {brokenCount > 0 && (
+                            {/* PENDING MACHINE TRANSFERS — worker-requested moves to a real module
+                                (or Yard) wait here. Factory Manager is the only tool with the power
+                                to authorize a move; the worker still has to scan the machine on the
+                                floor to actually finalize it. */}
+                            {pendingTransfers.length > 0 && (
                                 <div className="animate-fade-in">
-                                    <h3 className="text-xl font-bold text-red-700 mb-4 flex items-center gap-2"><AlertCircle className="w-6 h-6" /> Active Breakdowns ({brokenCount})</h3>
+                                    <h3 className="text-xl font-bold text-orange-700 mb-4 flex items-center gap-2"><ArrowRightLeft className="w-6 h-6" /> Pending Machine Transfers ({pendingTransfers.length})</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {brokenMachines.map(m => (
-                                            <div key={m.id} className="bg-red-50 border border-red-200 p-4 rounded-xl flex justify-between items-start shadow-sm group">
-                                                <div>
-                                                    <div className="font-bold text-red-900">{m.name}</div>
-                                                    <div className="text-xs text-red-700 font-mono mt-1">{m.ticketId}</div>
-                                                    <div className="text-sm text-red-800 mt-2">{m.issue}</div>
-                                                </div>
-                                                <div className="flex flex-col items-end gap-2">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${m.status === 'Pending' ? 'bg-red-200 text-red-800' : 'bg-yellow-200 text-yellow-800'}`}>{m.status}</span>
-                                                    {adminMode && <button onClick={(e) => handleMoveToYard(e, m)} className="text-indigo-500 hover:text-indigo-700 bg-white p-1 rounded border hover:bg-indigo-50 transition-colors" title="Move to Yard"><Warehouse className="w-4 h-4"/></button>}
-                                                </div>
+                                        {pendingTransfers.map(t => (
+                                            <div key={t.id} className="bg-orange-50 border border-orange-200 p-4 rounded-xl shadow-sm">
+                                                <div className="font-bold text-orange-900">{t.machineModel ? `${t.machineModel} · SN ${t.machineSerial}` : (t.machineName || t.machineId)}</div>
+                                                <div className="text-sm text-orange-800 mt-2 flex items-center gap-1.5"><span className="font-medium">{t.fromLabel || t.fromLocation || 'Yard'}</span><span>→</span><span className="font-bold">{t.toLabel || t.toLocation}</span></div>
+                                                <div className="text-xs text-slate-500 mt-1">Requested by {t.requestedByName} · {new Date(t.requestedAt).toLocaleString()}{t.note ? ` · "${t.note}"` : ''}</div>
+                                                {adminMode ? (
+                                                    <div className="flex gap-2 mt-3">
+                                                        <Button variant="success" className="text-sm py-1.5 flex-1" onClick={() => approveTransfer(t)}>Approve</Button>
+                                                        <Button variant="danger" className="text-sm py-1.5 flex-1" onClick={() => rejectTransfer(t)}>Reject</Button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-xs text-orange-500 mt-2 italic">Unlock Edit Mode to approve</div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                             )}
 
-                            {/* 3. Facility Overview */}
+                            {/* ORPHANED MACHINES — their module/section was deleted, so they show
+                                nowhere in the tree and aren't in the yard. Rescue them here. */}
+                            {orphanMachines.length > 0 && (
+                                <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 shadow-sm">
+                                    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                                        <h3 className="text-lg font-bold text-amber-800 flex items-center gap-2"><ShieldAlert className="w-5 h-5"/> Machines With No Location ({orphanMachines.length})</h3>
+                                        {adminMode && orphanMachines.length > 1 && (
+                                            <Button variant="warning" className="text-xs py-1.5" onClick={() => { if (confirm(`Send all ${orphanMachines.length} lost machines to the Yard?`)) orphanMachines.forEach(rescueOrphan); }}>Send All to Yard</Button>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-amber-700 mb-3">These machines point at a module that no longer exists (it was deleted), so they don't appear anywhere on the floor plan. Send them to the Yard, then reassign them from there.</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                        {orphanMachines.map(m => (
+                                            <div key={m.id} className="bg-white border border-amber-200 rounded-lg p-3 flex justify-between items-center gap-2">
+                                                <div className="min-w-0">
+                                                    <div className="font-bold text-sm text-slate-800 truncate">{m.machineName || m.name || 'Unnamed machine'}</div>
+                                                    <div className="text-[10px] text-slate-400 truncate">{m.model || '-'} · SN {m.serial || '-'}</div>
+                                                </div>
+                                                {adminMode && <Button variant="warning" className="text-xs py-1 px-2 shrink-0" onClick={() => rescueOrphan(m)}><Warehouse className="w-3 h-3"/> To Yard</Button>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 3. Facility Overview — filter-aware: while filters are on, empty
+                                buildings/sections/modules disappear and everything auto-expands. */}
                             <div>
-                                <h3 className="text-xl font-bold text-slate-800 mb-4">Facility Overview</h3>
+                                <h3 className="text-xl font-bold text-slate-800 mb-4">Facility Overview {filtersActive && <span className="text-sm font-medium text-indigo-600">(filtered)</span>}</h3>
                                 <div className="space-y-4">
                                     {buildings.length === 0 && <div className="p-8 text-center text-slate-400 bg-white rounded-xl border border-dashed">Start by unlocking Edit Mode and adding a building.</div>}
-                                    
-                                    {buildings.map(b => (
+
+                                    {buildings.map(b => {
+                                        const bldMatchCount = (sectionsMap[b.id] || []).reduce((acc, s) => acc + (modulesMap[s.id] || []).reduce((a2, mod) => a2 + fMachinesFor(mod.id).length, 0), 0);
+                                        if (filtersActive && bldMatchCount === 0) return null;
+                                        return (
                                         <div key={b.id} className={`border rounded-xl bg-white shadow-sm overflow-hidden transition-all ${adminMode ? 'border-indigo-200 ring-2 ring-indigo-50' : 'border-slate-200'}`}>
                                             <div className="flex justify-between items-center p-4 bg-white cursor-pointer hover:bg-slate-50" onClick={() => toggleBuilding(b.id)}>
                                                 <div className="flex items-center gap-3">
-                                                    {expandedBuildings[b.id] ? <ChevronDown className="w-5 h-5 text-slate-400"/> : <ChevronRight className="w-5 h-5 text-slate-400"/>}
+                                                    {(expandedBuildings[b.id] || filtersActive) ? <ChevronDown className="w-5 h-5 text-slate-400"/> : <ChevronRight className="w-5 h-5 text-slate-400"/>}
                                                     <h4 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Building className="w-5 h-5 text-indigo-600" /> {b.name}</h4>
                                                     <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{(sectionsMap[b.id] || []).length} Sections</span>
+                                                    {filtersActive && <span className="text-xs bg-indigo-100 px-2 py-1 rounded text-indigo-700 font-bold">{bldMatchCount} match{bldMatchCount === 1 ? '' : 'es'}</span>}
                                                 </div>
                                                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                                    <Button variant="secondary" onClick={() => handlePrintQRs(b.name, getMachinesForBuilding(b.id))} className="text-xs py-1 h-8"><Printer className="w-3 h-3"/> Plant QRs</Button>
+                                                    <Button variant="secondary" onClick={() => handlePrintQRs(b.name, getMachinesForBuilding(b.id), resolveLocation)} className="text-xs py-1 h-8"><Printer className="w-3 h-3"/> Plant QRs</Button>
                                                     {adminMode && <button onClick={(e) => handleDelete(e, `buildings/${b.id}`, b.name)} className="p-2 bg-red-50 text-red-500 hover:text-white hover:bg-red-600 rounded border border-red-200 shadow-sm" title="Delete Building"><Trash2 className="w-4 h-4"/></button>}
                                                 </div>
                                             </div>
-                                            
-                                            {expandedBuildings[b.id] && (
+
+                                            {(expandedBuildings[b.id] || filtersActive) && (
                                                 <div className="p-6 border-t border-slate-100 bg-slate-50/50 space-y-6 animate-in slide-in-from-top-2 duration-200">
                                                     {(sectionsMap[b.id] || []).length === 0 && <p className="text-sm text-slate-400 italic pl-8">No sections added yet.</p>}
-                                                    
-                                                    {(sectionsMap[b.id] || []).map(section => (
+
+                                                    {(sectionsMap[b.id] || []).map(section => {
+                                                        const secMods = modulesMap[section.id] || [];
+                                                        const secMatchCount = secMods.reduce((a, mod) => a + fMachinesFor(mod.id).length, 0);
+                                                        if (filtersActive && secMatchCount === 0) return null;
+                                                        return (
                                                         <div key={section.id} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
                                                             <div className="flex items-center justify-between mb-4">
-                                                                <h5 className="font-bold text-md text-slate-700 flex items-center gap-2"><Layers className="w-4 h-4 text-slate-400" /> {section.name}</h5>
+                                                                <h5 className="font-bold text-md text-slate-700 flex items-center gap-2"><Layers className="w-4 h-4 text-slate-400" /> {section.name} <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{secMatchCount}</span></h5>
                                                                 <div className="flex items-center gap-2">
-                                                                    <button onClick={() => handlePrintQRs(`${b.name} - ${section.name}`, getMachinesForSection(section.id))} className="text-xs text-indigo-600 hover:underline">Print Section QRs</button>
+                                                                    <button onClick={() => handlePrintQRs(`${b.name} - ${section.name}`, getMachinesForSection(section.id), resolveLocation)} className="text-xs text-indigo-600 hover:underline">Print Section QRs</button>
                                                                     {adminMode && <button onClick={(e) => handleDelete(e, `sections/${section.id}`, section.name)} className="text-red-300 hover:text-red-600 ml-2" title="Delete Section"><Trash2 className="w-4 h-4"/></button>}
                                                                 </div>
                                                             </div>
-                                                            
+
                                                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                                                {(modulesMap[section.id] || []).map(mod => (
+                                                                {secMods.map(mod => {
+                                                                    const modMachines = fMachinesFor(mod.id);
+                                                                    if (filtersActive && modMachines.length === 0) return null;
+                                                                    return (
                                                                     <div key={mod.id} className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                                                                         <div className="flex justify-between items-center mb-3">
-                                                                            <h5 className="font-bold text-slate-800 text-sm">{mod.name}</h5>
+                                                                            <h5 className="font-bold text-slate-800 text-sm">{mod.name} <span className="text-[10px] font-bold text-slate-400">({modMachines.length})</span></h5>
                                                                             <div className="flex items-center gap-1">
-                                                                                <button onClick={() => handlePrintQRs(`${section.name} - ${mod.name}`, machinesMap[mod.id] || [])} className="p-1 hover:bg-slate-200 rounded"><Printer className="w-3 h-3 text-slate-400"/></button>
+                                                                                <button onClick={() => handlePrintQRs(`${section.name} - ${mod.name}`, machinesMap[mod.id] || [], resolveLocation)} className="p-1 hover:bg-slate-200 rounded"><Printer className="w-3 h-3 text-slate-400"/></button>
                                                                                 {adminMode && <button onClick={(e) => handleDelete(e, `modules/${mod.id}`, mod.name)} className="p-1 hover:bg-red-50 rounded text-red-300 hover:text-red-600" title="Delete Module"><Trash2 className="w-3 h-3"/></button>}
                                                                             </div>
                                                                         </div>
-                                                                        <div className="space-y-1 max-h-48 overflow-y-auto">
-                                                                            {(machinesMap[mod.id] || []).map(machine => (
-                                                                                <div key={machine.id} id={`machine-${machine.id}`} className={`flex justify-between items-center p-2 rounded border text-xs shadow-sm transition-all duration-500 ${highlightedMachine === machine.id ? 'bg-yellow-100 border-yellow-400 ring-2 ring-yellow-300' : 'bg-white border-slate-100 hover:border-indigo-200'}`}>
-                                                                                    <div>
-                                                                                        <div className="flex items-center gap-2 truncate">
+                                                                        {/* pr-2.5 keeps the vertical scrollbar clear of the action icons below —
+                                                                            without it the scrollbar thumb sits right on top of a row's buttons
+                                                                            (looked like some machines were "missing" icons, they weren't). */}
+                                                                        <div className="space-y-1 max-h-48 overflow-y-auto pr-2.5">
+                                                                            {modMachines.map(machine => (
+                                                                                <div key={machine.id} id={`machine-${machine.id}`} className={`flex justify-between items-center gap-2 p-2 rounded border text-xs shadow-sm transition-all duration-500 ${highlightedMachine === machine.id ? 'bg-yellow-100 border-yellow-400 ring-2 ring-yellow-300' : 'bg-white border-slate-100 hover:border-indigo-200'}`}>
+                                                                                    <div className="min-w-0 flex-1">
+                                                                                        <div className="flex items-center gap-2">
                                                                                             <div className={`w-2 h-2 rounded-full flex-shrink-0 ${machine.status === 'Running' ? 'bg-green-500' : machine.status === 'Pending' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500'}`} title={machine.status}></div>
-                                                                                            <div className="flex flex-col">
-                                                                                                <span className="font-medium truncate text-slate-700">{machine.name} {machine.brand && <span className="font-normal italic text-[10px]">({machine.brand})</span>}</span>
-                                                                                                {machine.model && <span className="text-[9px] text-slate-400">{machine.model}</span>}
+                                                                                            <div className="flex flex-col min-w-0">
+                                                                                                <span className="font-medium truncate text-slate-700">
+                                                                                                    {machine.machineName || machine.name || 'Unnamed machine'}
+                                                                                                    {machine.condition && machine.condition !== 'Working' && <span className="ml-1 px-1.5 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-700 border border-red-200 uppercase">{machine.condition}</span>}
+                                                                                                    {machine.inTransit && <span className="ml-1 px-1.5 py-0.5 rounded text-[8px] font-bold bg-orange-100 text-orange-700 border border-orange-200 uppercase">In-Transit</span>}
+                                                                                                </span>
+                                                                                                <span className="text-[9px] text-slate-400 truncate">{machine.model || '-'} · SN {machine.serial || '-'}{machine.barcode && ` · ${machine.barcode}`}</span>
                                                                                             </div>
                                                                                         </div>
                                                                                     </div>
-                                                                                    <div className="flex items-center gap-1">
-                                                                                        <button onClick={() => handlePrintQRs(machine.name, [machine])} title="Print QR" className="text-slate-300 hover:text-indigo-600"><QrCode className="w-3 h-3"/></button>
+                                                                                    <div className="flex items-center gap-1 shrink-0">
+                                                                                        <button onClick={() => handlePrintQRs(machine.name, [machine], resolveLocation)} title="Print QR" className="text-slate-300 hover:text-indigo-600"><QrCode className="w-3 h-3"/></button>
                                                                                         {adminMode && (
                                                                                             <>
                                                                                              <button onClick={(e) => handleMoveToYard(e, machine)} className="text-slate-400 hover:text-indigo-600" title="Move to Yard"><Warehouse className="w-3 h-3"/></button>
@@ -938,38 +1821,53 @@
                                                                                     </div>
                                                                                 </div>
                                                                             ))}
-                                                                            {(machinesMap[mod.id] || []).length === 0 && <p className="text-xs text-slate-400 italic">Empty module.</p>}
+                                                                            {modMachines.length === 0 && <p className="text-xs text-slate-400 italic">Empty module.</p>}
                                                                         </div>
                                                                     </div>
-                                                                ))}
+                                                                    );
+                                                                })}
                                                             </div>
-                                                            {(modulesMap[section.id] || []).length === 0 && <p className="text-sm text-slate-400 italic">No modules in this section.</p>}
+                                                            {secMods.length === 0 && <p className="text-sm text-slate-400 italic">No modules in this section.</p>}
                                                         </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
 
-                            {/* 4. MACHINE YARD (SPARES) */}
+                            {/* 4. MACHINE YARD (SPARES) — obeys the same global filter bar */}
                             <div className="pt-8 border-t border-slate-200">
-                                <h3 className="text-xl font-bold text-slate-700 mb-4 flex items-center gap-2"><Warehouse className="w-6 h-6 text-indigo-500"/> Machine Yard / Spares ({yardMachines.length})</h3>
-                                <div className="bg-indigo-50/50 rounded-xl p-6 border border-indigo-100 max-h-80 overflow-y-auto">
-                                    {yardMachines.length > 0 ? (
+                                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                                    <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
+                                        <Warehouse className="w-6 h-6 text-indigo-500"/> Machine Yard / Spares
+                                        <span className="text-sm font-bold bg-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-full">{filtersActive ? `${fYardMachines.length} / ${yardMachines.length}` : yardMachines.length}</span>
+                                    </h3>
+                                    {yardMachines.length > 0 && (
+                                        <Button variant="secondary" onClick={() => handlePrintQRs('Machine Yard - Spares', filtersActive ? fYardMachines : yardMachines, resolveLocation)} className="text-xs py-1.5 h-8"><Printer className="w-3.5 h-3.5"/> Print {filtersActive ? 'Filtered' : 'All'} Yard QRs</Button>
+                                    )}
+                                </div>
+                                <div className="bg-indigo-50/50 rounded-xl p-6 border border-indigo-100 max-h-[36rem] overflow-y-auto">
+                                    {fYardMachines.length > 0 ? (
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                            {yardMachines.map(m => (
-                                                <div key={m.id} id={`machine-${m.id}`} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex flex-col gap-2">
-                                                    <div className="flex justify-between items-start">
-                                                        <div>
-                                                            <div className="font-bold text-slate-800">{m.name}</div>
-                                                            <div className="text-xs text-slate-400">{m.type} {m.brand && `• ${m.brand}`}</div>
+                                            {fYardMachines.map(m => (
+                                                <div key={m.id} id={`machine-${m.id}`} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex flex-col gap-2 hover:border-indigo-300 transition-colors">
+                                                    <div className="flex justify-between items-start gap-2">
+                                                        <div className="min-w-0">
+                                                            <div className="font-bold text-slate-800 text-sm truncate">{m.machineName || m.name || 'Unnamed machine'}</div>
+                                                            <div className="text-[10px] text-slate-400 truncate">{m.model || '-'} · SN {m.serial || '-'}{m.barcode && ` · ${m.barcode}`}</div>
                                                         </div>
-                                                        <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-bold uppercase">{m.status}</span>
+                                                        <div className="flex items-center gap-1 shrink-0">
+                                                            <button onClick={() => handlePrintQRs(m.name, [m], resolveLocation)} title="Print QR" className="text-slate-300 hover:text-indigo-600"><QrCode className="w-3.5 h-3.5"/></button>
+                                                            <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-bold uppercase">{m.status}</span>
+                                                        </div>
                                                     </div>
+                                                    {m.condition && m.condition !== 'Working' && <span className="self-start px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700 border border-red-200 uppercase">{m.condition}</span>}
                                                     {adminMode && (
-                                                        <div className="flex gap-2 mt-2 pt-2 border-t border-slate-100">
+                                                        <div className="flex gap-2 mt-1 pt-2 border-t border-slate-100">
                                                             <button onClick={() => setEditingMachine(m)} className="flex-1 text-xs bg-indigo-50 text-indigo-700 py-1.5 rounded font-bold hover:bg-indigo-100 flex justify-center items-center gap-1"><ArrowRightLeft className="w-3 h-3"/> Reassign</button>
                                                             <button onClick={(e) => handleArchiveMachine(e, m)} className="px-2 text-xs bg-orange-50 text-orange-600 rounded hover:bg-orange-100" title="Archive"><Archive className="w-3 h-3"/></button>
                                                             <button onClick={(e) => handlePermanentDeleteMachine(e, m)} className="px-2 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100" title="Permanent Delete"><Trash2 className="w-3 h-3"/></button>
@@ -979,7 +1877,7 @@
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className="text-center text-slate-400 py-4 italic">No machines currently in the yard.</div>
+                                        <div className="text-center text-slate-400 py-4 italic">{yardMachines.length === 0 ? 'No machines currently in the yard.' : 'No yard machines match the filters.'}</div>
                                     )}
                                 </div>
                             </div>
